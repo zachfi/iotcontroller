@@ -1,0 +1,6 @@
+domain: iot
+layout:
+- go.kubebuilder.io/v3
+projectName: iotcontroller
+repo: github.com/xaque208/iotcontroller
+version: "3"
