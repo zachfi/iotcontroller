@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaveworks/common/server"
 	"github.com/zachfi/iotcontroller/modules/controller"
+	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	ztrace "github.com/zachfi/zkit/pkg/tracing"
 	"github.com/zachfi/zkit/pkg/util"
 	"gopkg.in/yaml.v2"
@@ -22,6 +23,7 @@ type Config struct {
 	Server server.Config `yaml:"server,omitempty"`
 
 	Controller controller.Config `yaml:"controller"`
+	MQTT       mqttclient.Config `yaml:"mqttclient"`
 }
 
 func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {

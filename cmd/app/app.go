@@ -13,6 +13,7 @@ import (
 	"github.com/weaveworks/common/server"
 	"github.com/weaveworks/common/signals"
 	"github.com/zachfi/iotcontroller/modules/controller"
+	"github.com/zachfi/iotcontroller/modules/mqttclient"
 )
 
 const (
@@ -33,7 +34,7 @@ type App struct {
 
 	// Modules.
 	controller *controller.Controller
-	// harvester *harvester.Harvester
+	mqttclient *mqttclient.MQTTClient
 	// timer     *timer.Timer
 	//
 	// inventory *inventory.Server
@@ -48,8 +49,7 @@ func New(cfg Config) (*App, error) {
 		cfg: cfg,
 	}
 
-	l := log.With(log.NewLogfmtLogger(os.Stdout), "app", appName)
-	a.logger = log.With(l, "app", appName)
+	a.logger = log.With(log.NewLogfmtLogger(os.Stdout), "app", appName)
 
 	if a.cfg.Target == "" {
 		a.cfg.Target = All

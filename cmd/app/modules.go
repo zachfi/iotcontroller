@@ -10,12 +10,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaveworks/common/server"
 	"github.com/zachfi/iotcontroller/modules/controller"
+	"github.com/zachfi/iotcontroller/modules/mqttclient"
 )
 
 const (
 	Server string = "server"
 
 	Controller string = "controller"
+	MQTTClient string = "mqttclient"
 
 	All string = "all"
 )
@@ -23,6 +25,7 @@ const (
 func (a *App) setupModuleManager() error {
 	mm := modules.NewManager(a.logger)
 	mm.RegisterModule(Server, a.initServer, modules.UserInvisibleModule)
+	mm.RegisterModule(MQTTClient, a.initMqttClient)
 	mm.RegisterModule(Controller, a.initController)
 	mm.RegisterModule(All, nil)
 
@@ -35,7 +38,9 @@ func (a *App) setupModuleManager() error {
 		//
 		// Harvester: {Server, Telemetry},
 		Controller: {Server},
-		All:        {Controller},
+		MQTTClient: {Server},
+
+		All: {Controller, MQTTClient},
 	}
 
 	for mod, targets := range deps {
@@ -47,6 +52,16 @@ func (a *App) setupModuleManager() error {
 	a.ModuleManager = mm
 
 	return nil
+}
+
+func (a *App) initMqttClient() (services.Service, error) {
+	c, err := mqttclient.New(a.cfg.MQTT, a.logger)
+	if err != nil {
+		return nil, err
+	}
+	a.mqttclient = c
+
+	return c, nil
 }
 
 func (a *App) initController() (services.Service, error) {
