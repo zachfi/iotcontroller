@@ -65,6 +65,8 @@ func versionString() string {
 }
 
 func main() {
+	logger := log.NewLogfmtLogger(os.Stdout)
+
 	cfg, err := loadConfig()
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
@@ -160,7 +162,7 @@ func loadConfig() (*app.Config, error) {
 	return config, nil
 }
 
-func loadConfig() (*Config, error) {
+func loadConfig() (*app.Config, error) {
 	const (
 		configFileOption = "config.file"
 	)
@@ -168,7 +170,7 @@ func loadConfig() (*Config, error) {
 	var configFile string
 
 	args := os.Args[1:]
-	config := &Config{}
+	config := &app.Config{}
 
 	// first get the config file
 	fs := flag.NewFlagSet("", flag.ContinueOnError)
