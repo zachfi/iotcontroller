@@ -26,12 +26,12 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/go-logr/logr"
 	"github.com/grafana/dskit/flagext"
-	"github.com/grafana/dskit/modules"
-	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
+	"github.com/zachfi/iotcontroller/cmd/app"
 	"google.golang.org/grpc"
 	"gopkg.in/yaml.v2"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -91,6 +91,8 @@ func init() {
 }
 
 func main() {
+	logger := log.NewLogfmtLogger(os.Stdout)
+
 	cfg, err := loadConfig()
 	if err != nil {
 		_ = level.Error(logger).Log("msg", "failed to load config file", "err", err)
@@ -119,64 +121,16 @@ func main() {
 		defer shutdownTracer()
 	}
 
-	if err := z.setupModuleManager(); err != nil {
-		return nil, errors.Wrap(err, "failed to setup module manager")
-	}
-
-	serviceMap, err := z.ModuleManager.InitModuleServices(z.cfg.Target)
+	a, err := app.New(*cfg)
 	if err != nil {
-		return fmt.Errorf("failed to init module services %w", err)
-	}
-	z.serviceMap = serviceMap
-
-	servs := []services.Service(nil)
-	for _, s := range serviceMap {
-		servs = append(servs, s)
+		_ = level.Error(logger).Log("msg", "failed to create App", "err", err)
+		os.Exit(1)
 	}
 
-	sm, err := services.NewManager(servs...)
-	if err != nil {
-		return fmt.Errorf("failed to start service manager %w", err)
+	if err := a.Run(); err != nil {
+		_ = level.Error(logger).Log("msg", "error running App", "err", err)
+		os.Exit(1)
 	}
-
-	// Listen for events from this manager, and log them.
-	healthy := func() { _ = level.Info(z.logger).Log("msg", "zNet started") }
-	stopped := func() { _ = level.Info(z.logger).Log("msg", "zNet stopped") }
-	serviceFailed := func(service services.Service) {
-		// if any service fails, stop everything
-		sm.StopAsync()
-
-		// let's find out which module failed
-		for m, s := range serviceMap {
-			if s == service {
-				if service.FailureCase() == modules.ErrStopProcess {
-					_ = level.Info(z.logger).Log("msg", "received stop signal via return error", "module", m, "err", service.FailureCase())
-				} else {
-					_ = level.Error(z.logger).Log("msg", "module failed", "module", m, "err", service.FailureCase())
-				}
-				return
-			}
-		}
-
-		_ = level.Error(z.logger).Log("msg", "module failed", "module", "unknown", "err", service.FailureCase())
-	}
-	sm.AddListener(services.NewManagerListener(healthy, stopped, serviceFailed))
-
-	// Setup signal handler. If signal arrives, we stop the manager, which stops all the services.
-	handler := signals.NewHandler(z.Server.Log)
-	go func() {
-		handler.Loop()
-		sm.StopAsync()
-	}()
-
-	// Start all services. This can really only fail if some service is already
-	// in other state than New, which should not be the case.
-	err = sm.StartAsync(context.Background())
-	if err != nil {
-		return fmt.Errorf("failed to start service manager %w", err)
-	}
-
-	return sm.AwaitStopped(context.Background())
 }
 
 func installOpenTelemetryTracer(endpoint string, orgID string, log logr.Logger) (func(), error) {
@@ -239,7 +193,7 @@ func installOpenTelemetryTracer(endpoint string, orgID string, log logr.Logger) 
 	return shutdown, nil
 }
 
-func loadConfig() (*Config, error) {
+func loadConfig() (*app.Config, error) {
 	const (
 		configFileOption = "config.file"
 	)
@@ -247,7 +201,7 @@ func loadConfig() (*Config, error) {
 	var configFile string
 
 	args := os.Args[1:]
-	config := &Config{}
+	config := &app.Config{}
 
 	// first get the config file
 	fs := flag.NewFlagSet("", flag.ContinueOnError)
