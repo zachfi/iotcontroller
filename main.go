@@ -20,14 +20,20 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	"github.com/go-kit/log/level"
 	"github.com/go-logr/logr"
+	"github.com/grafana/dskit/flagext"
+	"github.com/grafana/dskit/modules"
+	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"gopkg.in/yaml.v2"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"go.opentelemetry.io/otel"
@@ -41,7 +47,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	//+kubebuilder:scaffold:imports
 )
@@ -86,18 +91,17 @@ func init() {
 }
 
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	var probeAddr string
+	cfg, err := loadConfig()
+	if err != nil {
+		_ = level.Error(logger).Log("msg", "failed to load config file", "err", err)
+		os.Exit(1)
+	}
+
 	var otelEndpoint string
 	var orgID string
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&otelEndpoint, "otel-endpoint", "", "The URL to use when sending traces")
 	flag.StringVar(&orgID, "org-id", "", "The X-Scope-OrgID header to set when sending traces")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -105,41 +109,6 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "cefdf353.iot",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
-	}
-
-	//+kubebuilder:scaffold:builder
-
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
-	}
 
 	if otelEndpoint != "" {
 		shutdownTracer, err := installOpenTelemetryTracer(otelEndpoint, orgID, setupLog)
@@ -150,11 +119,64 @@ func main() {
 		defer shutdownTracer()
 	}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
+	if err := z.setupModuleManager(); err != nil {
+		return nil, errors.Wrap(err, "failed to setup module manager")
 	}
+
+	serviceMap, err := z.ModuleManager.InitModuleServices(z.cfg.Target)
+	if err != nil {
+		return fmt.Errorf("failed to init module services %w", err)
+	}
+	z.serviceMap = serviceMap
+
+	servs := []services.Service(nil)
+	for _, s := range serviceMap {
+		servs = append(servs, s)
+	}
+
+	sm, err := services.NewManager(servs...)
+	if err != nil {
+		return fmt.Errorf("failed to start service manager %w", err)
+	}
+
+	// Listen for events from this manager, and log them.
+	healthy := func() { _ = level.Info(z.logger).Log("msg", "zNet started") }
+	stopped := func() { _ = level.Info(z.logger).Log("msg", "zNet stopped") }
+	serviceFailed := func(service services.Service) {
+		// if any service fails, stop everything
+		sm.StopAsync()
+
+		// let's find out which module failed
+		for m, s := range serviceMap {
+			if s == service {
+				if service.FailureCase() == modules.ErrStopProcess {
+					_ = level.Info(z.logger).Log("msg", "received stop signal via return error", "module", m, "err", service.FailureCase())
+				} else {
+					_ = level.Error(z.logger).Log("msg", "module failed", "module", m, "err", service.FailureCase())
+				}
+				return
+			}
+		}
+
+		_ = level.Error(z.logger).Log("msg", "module failed", "module", "unknown", "err", service.FailureCase())
+	}
+	sm.AddListener(services.NewManagerListener(healthy, stopped, serviceFailed))
+
+	// Setup signal handler. If signal arrives, we stop the manager, which stops all the services.
+	handler := signals.NewHandler(z.Server.Log)
+	go func() {
+		handler.Loop()
+		sm.StopAsync()
+	}()
+
+	// Start all services. This can really only fail if some service is already
+	// in other state than New, which should not be the case.
+	err = sm.StartAsync(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to start service manager %w", err)
+	}
+
+	return sm.AwaitStopped(context.Background())
 }
 
 func installOpenTelemetryTracer(endpoint string, orgID string, log logr.Logger) (func(), error) {
@@ -215,4 +237,51 @@ func installOpenTelemetryTracer(endpoint string, orgID string, log logr.Logger) 
 	}
 
 	return shutdown, nil
+}
+
+func loadConfig() (*Config, error) {
+	const (
+		configFileOption = "config.file"
+	)
+
+	var configFile string
+
+	args := os.Args[1:]
+	config := &Config{}
+
+	// first get the config file
+	fs := flag.NewFlagSet("", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	fs.StringVar(&configFile, configFileOption, "", "")
+
+	// Try to find -config.file & -config.expand-env flags. As Parsing stops on the first error, eg. unknown flag,
+	// we simply try remaining parameters until we find config flag, or there are no params left.
+	// (ContinueOnError just means that flag.Parse doesn't call panic or os.Exit, but it returns error, which we ignore)
+	for len(args) > 0 {
+		_ = fs.Parse(args)
+		args = args[1:]
+	}
+
+	// load config defaults and register flags
+	config.RegisterFlagsAndApplyDefaults("", flag.CommandLine)
+
+	// overlay with config file if provided
+	if configFile != "" {
+		buff, err := os.ReadFile(configFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read configFile %s: %w", configFile, err)
+		}
+
+		err = yaml.UnmarshalStrict(buff, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse configFile %s: %w", configFile, err)
+		}
+	}
+
+	// overlay with cli
+	flagext.IgnoredFlag(flag.CommandLine, configFileOption, "Configuration file to load")
+	flag.Parse()
+
+	return config, nil
 }
