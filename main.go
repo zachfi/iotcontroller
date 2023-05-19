@@ -159,3 +159,50 @@ func loadConfig() (*app.Config, error) {
 
 	return config, nil
 }
+
+func loadConfig() (*Config, error) {
+	const (
+		configFileOption = "config.file"
+	)
+
+	var configFile string
+
+	args := os.Args[1:]
+	config := &Config{}
+
+	// first get the config file
+	fs := flag.NewFlagSet("", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	fs.StringVar(&configFile, configFileOption, "", "")
+
+	// Try to find -config.file & -config.expand-env flags. As Parsing stops on the first error, eg. unknown flag,
+	// we simply try remaining parameters until we find config flag, or there are no params left.
+	// (ContinueOnError just means that flag.Parse doesn't call panic or os.Exit, but it returns error, which we ignore)
+	for len(args) > 0 {
+		_ = fs.Parse(args)
+		args = args[1:]
+	}
+
+	// load config defaults and register flags
+	config.RegisterFlagsAndApplyDefaults("", flag.CommandLine)
+
+	// overlay with config file if provided
+	if configFile != "" {
+		buff, err := os.ReadFile(configFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read configFile %s: %w", configFile, err)
+		}
+
+		err = yaml.UnmarshalStrict(buff, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse configFile %s: %w", configFile, err)
+		}
+	}
+
+	// overlay with cli
+	flagext.IgnoredFlag(flag.CommandLine, configFileOption, "Configuration file to load")
+	flag.Parse()
+
+	return config, nil
+}
