@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package proto.iot.v1;
+package iot.v1;
 
 // message Empty {}
 
