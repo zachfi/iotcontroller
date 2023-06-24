@@ -17,7 +17,6 @@ func NewMQTTClient(cfg MQTTConfig, logger log.Logger) (mqtt.Client, error) {
 	mqttOpts.SetAutoReconnect(true)
 	mqttOpts.SetConnectRetry(true)
 	mqttOpts.SetConnectRetryInterval(10 * time.Second)
-	mqttOpts.SetConnectTimeout(2 * time.Second)
 
 	if cfg.Username != "" && cfg.Password != "" {
 		mqttOpts.SetUsername(cfg.Username)
@@ -29,7 +28,7 @@ func NewMQTTClient(cfg MQTTConfig, logger log.Logger) (mqtt.Client, error) {
 	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
 		_ = level.Error(logger).Log("err", token.Error())
 	} else {
-		_ = level.Info(logger).Log("msg", "mqtt connected", "url", cfg.URL)
+		_ = level.Debug(logger).Log("msg", "mqtt connected", "url", cfg.URL)
 	}
 
 	return mqttClient, nil
