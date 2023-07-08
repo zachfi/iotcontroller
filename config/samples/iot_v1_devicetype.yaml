@@ -1,0 +1,12 @@
+apiVersion: iot.iot/v1
+kind: DeviceType
+metadata:
+  labels:
+    app.kubernetes.io/name: devicetype
+    app.kubernetes.io/instance: devicetype-sample
+    app.kubernetes.io/part-of: iotcontroller
+    app.kuberentes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: iotcontroller
+  name: devicetype-sample
+spec:
+  # TODO(user): Add fields here

@@ -7,11 +7,12 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	v1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 // Server is the struct to implement the IOTServer.
 type Server struct {
-	UnimplementedIOTServer
+	// UnimplementedIOTServer
 	mutex      sync.Mutex
 	mqttClient mqtt.Client
 }
@@ -27,7 +28,7 @@ func NewServer(mqttClient mqtt.Client) (*Server, error) {
 // UpdateDevice implements the OTA update for zigbee devices.
 //
 // https://www.zigbee2mqtt.io/information/ota_updates.html#update-to-latest-firmware
-func (s *Server) UpdateDevice(ctx context.Context, req *UpdateRequest) (*Empty, error) {
+func (s *Server) UpdateDevice(ctx context.Context, req *v1.UpdateDeviceRequest) (*v1.UpdateDeviceResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -45,5 +46,5 @@ func (s *Server) UpdateDevice(ctx context.Context, req *UpdateRequest) (*Empty, 
 
 	time.Sleep(10 * time.Minute)
 
-	return &Empty{}, nil
+	return &v1.UpdateDeviceResponse{}, nil
 }

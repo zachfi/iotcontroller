@@ -33,11 +33,20 @@ func New(cfg Config, logger log.Logger) (*MQTTClient, error) {
 	}
 
 	m.Service = services.NewBasicService(m.starting, m.running, m.stopping)
-
 	return m, nil
 }
 
+func (m *MQTTClient) Client() mqtt.Client {
+	return m.client
+}
+
 func (m *MQTTClient) starting(ctx context.Context) error {
+	client, err := iot.NewMQTTClient(m.cfg.MQTT, m.logger)
+	if err != nil {
+		return err
+	}
+
+	m.client = client
 	return nil
 }
 
@@ -66,6 +75,8 @@ func (m *MQTTClient) running(ctx context.Context) error {
 }
 
 func (m *MQTTClient) stopping(_ error) error {
-	m.client.Disconnect(1000)
+	if m.client != nil {
+		m.client.Disconnect(100)
+	}
 	return nil
 }

@@ -24,7 +24,7 @@ func TestParseTopicPath(t *testing.T) {
 				Component: "stat",
 				ObjectID:  "tempcoef",
 				NodeID:    "ff3e8a21dc12507d3a159b4792403f01",
-				Endpoint:  []string{},
+				Endpoints: []string{},
 			},
 		},
 
@@ -34,7 +34,7 @@ func TestParseTopicPath(t *testing.T) {
 				Component: "stat",
 				NodeID:    "ff3e8a21dc12507d3a159b4792403f01",
 				ObjectID:  "water",
-				Endpoint:  []string{"tempcoef"},
+				Endpoints: []string{"tempcoef"},
 			},
 		},
 
@@ -43,7 +43,7 @@ func TestParseTopicPath(t *testing.T) {
 			Should: TopicPath{
 				Component: "homeassistant",
 				ObjectID:  "binary_sensor",
-				Endpoint:  []string{"garden", "config"},
+				Endpoints: []string{"garden", "config"},
 			},
 		},
 
@@ -52,7 +52,7 @@ func TestParseTopicPath(t *testing.T) {
 			Should: TopicPath{
 				Component: "homeassistant",
 				ObjectID:  "binary_sensor",
-				Endpoint:  []string{"garden", "state"},
+				Endpoints: []string{"garden", "state"},
 			},
 		},
 
@@ -62,7 +62,7 @@ func TestParseTopicPath(t *testing.T) {
 				Component: "workgroup",
 				NodeID:    "92696ed2ae92b430f4e9447583936628",
 				ObjectID:  "wifi",
-				Endpoint:  []string{"ssid"},
+				Endpoints: []string{"ssid"},
 			},
 		},
 
@@ -73,7 +73,7 @@ func TestParseTopicPath(t *testing.T) {
 				Component:       "light",
 				NodeID:          "18c114ad3dec7c1d29bc888e4e748f89",
 				ObjectID:        "led1",
-				Endpoint:        []string{"config"},
+				Endpoints:       []string{"config"},
 			},
 		},
 
@@ -82,7 +82,7 @@ func TestParseTopicPath(t *testing.T) {
 			Should: TopicPath{
 				Component: "zigbee2mqtt",
 				ObjectID:  "0x00158d0004238a81",
-				Endpoint:  []string{},
+				Endpoints: []string{},
 			},
 		},
 
@@ -136,7 +136,6 @@ func TestParseTopicPath(t *testing.T) {
 		assert.Nil(t, err)
 		require.Equal(t, s.Should, result)
 	}
-
 }
 
 func testFloat(f float32) *float32 {
@@ -147,56 +146,56 @@ func TestReadMessage(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		ObjectID string
-		Payload  []byte
-		Endpoint []string
-		Obj      interface{}
-		Err      error
+		ObjectID  string
+		Payload   []byte
+		Endpoints []string
+		Obj       interface{}
+		Err       error
 	}{
 		{
-			ObjectID: "wifi",
-			Payload:  []byte(`{"ssid":"testaroo"}`),
-			Endpoint: []string{"ssid"},
+			ObjectID:  "wifi",
+			Payload:   []byte(`{"ssid":"testaroo"}`),
+			Endpoints: []string{"ssid"},
 			Obj: WifiMessage{
 				SSID: "testaroo",
 			},
 		},
 		{
-			ObjectID: "air",
-			Payload:  []byte(`{"temperature": 17.28}`),
-			Endpoint: []string{"temperature"},
+			ObjectID:  "air",
+			Payload:   []byte(`{"temperature": 17.28}`),
+			Endpoints: []string{"temperature"},
 			Obj: AirMessage{
 				Temperature: testFloat(17.28),
 			},
 		},
 		{
-			ObjectID: "air",
-			Payload:  []byte(`{"humidity":50.5}`),
-			Endpoint: []string{"humidity"},
+			ObjectID:  "air",
+			Payload:   []byte(`{"humidity":50.5}`),
+			Endpoints: []string{"humidity"},
 			Obj: AirMessage{
 				Humidity: testFloat(50.5),
 			},
 		},
 		{
-			ObjectID: "water",
-			Payload:  []byte(`{"temperature":50.5}`),
-			Endpoint: []string{"temperature"},
+			ObjectID:  "water",
+			Payload:   []byte(`{"temperature":50.5}`),
+			Endpoints: []string{"temperature"},
 			Obj: WaterMessage{
 				Temperature: testFloat(50.5),
 			},
 		},
 		{
-			ObjectID: "led",
-			Payload:  []byte(`{"name":"test"}`),
-			Endpoint: []string{"config"},
+			ObjectID:  "led",
+			Payload:   []byte(`{"name":"test"}`),
+			Endpoints: []string{"config"},
 			Obj: LEDConfig{
 				Name: "test",
 			},
 		},
 		{
-			ObjectID: "led",
-			Payload:  []byte(`{"state":"on"}`),
-			Endpoint: []string{"color"},
+			ObjectID:  "led",
+			Payload:   []byte(`{"state":"on"}`),
+			Endpoints: []string{"color"},
 			Obj: LEDColor{
 				State: "on",
 			},
@@ -204,28 +203,27 @@ func TestReadMessage(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		result, err := ReadMessage(tc.ObjectID, tc.Payload, tc.Endpoint...)
+		result, err := ReadMessage(tc.ObjectID, tc.Payload, tc.Endpoints...)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.Obj, result)
 	}
-
 }
 
 func TestReadZigbeeMessage(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		ObjectID string
-		Payload  []byte
-		Endpoint []string
-		Obj      interface{}
-		Err      error
+		ObjectID  string
+		Payload   []byte
+		Endpoints []string
+		Obj       interface{}
+		Err       error
 	}{
 		{
-			ObjectID: "bridge",
-			Payload:  []byte(`online`),
-			Endpoint: []string{"state"},
-			Obj:      ZigbeeBridgeState("online"),
+			ObjectID:  "bridge",
+			Payload:   []byte(`online`),
+			Endpoints: []string{"state"},
+			Obj:       ZigbeeBridgeState("online"),
 		},
 		{
 			ObjectID: "bridge",
@@ -237,7 +235,7 @@ func TestReadZigbeeMessage(t *testing.T) {
 				},
 				"type":"ota_update"
 			}`),
-			Endpoint: []string{"log"},
+			Endpoints: []string{"log"},
 			Obj: ZigbeeBridgeLog{
 				Message: "Update available for '0x001777090899e9c9'",
 				Meta: map[string]interface{}{
@@ -248,19 +246,18 @@ func TestReadZigbeeMessage(t *testing.T) {
 			},
 		},
 		{
-			ObjectID: "bridge",
-			Payload:  []byte(`online`),
-			Endpoint: []string{"config"},
-			Obj:      nil,
+			ObjectID:  "bridge",
+			Payload:   []byte(`online`),
+			Endpoints: []string{"config"},
+			Obj:       nil,
 		},
 	}
 
 	for _, tc := range cases {
-		result, err := ReadZigbeeMessage(tc.ObjectID, tc.Payload, tc.Endpoint...)
+		result, err := ReadZigbeeMessage(tc.ObjectID, tc.Payload, tc.Endpoints...)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.Obj, result)
 	}
-
 }
 
 func TestZigbeeDeviceType(t *testing.T) {
@@ -318,5 +315,4 @@ func TestZigbeeDeviceType(t *testing.T) {
 		x := ZigbeeDeviceType(tc.bridgeDevice)
 		require.Equal(t, tc.devType, x)
 	}
-
 }

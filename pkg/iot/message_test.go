@@ -31,14 +31,14 @@ func TTTestUpdateMessageFixtures(t *testing.T) {
 		topicPath, err := ParseTopicPath(msg.Topic())
 		require.NoError(t, err)
 		discovery := ParseDiscoveryMessage(topicPath, msg)
-		_, err = ReadZigbeeMessage(discovery.ObjectId, discovery.Message, discovery.Endpoint...)
+		_, err = ReadZigbeeMessage(discovery.ObjectId, discovery.Message, discovery.Endpoints...)
 		require.NoError(t, err)
 
-		e := strings.Join(discovery.Endpoint, "/")
+		e := strings.Join(discovery.Endpoints, "/")
 
 		switch e {
 		case "devices":
-			err := os.WriteFile("../../testdata/devices.json", msg.Payload(), 0644)
+			err := os.WriteFile("../../testdata/devices.json", msg.Payload(), 0o644)
 			require.NoError(t, err)
 		}
 	}

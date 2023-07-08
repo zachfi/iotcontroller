@@ -12,8 +12,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaveworks/common/server"
 	"github.com/weaveworks/common/signals"
+	"github.com/zachfi/iotcontroller/modules/client"
 	"github.com/zachfi/iotcontroller/modules/controller"
+	"github.com/zachfi/iotcontroller/modules/harvester"
+	"github.com/zachfi/iotcontroller/modules/kubeclient"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
+	"github.com/zachfi/iotcontroller/modules/telemetry"
 )
 
 const (
@@ -34,11 +38,12 @@ type App struct {
 
 	// Modules.
 	controller *controller.Controller
+	harvester  *harvester.Harvester
+	// lights     *lights.Lights
 	mqttclient *mqttclient.MQTTClient
-	// timer     *timer.Timer
-	//
-	// inventory *inventory.Server
-	// lights    *lights.Lights
+	client     *client.Client
+	kubeclient *kubeclient.KubeClient
+	telemetry  *telemetry.Telemetry
 
 	ModuleManager *modules.Manager
 	serviceMap    map[string]services.Service
@@ -90,7 +95,8 @@ func (a *App) Run() error {
 		for m, s := range serviceMap {
 			if s == service {
 				if service.FailureCase() == modules.ErrStopProcess {
-					_ = level.Info(a.logger).Log("msg", "received stop signal via return error", "module", m, "err", service.FailureCase())
+					_ = level.Info(a.logger).
+						Log("msg", "received stop signal via return error", "module", m, "err", service.FailureCase())
 				} else {
 					_ = level.Error(a.logger).Log("msg", "module failed", "module", m, "err", service.FailureCase())
 				}

@@ -1,14 +1,8 @@
-package mqttclient
+package telemetry
 
-import (
-	"flag"
+import "flag"
 
-	"github.com/zachfi/iotcontroller/pkg/iot"
-)
-
-type Config struct {
-	MQTT iot.MQTTConfig `yaml:"mqtt,omitempty"`
-}
+type Config struct{}
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	// f.StringVar(

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package iot.v1;
 
-// message Empty {}
+message UpdateDeviceResponse {}
 
 // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
 message DeviceDiscovery {
@@ -20,6 +20,8 @@ message Action {
   string zone = 3;
 }
 
-// message UpdateRequest { string device = 1; }
+message UpdateDeviceRequest { string device = 1; }
 
-// service IOT { rpc UpdateDevice(UpdateRequest) returns (Empty); }
+service IOTService {
+  rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
+}

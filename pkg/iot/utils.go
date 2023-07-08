@@ -8,6 +8,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	log "github.com/sirupsen/logrus"
+	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 type TopicPath struct {
@@ -15,15 +16,15 @@ type TopicPath struct {
 	Component       string
 	NodeID          string
 	ObjectID        string
-	Endpoint        []string
+	Endpoints       []string
 }
 
-func ParseDiscoveryMessage(topicPath TopicPath, msg mqtt.Message) *DeviceDiscovery {
-	return &DeviceDiscovery{
+func ParseDiscoveryMessage(topicPath TopicPath, msg mqtt.Message) *iotv1.DeviceDiscovery {
+	return &iotv1.DeviceDiscovery{
 		Component: topicPath.Component,
 		NodeId:    topicPath.NodeID,
 		ObjectId:  topicPath.ObjectID,
-		Endpoint:  topicPath.Endpoint,
+		Endpoints: topicPath.Endpoints,
 		Message:   msg.Payload(),
 	}
 }
@@ -32,7 +33,7 @@ func ParseTopicPath(topic string) (TopicPath, error) {
 	// <discovery_prefix>/<component>/[<node_id>]/<object_id>/config
 
 	var tp TopicPath
-	tp.Endpoint = make([]string, 0)
+	tp.Endpoints = make([]string, 0)
 
 	nodeIDRegex := regexp.MustCompile(`^.*/([0-9a-z]{32})/.*$`)
 	parts := strings.Split(topic, "/")
@@ -66,14 +67,14 @@ func ParseTopicPath(topic string) (TopicPath, error) {
 			next := nodeIndex + 1
 			tp.ObjectID = parts[next]
 			next++
-			tp.Endpoint = parts[next:]
+			tp.Endpoints = parts[next:]
 		}
 
 	} else {
 		// else a node ID is not matched in the topic path.
 		tp.Component = parts[0]
 		tp.ObjectID = parts[1]
-		tp.Endpoint = parts[2:]
+		tp.Endpoints = parts[2:]
 	}
 
 	return tp, nil
@@ -82,7 +83,6 @@ func ParseTopicPath(topic string) (TopicPath, error) {
 // ReadZigbeeMessage implements the payload unmarshaling for zigbee2mqtt
 // https://www.zigbee2mqtt.io/information/mqtt_topics_and_message_structure.html
 func ReadZigbeeMessage(objectID string, payload []byte, endpoint ...string) (interface{}, error) {
-
 	e := strings.Join(endpoint, "/")
 
 	switch objectID {
@@ -113,7 +113,7 @@ func ReadZigbeeMessage(objectID string, payload []byte, endpoint ...string) (int
 			return m, nil
 		case "info", "groups", "extensions":
 			return nil, nil
-		case "config/devices": //the publish channel to ask for devices
+		case "config/devices": // the publish channel to ask for devices
 			return nil, nil
 		}
 		return nil, fmt.Errorf("unhandled bridge endpoint: %s", e)
@@ -185,7 +185,6 @@ func ReadMessage(objectID string, payload []byte, endpoint ...string) (interface
 }
 
 func ZigbeeDeviceType(z ZigbeeBridgeDevice) DeviceType {
-
 	switch z.Type {
 	case "Coordinator":
 		return Coordinator
