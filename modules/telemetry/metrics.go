@@ -76,7 +76,11 @@ var (
 		Help: "Illuminance(LQI)",
 	}, []string{"object_id", "component", "zone"})
 
-	//
+	telemetryIOTState = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "rpc_telemetry_iot_state",
+		Help: "State ON/OFF",
+	}, []string{"object_id", "component", "zone"})
+
 	waterTemperature = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "thing_water_temperature",
 		Help: "Water Temperature",
