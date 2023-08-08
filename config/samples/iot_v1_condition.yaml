@@ -1,0 +1,12 @@
+apiVersion: iot.iot/v1
+kind: Condition
+metadata:
+  labels:
+    app.kubernetes.io/name: condition
+    app.kubernetes.io/instance: condition-sample
+    app.kubernetes.io/part-of: iotcontroller
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: iotcontroller
+  name: condition-sample
+spec:
+  # TODO(user): Add fields here

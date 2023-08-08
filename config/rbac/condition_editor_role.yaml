@@ -1,0 +1,31 @@
+# permissions for end users to edit conditions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: condition-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: iotcontroller
+    app.kubernetes.io/part-of: iotcontroller
+    app.kubernetes.io/managed-by: kustomize
+  name: condition-editor-role
+rules:
+- apiGroups:
+  - iot.iot
+  resources:
+  - conditions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - iot.iot
+  resources:
+  - conditions/status
+  verbs:
+  - get
