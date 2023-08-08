@@ -42,6 +42,7 @@ type DeviceStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +genclient
 
 // Device is the Schema for the devices API
 type Device struct {

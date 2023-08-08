@@ -18,45 +18,45 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/zachfi/iotcontroller/pkg/iot"
 )
 
-// DeviceTypeSpec defines the desired state of DeviceType
-type DeviceTypeSpec struct {
-	Name        string         `json:"friendly_name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	DeviceType  iot.DeviceType `json:"device_type,omitempty"`
+// ConditionSpec defines the desired state of Condition
+type ConditionSpec struct {
+	Name         string        `json:"name,omitempty"`
+	Enabled      bool          `json:"enabled,omitempty"`
+	AlertNames   string        `json:"alert_names,omitempty"`
+	Remediations []Remediation `json:"remediation,omitempty"`
 }
 
-// DeviceTypeStatus defines the observed state of DeviceType
-type DeviceTypeStatus struct {
-	LastSeen        uint64 `json:"last_seen,omitempty"`
-	SoftwareBuildID string `json:"software_build_id,omitempty"`
-}
+// ConditionStatus defines the observed state of Condition
+type ConditionStatus struct{}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-// +genclient
 
-// DeviceType is the Schema for the devicetypes API
-type DeviceType struct {
+// Condition is the Schema for the conditions API
+type Condition struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DeviceTypeSpec   `json:"spec,omitempty"`
-	Status DeviceTypeStatus `json:"status,omitempty"`
+	Spec   ConditionSpec   `json:"spec,omitempty"`
+	Status ConditionStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// DeviceTypeList contains a list of DeviceType
-type DeviceTypeList struct {
+// ConditionList contains a list of Condition
+type ConditionList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []DeviceType `json:"items"`
+	Items           []Condition `json:"items"`
+}
+
+type Remediation struct {
+	Zone  string `json:"zone,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 func init() {
-	SchemeBuilder.Register(&DeviceType{}, &DeviceTypeList{})
+	SchemeBuilder.Register(&Condition{}, &ConditionList{})
 }
