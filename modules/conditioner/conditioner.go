@@ -9,7 +9,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/zachfi/iotcontroller/modules/kubeclient"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -25,16 +26,16 @@ type Conditioner struct {
 	logger log.Logger
 	tracer trace.Tracer
 
-	klient     *kubeclient.KubeClient
+	kubeclient client.Client
 	mqttClient *mqttclient.MQTTClient
 }
 
-func New(cfg Config, logger log.Logger, mqttClient *mqttclient.MQTTClient, kubeclient *kubeclient.KubeClient) (*Conditioner, error) {
+func New(cfg Config, logger log.Logger, mqttClient *mqttclient.MQTTClient, kubeclient client.Client) (*Conditioner, error) {
 	c := &Conditioner{
 		cfg:        &cfg,
 		logger:     log.With(logger, "module", "conditioner"),
 		tracer:     otel.Tracer("conditioner"),
-		klient:     kubeclient,
+		kubeclient: kubeclient,
 		mqttClient: mqttClient,
 	}
 

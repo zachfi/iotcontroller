@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
@@ -55,7 +54,7 @@ func (m *MQTTClient) starting(ctx context.Context) error {
 func (m *MQTTClient) running(ctx context.Context) error {
 	t := time.NewTicker(10 * time.Second)
 
-	var client mqtt.Client = m.client
+	client := m.client
 	var err error
 
 	for {

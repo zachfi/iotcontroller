@@ -22,7 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
-	"github.com/zachfi/iotcontroller/modules/kubeclient"
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
@@ -49,37 +48,21 @@ type Telemetry struct {
 
 	reportQueue chan *telemetryv1.TelemetryReportIOTDeviceRequest
 
-	klient *kubeclient.KubeClient
+	kubeclient client.Client
 
 	// cached cache.Source
 }
 
 type thingKeeper map[string]map[string]string
 
-func New(cfg Config, logger log.Logger, klient *kubeclient.KubeClient) (*Telemetry, error) {
-	// client := klient.Client()
-	// cached, _ := cache.NewInformer(client, &apiv1.Device{}, 10*time.Second, ResourceEventHandlerDetailedFuncs{
-	// 	AddFunc: func(obj interface{}, isInInitialList bool) {
-	// 		klient.Delete(obj.(runtime.Object))
-	// 	},
-	// 	DeleteFunc: func(obj interface{}) {
-	// 		key, err := DeletionHandlingMetaNamespaceKeyFunc(obj)
-	// 		if err != nil {
-	// 			key = "oops something went wrong with the key"
-	// 		}
-	//
-	// 		// Report this deletion.
-	// 		deletionCounter <- key
-	// 	},
-	// })
-
+func New(cfg Config, logger log.Logger, kubeclient client.Client) (*Telemetry, error) {
 	s := &Telemetry{
 		cfg:    &cfg,
 		logger: log.With(logger, "module", "telemetry"),
 		tracer: otel.Tracer("telemetry"),
 
 		// lights:     lig,
-		klient: klient,
+		kubeclient: kubeclient,
 
 		// cached: cached,
 		reportQueue: make(chan *telemetryv1.TelemetryReportIOTDeviceRequest, 1000),
@@ -336,14 +319,14 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 		}
 
 		_, getSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Get")
-		err := l.klient.Client().Get(ctx, nsn, &d)
+		err := l.kubeclient.Get(ctx, nsn, &d)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				d.SetName(request.DeviceDiscovery.ObjectId)
 				d.SetNamespace(namespace)
 
 				_, createSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Create")
-				err = l.klient.Client().Create(ctx, &d)
+				err = l.kubeclient.Create(ctx, &d)
 				if err != nil {
 					return errHandler(createSpan, err)
 				}
@@ -357,7 +340,7 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 		d.Status.LastSeen = uint64(time.Now().Unix())
 
 		_, statusUpdateSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Status/Update")
-		if err = l.klient.Client().Status().Update(ctx, &d); err != nil {
+		if err = l.kubeclient.Status().Update(ctx, &d); err != nil {
 			statusUpdateSpan.SetStatus(codes.Error, err.Error())
 			statusUpdateSpan.End()
 			return err
@@ -423,12 +406,11 @@ func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessage
 	traceID := trace.SpanContextFromContext(spanCtx).TraceID().String()
 	_ = level.Debug(l.logger).Log("msg", "devices report", "traceID", traceID)
 
-	c := l.klient.Client()
 	for _, d := range m {
 		select {
 		case <-ctx.Done():
 		default:
-			if err := l.handleZigbeeBridgeDevice(spanCtx, c, d); err != nil {
+			if err := l.handleZigbeeBridgeDevice(spanCtx, d); err != nil {
 				span.SetStatus(codes.Error, err.Error())
 				_ = level.Error(l.logger).Log("msg", "device report failed", "traceID", traceID, "err", err)
 			}
@@ -438,7 +420,7 @@ func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessage
 	return nil
 }
 
-func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, c client.Client, d iot.ZigbeeBridgeDevice) error {
+func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, d iot.ZigbeeBridgeDevice) error {
 	ctx, span := l.tracer.Start(ctx, "handleZigbeeDevice")
 	defer span.End()
 
@@ -454,12 +436,12 @@ func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, c client.Clien
 	}
 
 	var device apiv1.Device
-	if err := c.Get(ctx, deviceName, &device); err != nil {
+	if err := l.kubeclient.Get(ctx, deviceName, &device); err != nil {
 		level.Error(l.logger).Log("msg", "failed to get device", "err", err)
 		device.SetName(d.FriendlyName)
 		device.SetNamespace(namespace)
 
-		if err := c.Create(ctx, &device); err != nil {
+		if err := l.kubeclient.Create(ctx, &device); err != nil {
 			level.Error(l.logger).Log("msg", "failed to create new device", "err", err)
 		}
 	}
@@ -470,13 +452,13 @@ func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, c client.Clien
 	device.Spec.Vendor = d.Definition.Vendor
 	device.Spec.Description = d.Definition.Description
 
-	if err := c.Update(ctx, &device); err != nil {
+	if err := l.kubeclient.Update(ctx, &device); err != nil {
 		level.Error(l.logger).Log("msg", "failed to update device spec", "err", err)
 	}
 
 	device.Status.SoftwareBuildID = d.SoftwareBuildID
 
-	if err := c.Status().Update(ctx, &device); err != nil {
+	if err := l.kubeclient.Status().Update(ctx, &device); err != nil {
 		level.Error(l.logger).Log("msg", "failed to update device status", "err", err)
 	}
 

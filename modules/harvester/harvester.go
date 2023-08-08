@@ -57,7 +57,11 @@ func (h *Harvester) starting(ctx context.Context) error {
 
 func (h *Harvester) running(ctx context.Context) error {
 	var onMessageReceived mqtt.MessageHandler = func(_ mqtt.Client, msg mqtt.Message) {
-		_, span := h.tracer.Start(ctx, "messageReceived")
+		_, span := h.tracer.Start(
+			context.Background(),
+			"Harvester.messageReceived",
+			trace.WithSpanKind(trace.SpanKindClient),
+		)
 		defer span.End()
 
 		topicPath, err := iot.ParseTopicPath(msg.Topic())

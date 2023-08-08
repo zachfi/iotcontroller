@@ -7,16 +7,18 @@ import (
 	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
-	iotv1 "github.com/zachfi/iotcontroller/api/v1"
-	"github.com/zachfi/iotcontroller/controllers"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	iotv1 "github.com/zachfi/iotcontroller/api/v1"
+	"github.com/zachfi/iotcontroller/controllers"
 )
 
 type Controller struct {
@@ -52,10 +54,6 @@ func New(cfg Config, logger log.Logger) (*Controller, error) {
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
 
-	return c, nil
-}
-
-func (c *Controller) starting(ctx context.Context) error {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		MetricsBindAddress:     c.cfg.MetricsAddr,
@@ -76,7 +74,7 @@ func (c *Controller) starting(ctx context.Context) error {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		return errors.Wrap(err, "unable to start manager")
+		return nil, errors.Wrap(err, "unable to start manager")
 	}
 
 	deviceController := &controllers.DeviceReconciler{
@@ -87,12 +85,20 @@ func (c *Controller) starting(ctx context.Context) error {
 	deviceController.SetTracer(c.tracer)
 
 	if err = deviceController.SetupWithManager(mgr); err != nil {
-		return errors.Wrap(err, "unable to create Device controller")
+		return nil, errors.Wrap(err, "unable to create Device controller")
 	}
 
 	c.mgr = mgr
 
+	return c, nil
+}
+
+func (c *Controller) starting(ctx context.Context) error {
 	return nil
+}
+
+func (c *Controller) Client() client.Client {
+	return c.mgr.GetClient()
 }
 
 func (c *Controller) running(ctx context.Context) error {

@@ -39,9 +39,11 @@ func New(cfg Config, logger log.Logger, conn *grpc.ClientConn) (*HookReceiver, e
 }
 
 func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	_, span := h.tracer.Start(
-		r.Context(),
-		"Handler",
+		ctx,
+		"HookReceiver.Handler",
 		trace.WithSpanKind(trace.SpanKindServer),
 	)
 	defer span.End()
@@ -64,7 +66,7 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 		in.GroupLabels[k] = v
 	}
 
-	h.alertReceiverClient.Alert(r.Context(), in)
+	h.alertReceiverClient.Alert(ctx, in)
 }
 
 func (h *HookReceiver) starting(ctx context.Context) error {
