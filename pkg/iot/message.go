@@ -18,6 +18,7 @@ type ZigbeeMessage struct {
 	Battery      *float64 `json:"battery,omitempty"`
 	Illuminance  *int     `json:"illuminance,omitempty"`
 	LinkQuality  *int     `json:"linkquality,omitempty"`
+	State        *string  `json:"state,omitempty"`
 	Occupancy    *bool    `json:"occupancy,omitempty"`
 	Tamper       *bool    `json:"tamper,omitempty"`
 	Temperature  *float64 `json:"temperature,omitempty"`
@@ -47,7 +48,6 @@ type ZigbeeBridgeLog struct {
 }
 
 func (z *ZigbeeBridgeLog) UnmarshalJSON(data []byte) error {
-
 	var v map[string]interface{}
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
@@ -110,9 +110,24 @@ type ZigbeeBridgeDevice struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"scenes"`
-	Interviewing       bool   `json:"interviewing"`
-	InterviewCompleted bool   `json:"interview_completed"`
-	SoftwareBuildID    string `json:"software_build_id,omitempty"`
+	Interviewing       bool                 `json:"interviewing"`
+	InterviewCompleted bool                 `json:"interview_completed"`
+	SoftwareBuildID    string               `json:"software_build_id,omitempty"`
+	Exposes            []ZigbeeDeviceExpose `json:"exposes,omitempty"`
+}
+
+type ZigbeeDeviceExpose struct {
+	Access      int      `json:"access,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Property    string   `json:"property,omitempty"`
+	Type        string   `json:"type,omitempty"`
+	Unit        string   `json:"unit,omitempty"`
+	ValueMax    int      `json:"value_max,omitempty"`
+	ValueMin    int      `json:"value_min,omitempty"`
+	ValueOn     bool     `json:"value_on,omitempty"`
+	ValueOff    bool     `json:"value_off,omitempty"`
+	Values      []string `json:"values,omitempty"`
 }
 
 type ZigbeeBridgeDeviceDefinition struct {
