@@ -4,12 +4,14 @@ import (
 	"context"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
-	"github.com/zachfi/iotcontroller/pkg/iot"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/zachfi/iotcontroller/pkg/iot"
 )
 
 var module = "mqttclient"
@@ -53,7 +55,7 @@ func (m *MQTTClient) starting(ctx context.Context) error {
 func (m *MQTTClient) running(ctx context.Context) error {
 	t := time.NewTicker(10 * time.Second)
 
-	var client mqtt.Client
+	var client mqtt.Client = m.client
 	var err error
 
 	for {
