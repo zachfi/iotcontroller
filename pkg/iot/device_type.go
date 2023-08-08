@@ -3,7 +3,7 @@ package iot
 type DeviceType int
 
 const (
-	Unknown = iota
+	Unknown DeviceType = iota
 	Coordinator
 	BasicLight
 	ColorLight

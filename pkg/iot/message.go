@@ -4,6 +4,15 @@ import (
 	"encoding/json"
 )
 
+type MessageType int
+
+const (
+	MessageBridgeInfo MessageType = iota
+	MessageBridgeDevices
+	MessageBridgeLog
+	MessageDeviceReport
+)
+
 type ZigbeeMessage struct {
 	Action       *string  `json:"action,omitempty"`
 	Battery      *float64 `json:"battery,omitempty"`
