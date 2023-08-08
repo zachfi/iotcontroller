@@ -8,14 +8,16 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/modules"
+	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
+	"github.com/grafana/dskit/signals"
 	"github.com/pkg/errors"
-	"github.com/weaveworks/common/server"
-	"github.com/weaveworks/common/signals"
+
 	"github.com/zachfi/iotcontroller/modules/client"
+	"github.com/zachfi/iotcontroller/modules/conditioner"
 	"github.com/zachfi/iotcontroller/modules/controller"
 	"github.com/zachfi/iotcontroller/modules/harvester"
-	"github.com/zachfi/iotcontroller/modules/kubeclient"
+	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
 )
@@ -37,13 +39,14 @@ type App struct {
 	logger log.Logger
 
 	// Modules.
-	controller *controller.Controller
-	harvester  *harvester.Harvester
+	controller  *controller.Controller
+	harvester   *harvester.Harvester
+	conditioner *conditioner.Conditioner
 	// lights     *lights.Lights
-	mqttclient *mqttclient.MQTTClient
-	client     *client.Client
-	kubeclient *kubeclient.KubeClient
-	telemetry  *telemetry.Telemetry
+	mqttclient   *mqttclient.MQTTClient
+	client       *client.Client
+	telemetry    *telemetry.Telemetry
+	hookreceiver *hookreceiver.HookReceiver
 
 	ModuleManager *modules.Manager
 	serviceMap    map[string]services.Service

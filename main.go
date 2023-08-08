@@ -23,15 +23,15 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/flagext"
-	"github.com/zachfi/iotcontroller/cmd/app"
 	"github.com/zachfi/zkit/pkg/tracing"
 	"gopkg.in/yaml.v2"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/zachfi/iotcontroller/cmd/app"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -72,35 +72,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	var otelEndpoint string
-	var orgID string
-	flag.StringVar(&otelEndpoint, "otel-endpoint", "", "The URL to use when sending traces")
-	flag.StringVar(&orgID, "org-id", "", "The X-Scope-OrgID header to set when sending traces")
-
-	opts := zap.Options{
-		Development: true,
+	shutdownTracer, err := tracing.InstallOpenTelemetryTracer(
+		&cfg.Tracing,
+		log.NewLogfmtLogger(os.Stderr),
+		"iotcontroller",
+		versionString(),
+	)
+	if err != nil {
+		_ = level.Error(logger).Log("msg", "failed initialising tracer", "err", err)
+		os.Exit(1)
 	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
-
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
-	if otelEndpoint != "" {
-		shutdownTracer, err := tracing.InstallOpenTelemetryTracer(
-			&tracing.Config{
-				OtelEndpoint: otelEndpoint,
-				OrgID:        orgID,
-			},
-			log.NewLogfmtLogger(os.Stderr),
-			"nodemanager",
-			versionString(),
-		)
-		if err != nil {
-			_ = level.Error(logger).Log("msg", "failed initialising tracer", "err", err)
-			os.Exit(1)
-		}
-		defer shutdownTracer()
-	}
+	defer shutdownTracer()
 
 	a, err := app.New(*cfg)
 	if err != nil {

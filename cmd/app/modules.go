@@ -3,18 +3,22 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/modules"
+	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
-	"github.com/weaveworks/common/server"
+
 	"github.com/zachfi/iotcontroller/modules/client"
+	"github.com/zachfi/iotcontroller/modules/conditioner"
 	"github.com/zachfi/iotcontroller/modules/controller"
 	"github.com/zachfi/iotcontroller/modules/harvester"
-	"github.com/zachfi/iotcontroller/modules/kubeclient"
+	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
+	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
@@ -29,8 +33,9 @@ const (
 	// InventoryClient string = "inventory_client"
 	Telemetry string = "telemetry"
 	// Timer      string = "timer"
-	Client     string = "client"
-	KubeClient string = "kube-client"
+	Client       string = "client"
+	HookReceiver string = "hook-receiver"
+	Conditioner  string = "conditioner"
 
 	// Weather string = "weather"
 
@@ -44,11 +49,12 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(Harvester, a.initHarvester)
 	mm.RegisterModule(Telemetry, a.initTelemetry)
 	mm.RegisterModule(Controller, a.initController)
+	mm.RegisterModule(HookReceiver, a.initHookReceiver)
+	mm.RegisterModule(Conditioner, a.initConditioner)
 	// mm.RegisterModule(Lights, a.initLights)
 	// mm.RegisterModule(Timer, a.initTimer)
 	// mm.RegisterModule(Inventory, a.initInventory)
 	// mm.RegisterModule(InventoryClient, a.initInventoryClient)
-	mm.RegisterModule(KubeClient, a.initKubeClient)
 	mm.RegisterModule(Client, a.initClient)
 	mm.RegisterModule(All, nil)
 
@@ -59,12 +65,14 @@ func (a *App) setupModuleManager() error {
 		// Lights:          {Server},
 		// InventoryClient: {Server},
 
-		Harvester:  {Server, MQTTClient, Telemetry, Client},
-		MQTTClient: {Server},
-		Controller: {Server, MQTTClient},
-		Telemetry:  {Server, KubeClient},
-		KubeClient: {Server},
 		Client:     {Server},
+		MQTTClient: {Server},
+		Controller: {Server},
+
+		Conditioner:  {Server, MQTTClient, Controller},
+		Harvester:    {Server, MQTTClient, Client, Telemetry},
+		HookReceiver: {Server, Client, Conditioner},
+		Telemetry:    {Server, Controller},
 		// Timer:      {Server},
 
 		All: {Controller, Harvester},
@@ -81,6 +89,18 @@ func (a *App) setupModuleManager() error {
 	return nil
 }
 
+func (a *App) initHookReceiver() (services.Service, error) {
+	h, err := hookreceiver.New(a.cfg.HookReceiver, a.logger, a.client.Conn())
+	if err != nil {
+		return nil, err
+	}
+
+	a.Server.HTTP.HandleFunc("/alerts", http.HandlerFunc(h.Handler))
+
+	a.hookreceiver = h
+	return h, nil
+}
+
 func (a *App) initClient() (services.Service, error) {
 	c, err := client.New(a.cfg.Client, a.logger)
 	if err != nil {
@@ -89,16 +109,6 @@ func (a *App) initClient() (services.Service, error) {
 
 	a.client = c
 	return c, nil
-}
-
-func (a *App) initKubeClient() (services.Service, error) {
-	k, err := kubeclient.New(a.cfg.KubeClient, a.logger)
-	if err != nil {
-		return nil, err
-	}
-
-	a.kubeclient = k
-	return k, nil
 }
 
 func (a *App) initTimer() (services.Service, error) {
@@ -155,7 +165,9 @@ func (a *App) initTelemetry() (services.Service, error) {
 	// 	return nil, err
 	// }
 
-	t, err := telemetry.New(a.cfg.Telemetry, a.logger, a.kubeclient)
+	fmt.Printf("%+v", a.controller)
+
+	t, err := telemetry.New(a.cfg.Telemetry, a.logger, a.controller.Client())
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +186,18 @@ func (a *App) initHarvester() (services.Service, error) {
 
 	a.harvester = h
 	return h, nil
+}
+
+func (a *App) initConditioner() (services.Service, error) {
+	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.mqttclient, a.controller.Client())
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create harvester")
+	}
+
+	iotv1.RegisterAlertReceiverServiceServer(a.Server.GRPC, c)
+
+	a.conditioner = c
+	return c, nil
 }
 
 // func (a *App) initLights() (services.Service, error) {
