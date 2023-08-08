@@ -101,3 +101,87 @@ var IOTService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "iot/v1/iot.proto",
 }
+
+// AlertReceiverServiceClient is the client API for AlertReceiverService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type AlertReceiverServiceClient interface {
+	Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error)
+}
+
+type alertReceiverServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAlertReceiverServiceClient(cc grpc.ClientConnInterface) AlertReceiverServiceClient {
+	return &alertReceiverServiceClient{cc}
+}
+
+func (c *alertReceiverServiceClient) Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error) {
+	out := new(AlertResponse)
+	err := c.cc.Invoke(ctx, "/iot.v1.AlertReceiverService/Alert", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AlertReceiverServiceServer is the server API for AlertReceiverService service.
+// All implementations should embed UnimplementedAlertReceiverServiceServer
+// for forward compatibility
+type AlertReceiverServiceServer interface {
+	Alert(context.Context, *AlertRequest) (*AlertResponse, error)
+}
+
+// UnimplementedAlertReceiverServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedAlertReceiverServiceServer struct {
+}
+
+func (UnimplementedAlertReceiverServiceServer) Alert(context.Context, *AlertRequest) (*AlertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Alert not implemented")
+}
+
+// UnsafeAlertReceiverServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AlertReceiverServiceServer will
+// result in compilation errors.
+type UnsafeAlertReceiverServiceServer interface {
+	mustEmbedUnimplementedAlertReceiverServiceServer()
+}
+
+func RegisterAlertReceiverServiceServer(s grpc.ServiceRegistrar, srv AlertReceiverServiceServer) {
+	s.RegisterService(&AlertReceiverService_ServiceDesc, srv)
+}
+
+func _AlertReceiverService_Alert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AlertReceiverServiceServer).Alert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/iot.v1.AlertReceiverService/Alert",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AlertReceiverServiceServer).Alert(ctx, req.(*AlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AlertReceiverService_ServiceDesc is the grpc.ServiceDesc for AlertReceiverService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AlertReceiverService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iot.v1.AlertReceiverService",
+	HandlerType: (*AlertReceiverServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Alert",
+			Handler:    _AlertReceiverService_Alert_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "iot/v1/iot.proto",
+}

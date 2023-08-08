@@ -3,6 +3,7 @@ syntax = "proto3";
 package iot.v1;
 
 message UpdateDeviceResponse {}
+message AlertResponse {}
 
 // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
 message DeviceDiscovery {
@@ -20,8 +21,18 @@ message Action {
   string zone = 3;
 }
 
+message AlertRequest {
+  string group = 1;
+  string status = 2;
+  map<string, string> group_labels = 3;
+}
+
 message UpdateDeviceRequest { string device = 1; }
 
 service IOTService {
   rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
+}
+
+service AlertReceiverService {
+  rpc Alert(AlertRequest) returns (AlertResponse);
 }
