@@ -81,40 +81,33 @@ var (
 		Help: "State ON/OFF",
 	}, []string{"object_id", "component", "zone"})
 
-	waterTemperature = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	waterTemperature = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "thing_water_temperature",
 		Help: "Water Temperature",
 	}, []string{"device"})
 
-	airTemperature = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	airTemperature = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "thing_air_temperature",
 		Help: "Temperature",
 	}, []string{"device"})
 
-	airHumidity = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	airHumidity = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "thing_air_humidity",
 		Help: "humidity",
 	}, []string{"device"})
 
-	airHeatindex = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	airHeatindex = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "thing_air_heatindex",
 		Help: "computed heat index",
 	}, []string{"device"})
 
-	thingWireless = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	thingWireless = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "thing_wireless",
 		Help: "wireless information",
 	}, []string{"device", "ssid", "bssid", "ip"})
+
+	workQueueLength = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "iotcontroller_telemetry_queue_length",
+		Help: "The number of jobs in the work queue",
+	}, []string{})
 )
-
-func init() {
-	prometheus.MustRegister(
-		airHeatindex,
-		airHumidity,
-		airTemperature,
-
-		thingWireless,
-
-		waterTemperature,
-	)
-}

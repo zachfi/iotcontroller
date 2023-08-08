@@ -47,6 +47,8 @@ type Telemetry struct {
 	iotServer  *iot.Server
 	seenThings map[string]time.Time
 
+	reportQueue chan *telemetryv1.TelemetryReportIOTDeviceRequest
+
 	klient *kubeclient.KubeClient
 
 	// cached cache.Source
@@ -80,6 +82,7 @@ func New(cfg Config, logger log.Logger, klient *kubeclient.KubeClient) (*Telemet
 		klient: klient,
 
 		// cached: cached,
+		reportQueue: make(chan *telemetryv1.TelemetryReportIOTDeviceRequest, 1000),
 
 		keeper:     make(thingKeeper),
 		seenThings: make(map[string]time.Time),
@@ -121,6 +124,7 @@ func New(cfg Config, logger log.Logger, klient *kubeclient.KubeClient) (*Telemet
 }
 
 func (l *Telemetry) starting(ctx context.Context) error {
+	go l.reportReceiver(ctx)
 	return nil
 }
 
@@ -179,6 +183,69 @@ func (l *Telemetry) hasLabels(nodeID string, labels []string) bool {
 	return true
 }
 
+func (l *Telemetry) reportReceiver(ctx context.Context) {
+	var err error
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case req := <-l.reportQueue:
+			rCtx, span := l.tracer.Start(
+				context.Background(),
+				"Telemetry.TelemetryReportIOTDevice",
+				trace.WithSpanKind(trace.SpanKindServer),
+			)
+
+			discovery := req.GetDeviceDiscovery()
+
+			if discovery.ObjectId != "" {
+				telemetryIOTReport.WithLabelValues(discovery.ObjectId, discovery.Component).Inc()
+
+				span.SetAttributes(
+					attribute.String("component", discovery.Component),
+					attribute.String("object_id", discovery.ObjectId),
+				)
+			}
+
+			switch discovery.Component {
+			case "zigbee2mqtt":
+				err = l.handleZigbeeReport(rCtx, req)
+				if err != nil {
+					_ = level.Error(l.logger).Log("failed to handle zigbee report", err.Error())
+				}
+				continue
+			}
+
+			switch discovery.ObjectId {
+			case "wifi":
+				err = l.handleWifiReport(req)
+				if err != nil {
+					_ = level.Error(l.logger).Log("failed to handle wifi report", err.Error())
+				}
+			case "air":
+				err = l.handleAirReport(req)
+				if err != nil {
+					_ = level.Error(l.logger).Log("failed to handle air report", err.Error())
+				}
+			case "water":
+				err = l.handleWaterReport(req)
+				if err != nil {
+					_ = level.Error(l.logger).Log("failed to handle water report", err.Error())
+				}
+			case "led1", "led2":
+				err = l.handleLEDReport(req)
+				if err != nil {
+					_ = level.Error(l.logger).Log("failed to handle led report", err.Error())
+				}
+			default:
+				telemetryIOTUnhandledReport.WithLabelValues(discovery.ObjectId, discovery.Component).Inc()
+			}
+
+		}
+	}
+}
+
 func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1.TelemetryService_TelemetryReportIOTDeviceServer) error {
 	for {
 		req, err := stream.Recv()
@@ -192,56 +259,14 @@ func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1.TelemetryService
 			return err
 		}
 
-		spanCtx, span := l.tracer.Start(
-			stream.Context(),
-			"TelemetryReportIODDevice",
+		_, span := l.tracer.Start(
+			context.Background(),
+			"Telemetry.TelemetryReportIOTDevice",
 			trace.WithSpanKind(trace.SpanKindServer),
 		)
 
-		discovery := req.GetDeviceDiscovery()
-
-		span.SetAttributes(
-			attribute.String("component", discovery.Component),
-			attribute.String("object_id", discovery.ObjectId),
-		)
-
-		if discovery.ObjectId != "" {
-			telemetryIOTReport.WithLabelValues(discovery.ObjectId, discovery.Component).Inc()
-		}
-
-		switch discovery.Component {
-		case "zigbee2mqtt":
-			err = l.handleZigbeeReport(spanCtx, req)
-			if err != nil {
-				_ = level.Error(l.logger).Log("failed to handle zigbee report", err.Error())
-			}
-			continue
-		}
-
-		switch discovery.ObjectId {
-		case "wifi":
-			err = l.handleWifiReport(req)
-			if err != nil {
-				_ = level.Error(l.logger).Log("failed to handle wifi report", err.Error())
-			}
-		case "air":
-			err = l.handleAirReport(req)
-			if err != nil {
-				_ = level.Error(l.logger).Log("failed to handle air report", err.Error())
-			}
-		case "water":
-			err = l.handleWaterReport(req)
-			if err != nil {
-				_ = level.Error(l.logger).Log("failed to handle water report", err.Error())
-			}
-		case "led1", "led2":
-			err = l.handleLEDReport(req)
-			if err != nil {
-				_ = level.Error(l.logger).Log("failed to handle led report", err.Error())
-			}
-		default:
-			telemetryIOTUnhandledReport.WithLabelValues(discovery.ObjectId, discovery.Component).Inc()
-		}
+		l.reportQueue <- req
+		workQueueLength.With(prometheus.Labels{}).Set(float64(len(l.reportQueue)))
 
 		span.End()
 	}
@@ -264,10 +289,14 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 
 	ctx, span := l.tracer.Start(ctx, "handleZigbeeReport")
 	defer span.End()
-
-	span.SetAttributes(attribute.String("name", request.Name))
+	traceID := trace.SpanContextFromContext(ctx).TraceID().String()
+	_ = level.Debug(l.logger).Log("msg", "zigbee report", "traceID", traceID)
 
 	discovery := request.DeviceDiscovery
+
+	span.SetAttributes(
+		attribute.String("component", discovery.Component),
+	)
 
 	msg, err := iot.ReadZigbeeMessage(discovery.ObjectId, discovery.Message, discovery.Endpoints...)
 	if err != nil {
@@ -306,25 +335,34 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 			Namespace: namespace,
 		}
 
+		_, getSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Get")
 		err := l.klient.Client().Get(ctx, nsn, &d)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				d.SetName(request.DeviceDiscovery.ObjectId)
 				d.SetNamespace(namespace)
 
-				if err = l.klient.Client().Create(ctx, &d); err != nil {
-					return err
+				_, createSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Create")
+				err = l.klient.Client().Create(ctx, &d)
+				if err != nil {
+					return errHandler(createSpan, err)
 				}
+				createSpan.End()
 			}
 
-			return err
+			return errHandler(getSpan, err)
 		}
+		getSpan.End()
 
 		d.Status.LastSeen = uint64(time.Now().Unix())
 
+		_, statusUpdateSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Status/Update")
 		if err = l.klient.Client().Status().Update(ctx, &d); err != nil {
+			statusUpdateSpan.SetStatus(codes.Error, err.Error())
+			statusUpdateSpan.End()
 			return err
 		}
+		statusUpdateSpan.End()
 
 		l.updateZigbeeMessageMetrics(m, request.DeviceDiscovery.Component, d)
 
@@ -379,18 +417,20 @@ func (l *Telemetry) handleZigbeeDeviceUpdate(ctx context.Context, m iot.ZigbeeBr
 }
 
 func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessageBridgeDevices) error {
-	ctx, span := l.tracer.Start(ctx, "handleZigbeeDevices")
+	spanCtx, span := l.tracer.Start(ctx, "handleZigbeeDevices")
 	defer span.End()
 
-	_ = level.Debug(l.logger).Log("msg", "devices report", "traceID", trace.SpanContextFromContext(ctx).TraceID().String())
+	traceID := trace.SpanContextFromContext(spanCtx).TraceID().String()
+	_ = level.Debug(l.logger).Log("msg", "devices report", "traceID", traceID)
 
 	c := l.klient.Client()
 	for _, d := range m {
 		select {
 		case <-ctx.Done():
 		default:
-			if err := l.handleZigbeeBridgeDevice(ctx, c, d); err != nil {
-				_ = level.Error(l.logger).Log("msg", "device report failed", "err", err)
+			if err := l.handleZigbeeBridgeDevice(spanCtx, c, d); err != nil {
+				span.SetStatus(codes.Error, err.Error())
+				_ = level.Error(l.logger).Log("msg", "device report failed", "traceID", traceID, "err", err)
 			}
 		}
 	}
@@ -399,10 +439,14 @@ func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessage
 }
 
 func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, c client.Client, d iot.ZigbeeBridgeDevice) error {
-	ctx, span := l.tracer.Start(ctx, "handleZigbeeDevices")
+	ctx, span := l.tracer.Start(ctx, "handleZigbeeDevice")
 	defer span.End()
 
-	_ = level.Debug(l.logger).Log("msg", "devices report", "traceID", trace.SpanContextFromContext(ctx).TraceID().String())
+	span.SetAttributes(
+		attribute.String("name", d.FriendlyName),
+	)
+
+	_ = level.Debug(l.logger).Log("msg", "device report", "traceID", trace.SpanContextFromContext(ctx).TraceID().String())
 
 	deviceName := types.NamespacedName{
 		Namespace: namespace,
@@ -631,4 +675,12 @@ func (l *Telemetry) updateZigbeeMessageMetrics(
 			telemetryIOTTamper.WithLabelValues(device.Name, component, zone).Set(float64(0))
 		}
 	}
+}
+
+func errHandler(span trace.Span, err error) error {
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+	}
+	span.End()
+	return err
 }
