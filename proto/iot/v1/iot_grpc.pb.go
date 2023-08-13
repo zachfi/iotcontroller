@@ -185,3 +185,87 @@ var AlertReceiverService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "iot/v1/iot.proto",
 }
+
+// ZoneServiceClient is the client API for ZoneService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ZoneServiceClient interface {
+	SetState(ctx context.Context, in *ZoneServiceSetStateRequest, opts ...grpc.CallOption) (*ZoneServiceSetStateResponse, error)
+}
+
+type zoneServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewZoneServiceClient(cc grpc.ClientConnInterface) ZoneServiceClient {
+	return &zoneServiceClient{cc}
+}
+
+func (c *zoneServiceClient) SetState(ctx context.Context, in *ZoneServiceSetStateRequest, opts ...grpc.CallOption) (*ZoneServiceSetStateResponse, error) {
+	out := new(ZoneServiceSetStateResponse)
+	err := c.cc.Invoke(ctx, "/iot.v1.ZoneService/SetState", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ZoneServiceServer is the server API for ZoneService service.
+// All implementations should embed UnimplementedZoneServiceServer
+// for forward compatibility
+type ZoneServiceServer interface {
+	SetState(context.Context, *ZoneServiceSetStateRequest) (*ZoneServiceSetStateResponse, error)
+}
+
+// UnimplementedZoneServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedZoneServiceServer struct {
+}
+
+func (UnimplementedZoneServiceServer) SetState(context.Context, *ZoneServiceSetStateRequest) (*ZoneServiceSetStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetState not implemented")
+}
+
+// UnsafeZoneServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ZoneServiceServer will
+// result in compilation errors.
+type UnsafeZoneServiceServer interface {
+	mustEmbedUnimplementedZoneServiceServer()
+}
+
+func RegisterZoneServiceServer(s grpc.ServiceRegistrar, srv ZoneServiceServer) {
+	s.RegisterService(&ZoneService_ServiceDesc, srv)
+}
+
+func _ZoneService_SetState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ZoneServiceSetStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZoneServiceServer).SetState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/iot.v1.ZoneService/SetState",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZoneServiceServer).SetState(ctx, req.(*ZoneServiceSetStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ZoneService_ServiceDesc is the grpc.ServiceDesc for ZoneService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ZoneService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iot.v1.ZoneService",
+	HandlerType: (*ZoneServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SetState",
+			Handler:    _ZoneService_SetState_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "iot/v1/iot.proto",
+}

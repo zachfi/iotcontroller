@@ -36,3 +36,49 @@ service IOTService {
 service AlertReceiverService {
   rpc Alert(AlertRequest) returns (AlertResponse);
 }
+
+enum ColorTemperature {
+  COLOR_TEMPERATURE_UNSPECIFIED = 0;
+  COLOR_TEMPERATURE_FIRSTLIGHT = 1;
+  COLOR_TEMPERATURE_MORNING = 2;
+  COLOR_TEMPERATURE_DAY = 3;
+  COLOR_TEMPERATURE_LATEAFTERNOON = 4;
+  COLOR_TEMPERATURE_EVENING = 5;
+}
+
+enum Brightness {
+  BRIGHTNESS_UNSPECIFIED = 0;
+  BRIGHTNESS_FULL = 1;
+  BRIGHTNESS_DIM = 2;
+  BRIGHTNESS_LOW = 3;
+  BRIGHTNESS_DIMPLUS = 4;
+  BRIGHTNESS_LOWPLUS = 5;
+  BRIGHTNESS_VERYLOW = 6;
+}
+
+enum ZoneState {
+  ZONE_STATE_UNSPECIFIED = 0;
+  ZONE_STATE_ON = 1;
+  ZONE_STATE_OFF = 2;
+  ZONE_STATE_OFFTIMER = 3;
+  ZONE_STATE_COLOR = 4;
+  ZONE_STATE_RANDOMCOLOR = 5;
+  /* DIM = 5; */
+
+  ////
+  ZONE_STATE_NIGHTVISION = 6;
+  ZONE_STATE_EVENINGVISION = 7;
+  ZONE_STATE_MORNINGVISION = 8;
+}
+
+message ZoneServiceSetStateResponse {}
+
+message ZoneServiceSetStateRequest {
+  string name = 1;
+  ZoneState state = 2;
+}
+
+service ZoneService {
+  rpc SetState(ZoneServiceSetStateRequest)
+      returns (ZoneServiceSetStateResponse);
+}
