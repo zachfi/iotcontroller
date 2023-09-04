@@ -24,8 +24,8 @@ import (
 type ConditionSpec struct {
 	Name         string        `json:"name,omitempty"`
 	Enabled      bool          `json:"enabled,omitempty"`
-	AlertNames   string        `json:"alert_names,omitempty"`
-	Remediations []Remediation `json:"remediation,omitempty"`
+	AlertName    string        `json:"alert_name,omitempty"`
+	Remediations []Remediation `json:"remediations,omitempty"`
 }
 
 // ConditionStatus defines the observed state of Condition
@@ -53,8 +53,9 @@ type ConditionList struct {
 }
 
 type Remediation struct {
-	Zone  string `json:"zone,omitempty"`
-	State string `json:"state,omitempty"`
+	Zone          string `json:"zone,omitempty"`
+	ActiveState   string `json:"active_state,omitempty"`
+	InactiveState string `json:"inactive_state,omitempty"`
 }
 
 func init() {

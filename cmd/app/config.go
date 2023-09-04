@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/grafana/dskit/flagext"
+	"github.com/grafana/dskit/log"
 	"github.com/grafana/dskit/server"
 	"github.com/pkg/errors"
 	zkitTracing "github.com/zachfi/zkit/pkg/tracing"
@@ -19,6 +20,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
+	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 )
 
 type Config struct {
@@ -26,6 +28,8 @@ type Config struct {
 
 	// Util
 	Tracing zkitTracing.Config `yaml:"tracing,omitempty"`
+
+	LogLevel log.Level `yaml:"log_level"`
 
 	// Server
 	Server server.Config `yaml:"server,omitempty"`
@@ -38,6 +42,7 @@ type Config struct {
 	Telemetry    telemetry.Config    `yaml:"telemetry,omitempty"`
 	HookReceiver hookreceiver.Config `yaml:"hookreceiver,omitempty"`
 	Conditioner  conditioner.Config  `yaml:"conditioner,omitempty"`
+	ZoneKeeper   zonekeeper.Config   `yaml:"zonekeeper,omitempty"`
 }
 
 func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
@@ -47,7 +52,6 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	// Server
 	// c.Server.RegisterFlags(f)
 	flagext.DefaultValues(&c.Server)
-	c.Server.LogLevel.RegisterFlags(f)
 	f.IntVar(&c.Server.HTTPListenPort, "server.http-listen-port", 3030, "HTTP server listen port.")
 	f.IntVar(&c.Server.GRPCListenPort, "server.grpc-listen-port", 9090, "gRPC server listen port.")
 
@@ -60,6 +64,8 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.Harvester.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "harvester"), f)
 	c.MQTTClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "mqttclient"), f)
 	c.Telemetry.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "telemetry"), f)
+
+	c.LogLevel.RegisterFlags(f)
 }
 
 // LoadConfig receives a file path for a configuration to load.

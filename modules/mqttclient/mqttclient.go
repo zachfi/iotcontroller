@@ -2,10 +2,10 @@ package mqttclient
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -22,14 +22,14 @@ type MQTTClient struct {
 
 	client mqtt.Client
 
-	logger log.Logger
+	logger *slog.Logger
 	tracer trace.Tracer
 }
 
-func New(cfg Config, logger log.Logger) (*MQTTClient, error) {
+func New(cfg Config, logger *slog.Logger) (*MQTTClient, error) {
 	m := &MQTTClient{
 		cfg:    &cfg,
-		logger: log.With(logger, "module", module),
+		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 	}
 

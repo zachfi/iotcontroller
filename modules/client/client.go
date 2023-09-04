@@ -2,8 +2,8 @@ package client
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -11,19 +11,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+var module = "client"
+
 type Client struct {
 	services.Service
 	cfg *Config
 
 	conn *grpc.ClientConn
 
-	logger log.Logger
+	logger *slog.Logger
 }
 
-func New(cfg Config, logger log.Logger) (*Client, error) {
+func New(cfg Config, logger *slog.Logger) (*Client, error) {
 	var err error
-
-	logger = log.With(logger, "module", "timer")
 
 	opts := []grpc.DialOption{
 		grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
@@ -37,7 +37,7 @@ func New(cfg Config, logger log.Logger) (*Client, error) {
 
 	c := &Client{
 		cfg:    &cfg,
-		logger: logger,
+		logger: logger.With("module", module),
 		conn:   conn,
 	}
 

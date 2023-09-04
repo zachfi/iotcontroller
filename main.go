@@ -19,13 +19,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/flagext"
 	"github.com/zachfi/zkit/pkg/tracing"
 	"gopkg.in/yaml.v2"
@@ -64,34 +63,37 @@ func versionString() string {
 }
 
 func main() {
-	logger := log.NewLogfmtLogger(os.Stdout)
-
 	cfg, err := loadConfig()
 	if err != nil {
-		_ = level.Error(logger).Log("msg", "failed to load config file", "err", err)
+		slog.Error("failed to load config", "err", err)
 		os.Exit(1)
 	}
 
+	level := new(slog.LevelVar)
+	level.Set(slog.LevelInfo)
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+
 	shutdownTracer, err := tracing.InstallOpenTelemetryTracer(
 		&cfg.Tracing,
-		log.NewLogfmtLogger(os.Stderr),
+		logger,
 		"iotcontroller",
 		versionString(),
 	)
 	if err != nil {
-		_ = level.Error(logger).Log("msg", "failed initialising tracer", "err", err)
+		slog.Error("failed initializing tracer", "err", err)
 		os.Exit(1)
 	}
 	defer shutdownTracer()
 
-	a, err := app.New(*cfg)
+	a, err := app.New(*cfg, logger)
 	if err != nil {
-		_ = level.Error(logger).Log("msg", "failed to create App", "err", err)
+		slog.Error("msg", "failed to create app", "err", err)
 		os.Exit(1)
 	}
 
 	if err := a.Run(); err != nil {
-		_ = level.Error(logger).Log("msg", "error running App", "err", err)
+		slog.Error("msg", "failed to run App", "err", err)
 		os.Exit(1)
 	}
 }

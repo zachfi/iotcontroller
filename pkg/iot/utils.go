@@ -8,6 +8,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	log "github.com/sirupsen/logrus"
+
 	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 

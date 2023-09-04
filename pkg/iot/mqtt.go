@@ -1,14 +1,13 @@
 package iot
 
 import (
+	"log/slog"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 )
 
-func NewMQTTClient(cfg MQTTConfig, logger log.Logger) (mqtt.Client, error) {
+func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 	var mqttClient mqtt.Client
 
 	mqttOpts := mqtt.NewClientOptions()
@@ -26,9 +25,9 @@ func NewMQTTClient(cfg MQTTConfig, logger log.Logger) (mqtt.Client, error) {
 	mqttClient = mqtt.NewClient(mqttOpts)
 
 	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-		_ = level.Error(logger).Log("err", token.Error())
+		logger.Error("mqtt connection failed", "err", token.Error())
 	} else {
-		_ = level.Debug(logger).Log("msg", "mqtt connected", "url", cfg.URL)
+		logger.Debug("mqtt connected", "url", cfg.URL)
 	}
 
 	return mqttClient, nil

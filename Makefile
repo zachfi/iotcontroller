@@ -158,4 +158,3 @@ proto-grpc:
 	@buf build
 	@buf lint
 	@buf generate
-

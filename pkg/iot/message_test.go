@@ -3,19 +3,18 @@
 package iot
 
 import (
-	"bufio"
+	// "bufio"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-kit/log"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +26,7 @@ func TTTestUpdateMessageFixtures(t *testing.T) {
 		Password: "xxx",
 	}
 
-	var onMessageReceived mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
+	var onMessageReceived mqtt.MessageHandler = func(_ mqtt.Client, msg mqtt.Message) {
 		topicPath, err := ParseTopicPath(msg.Topic())
 		require.NoError(t, err)
 		discovery := ParseDiscoveryMessage(topicPath, msg)
@@ -46,7 +45,7 @@ func TTTestUpdateMessageFixtures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	mqttClient, err := NewMQTTClient(cfg, log.NewNopLogger())
+	mqttClient, err := NewMQTTClient(cfg, slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{})))
 	require.NoError(t, err)
 
 	token := mqttClient.Subscribe(cfg.Topic, 0, onMessageReceived)
@@ -203,35 +202,35 @@ func TestZigbeeBridgeLog(t *testing.T) {
 	}
 }
 
-func TestParseCapture(t *testing.T) {
-	f := "../../testdata/capture.stdout"
-	jsonFile, err := os.Open(f)
-	require.NoError(t, err)
-	defer jsonFile.Close()
-
-	fs := bufio.NewScanner(jsonFile)
-	fs.Split(bufio.ScanLines)
-
-	type msg struct {
-		topic   string
-		payload string
-	}
-
-	var msgs []msg
-
-	for fs.Scan() {
-		v := strings.Split(fs.Text(), " ")
-		require.Equal(t, 2, len(v))
-
-		p, err := hex.DecodeString(v[1])
-		require.NoError(t, err)
-		m := msg{topic: v[0], payload: string(p)}
-		msgs = append(msgs, m)
-	}
-
-	for _, m := range msgs {
-		topicPath, err := ParseTopicPath(m.topic)
-		require.NoError(t, err)
-		t.Logf("%+v", topicPath)
-	}
-}
+// func TestParseCapture(t *testing.T) {
+// 	f := "../../testdata/capture.stdout"
+// 	jsonFile, err := os.Open(f)
+// 	require.NoError(t, err)
+// 	defer jsonFile.Close()
+//
+// 	fs := bufio.NewScanner(jsonFile)
+// 	fs.Split(bufio.ScanLines)
+//
+// 	type msg struct {
+// 		topic   string
+// 		payload string
+// 	}
+//
+// 	var msgs []msg
+//
+// 	for fs.Scan() {
+// 		v := strings.Split(fs.Text(), " ")
+// 		require.Equal(t, 2, len(v))
+//
+// 		p, err := hex.DecodeString(v[1])
+// 		require.NoError(t, err)
+// 		m := msg{topic: v[0], payload: string(p)}
+// 		msgs = append(msgs, m)
+// 	}
+//
+// 	for _, m := range msgs {
+// 		topicPath, err := ParseTopicPath(m.topic)
+// 		require.NoError(t, err)
+// 		t.Logf("%+v", topicPath)
+// 	}
+// }

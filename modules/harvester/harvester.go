@@ -2,10 +2,9 @@ package harvester
 
 import (
 	"context"
+	"log/slog"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
@@ -17,11 +16,13 @@ import (
 	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
+const module = "harvester"
+
 type Harvester struct {
 	services.Service
 	cfg *Config
 
-	logger log.Logger
+	logger *slog.Logger
 	tracer trace.Tracer
 
 	telemetryClient telemetryv1.TelemetryServiceClient
@@ -30,11 +31,12 @@ type Harvester struct {
 	mqttClient *mqttclient.MQTTClient
 }
 
-func New(cfg Config, logger log.Logger, conn *grpc.ClientConn, mqttClient *mqttclient.MQTTClient) (*Harvester, error) {
+func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqttclient.MQTTClient) (*Harvester, error) {
 	h := &Harvester{
-		cfg:             &cfg,
-		logger:          log.With(logger, "module", "harvester"),
-		tracer:          otel.Tracer("harvester"),
+		cfg:    &cfg,
+		logger: logger.With("module", module),
+		tracer: otel.Tracer(module),
+
 		telemetryClient: telemetryv1.NewTelemetryServiceClient(conn),
 		mqttClient:      mqttClient,
 	}
@@ -66,7 +68,7 @@ func (h *Harvester) running(ctx context.Context) error {
 
 		topicPath, err := iot.ParseTopicPath(msg.Topic())
 		if err != nil {
-			_ = level.Error(h.logger).Log("err", errors.Wrap(err, "failed to parse topic path"))
+			h.logger.Error("err", errors.Wrap(err, "failed to parse topic path"))
 			return
 		}
 
@@ -75,7 +77,7 @@ func (h *Harvester) running(ctx context.Context) error {
 		}
 
 		if err := h.stream.Send(req); err != nil {
-			_ = level.Error(h.logger).Log("err", err.Error())
+			h.logger.Error("failed to send on stream", "err", err.Error())
 		}
 	}
 
@@ -83,7 +85,7 @@ func (h *Harvester) running(ctx context.Context) error {
 		token := h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
 		token.Wait()
 		if token.Error() != nil {
-			_ = level.Error(h.logger).Log("err", token.Error())
+			h.logger.Error("subscribe error", "err", token.Error())
 		}
 	}()
 

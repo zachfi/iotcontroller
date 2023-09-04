@@ -3,9 +3,9 @@ package hookreceiver
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
-	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -18,18 +18,16 @@ type HookReceiver struct {
 	services.Service
 	cfg *Config
 
-	logger log.Logger
+	logger *slog.Logger
 	tracer trace.Tracer
 
 	alertReceiverClient iotv1.AlertReceiverServiceClient
 }
 
-func New(cfg Config, logger log.Logger, conn *grpc.ClientConn) (*HookReceiver, error) {
-	logger = log.With(logger, "module", "hookreceiver")
-
+func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*HookReceiver, error) {
 	h := &HookReceiver{
 		cfg:                 &cfg,
-		logger:              logger,
+		logger:              logger.With("module", "hookreceiver"),
 		tracer:              otel.Tracer("hookreceiver"),
 		alertReceiverClient: iotv1.NewAlertReceiverServiceClient(conn),
 	}
@@ -58,8 +56,9 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	in := &iotv1.AlertRequest{
-		Group:  m.GroupKey,
-		Status: m.Status,
+		Group:       m.GroupKey,
+		Status:      m.Status,
+		GroupLabels: make(map[string]string),
 	}
 
 	for k, v := range m.GroupLabels {

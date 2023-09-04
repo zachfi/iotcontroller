@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
-	"github.com/go-kit/log/level"
+	kitlog "github.com/go-kit/log"
 	"github.com/grafana/dskit/modules"
 	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
@@ -18,6 +19,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
+	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
@@ -25,17 +27,14 @@ import (
 const (
 	Server string = "server"
 
-	Controller string = "controller"
-	Harvester  string = "harvester"
-	// Lights          string = "lights"
-	MQTTClient string = "mqttclient"
-	// Inventory       string = "inventory"
-	// InventoryClient string = "inventory_client"
-	Telemetry string = "telemetry"
-	// Timer      string = "timer"
 	Client       string = "client"
-	HookReceiver string = "hook-receiver"
 	Conditioner  string = "conditioner"
+	Controller   string = "controller"
+	Harvester    string = "harvester"
+	HookReceiver string = "hook-receiver"
+	MQTTClient   string = "mqttclient"
+	Telemetry    string = "telemetry"
+	ZoneKeeper   string = "zone-keeper"
 
 	// Weather string = "weather"
 
@@ -43,39 +42,44 @@ const (
 )
 
 func (a *App) setupModuleManager() error {
-	mm := modules.NewManager(a.logger)
+	mm := modules.NewManager(kitlog.NewLogfmtLogger(os.Stderr))
 	mm.RegisterModule(Server, a.initServer, modules.UserInvisibleModule)
-	mm.RegisterModule(MQTTClient, a.initMqttClient)
-	mm.RegisterModule(Harvester, a.initHarvester)
-	mm.RegisterModule(Telemetry, a.initTelemetry)
-	mm.RegisterModule(Controller, a.initController)
-	mm.RegisterModule(HookReceiver, a.initHookReceiver)
+
+	mm.RegisterModule(Client, a.initClient)
 	mm.RegisterModule(Conditioner, a.initConditioner)
+	mm.RegisterModule(Conditioner, a.initConditioner)
+	mm.RegisterModule(Controller, a.initController)
+	mm.RegisterModule(Harvester, a.initHarvester)
+	mm.RegisterModule(HookReceiver, a.initHookReceiver)
+	mm.RegisterModule(MQTTClient, a.initMqttClient)
+	mm.RegisterModule(Telemetry, a.initTelemetry)
+	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
+
+	mm.RegisterModule(All, nil)
+
 	// mm.RegisterModule(Lights, a.initLights)
 	// mm.RegisterModule(Timer, a.initTimer)
 	// mm.RegisterModule(Inventory, a.initInventory)
 	// mm.RegisterModule(InventoryClient, a.initInventoryClient)
-	mm.RegisterModule(Client, a.initClient)
-	mm.RegisterModule(All, nil)
 
 	deps := map[string][]string{
 		// Server:       nil,
 
+		Client:       {Server},
+		Conditioner:  {Server, MQTTClient, Controller},
+		Controller:   {Server},
+		Harvester:    {Server, MQTTClient, Client, Telemetry},
+		HookReceiver: {Server, Client, Conditioner},
+		MQTTClient:   {Server},
+		Telemetry:    {Server, Controller},
+		ZoneKeeper:   {Server, MQTTClient},
+
 		// Inventory: {Server},
 		// Lights:          {Server},
 		// InventoryClient: {Server},
-
-		Client:     {Server},
-		MQTTClient: {Server},
-		Controller: {Server},
-
-		Conditioner:  {Server, MQTTClient, Controller},
-		Harvester:    {Server, MQTTClient, Client, Telemetry},
-		HookReceiver: {Server, Client, Conditioner},
-		Telemetry:    {Server, Controller},
 		// Timer:      {Server},
 
-		All: {Controller, Harvester},
+		All: {Controller, Harvester, HookReceiver, ZoneKeeper},
 	}
 
 	for mod, targets := range deps {
@@ -95,7 +99,7 @@ func (a *App) initHookReceiver() (services.Service, error) {
 		return nil, err
 	}
 
-	a.Server.HTTP.HandleFunc("/alerts", http.HandlerFunc(h.Handler))
+	a.Server.HTTP.Handle("/alerts", http.HandlerFunc(h.Handler)).Methods(http.MethodPost)
 
 	a.hookreceiver = h
 	return h, nil
@@ -178,6 +182,18 @@ func (a *App) initTelemetry() (services.Service, error) {
 	return t, nil
 }
 
+func (a *App) initZoneKeeper() (services.Service, error) {
+	z, err := zonekeeper.New(a.cfg.ZoneKeeper, a.logger, a.mqttclient)
+	if err != nil {
+		return nil, err
+	}
+
+	iotv1.RegisterZoneServiceServer(a.Server.GRPC, z)
+
+	a.zonekeeper = z
+	return z, nil
+}
+
 func (a *App) initHarvester() (services.Service, error) {
 	h, err := harvester.New(a.cfg.Harvester, a.logger, a.client.Conn(), a.mqttclient)
 	if err != nil {
@@ -189,7 +205,7 @@ func (a *App) initHarvester() (services.Service, error) {
 }
 
 func (a *App) initConditioner() (services.Service, error) {
-	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.mqttclient, a.controller.Client())
+	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.client.Conn(), a.mqttclient, a.controller.Client())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create harvester")
 	}
@@ -232,8 +248,10 @@ func (a *App) initConditioner() (services.Service, error) {
 
 func (a *App) initServer() (services.Service, error) {
 	a.cfg.Server.MetricsNamespace = metricsNamespace
-	a.cfg.Server.ExcludeRequestInLog = true
+	a.cfg.Server.ExcludeRequestInLog = false
 	a.cfg.Server.RegisterInstrumentation = true
+	a.cfg.Server.DisableRequestSuccessLog = false
+	// a.cfg.Server.Log = a.logger
 
 	server, err := server.New(a.cfg.Server)
 	if err != nil {
@@ -283,7 +301,7 @@ func (a *App) initServer() (services.Service, error) {
 
 		// if not closed yet, wait until server stops.
 		<-serverDone
-		_ = level.Info(a.logger).Log("msg", "server stopped")
+		a.logger.Info("server stopped")
 		return nil
 	}
 

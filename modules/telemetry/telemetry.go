@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"reflect"
 	"time"
 
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,6 +29,7 @@ import (
 const (
 	defaultExpiry = 5 * time.Minute
 	namespace     = "iot"
+	module        = "telemetry"
 )
 
 type Telemetry struct {
@@ -38,7 +38,7 @@ type Telemetry struct {
 	services.Service
 	cfg *Config
 
-	logger log.Logger
+	logger *slog.Logger
 	tracer trace.Tracer
 
 	keeper thingKeeper
@@ -55,11 +55,11 @@ type Telemetry struct {
 
 type thingKeeper map[string]map[string]string
 
-func New(cfg Config, logger log.Logger, kubeclient client.Client) (*Telemetry, error) {
+func New(cfg Config, logger *slog.Logger, kubeclient client.Client) (*Telemetry, error) {
 	s := &Telemetry{
 		cfg:    &cfg,
-		logger: log.With(logger, "module", "telemetry"),
-		tracer: otel.Tracer("telemetry"),
+		logger: logger.With("module", module),
+		tracer: otel.Tracer(module),
 
 		// lights:     lig,
 		kubeclient: kubeclient,
@@ -82,7 +82,7 @@ func New(cfg Config, logger log.Logger, kubeclient client.Client) (*Telemetry, e
 	// 		// Expire the old entries
 	// 		for k, v := range tMap {
 	// 			if time.Since(v) > defaultExpiry {
-	// 				_ = level.Info(s.logger).Log("msg", "expiring",
+	// 				_ = level.Info(s.logger).Log("expiring",
 	// 					"device", k,
 	// 				)
 	//
@@ -195,7 +195,7 @@ func (l *Telemetry) reportReceiver(ctx context.Context) {
 			case "zigbee2mqtt":
 				err = l.handleZigbeeReport(rCtx, req)
 				if err != nil {
-					_ = level.Error(l.logger).Log("failed to handle zigbee report", err.Error())
+					l.logger.Error("failed to handle zigbee report", "err", err)
 				}
 				continue
 			}
@@ -204,22 +204,22 @@ func (l *Telemetry) reportReceiver(ctx context.Context) {
 			case "wifi":
 				err = l.handleWifiReport(req)
 				if err != nil {
-					_ = level.Error(l.logger).Log("failed to handle wifi report", err.Error())
+					l.logger.Error("failed to handle wifi report", "err", err)
 				}
 			case "air":
 				err = l.handleAirReport(req)
 				if err != nil {
-					_ = level.Error(l.logger).Log("failed to handle air report", err.Error())
+					l.logger.Error("failed to handle air report", "err", err)
 				}
 			case "water":
 				err = l.handleWaterReport(req)
 				if err != nil {
-					_ = level.Error(l.logger).Log("failed to handle water report", err.Error())
+					l.logger.Error("failed to handle water report", "err", err)
 				}
 			case "led1", "led2":
 				err = l.handleLEDReport(req)
 				if err != nil {
-					_ = level.Error(l.logger).Log("failed to handle led report", err.Error())
+					l.logger.Error("failed to handle led report", "err", err)
 				}
 			default:
 				telemetryIOTUnhandledReport.WithLabelValues(discovery.ObjectId, discovery.Component).Inc()
@@ -238,7 +238,7 @@ func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1.TelemetryService
 		}
 
 		if err != nil {
-			_ = level.Error(l.logger).Log("err", err.Error())
+			l.logger.Error("stream error", "err", err)
 			return err
 		}
 
@@ -257,7 +257,7 @@ func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1.TelemetryService
 
 func (l *Telemetry) SetIOTServer(iotServer *iot.Server) error {
 	if l.iotServer != nil {
-		_ = level.Debug(l.logger).Log("replacing iotServer on telemetryServer")
+		l.logger.Debug("replacing iotServer on telemetryServer")
 	}
 
 	l.iotServer = iotServer
@@ -273,7 +273,7 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 	ctx, span := l.tracer.Start(ctx, "handleZigbeeReport")
 	defer span.End()
 	traceID := trace.SpanContextFromContext(ctx).TraceID().String()
-	_ = level.Debug(l.logger).Log("msg", "zigbee report", "traceID", traceID)
+	l.logger.With("traceID", traceID).Debug("zigbee report")
 
 	discovery := request.DeviceDiscovery
 
@@ -330,6 +330,7 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 				if err != nil {
 					return errHandler(createSpan, err)
 				}
+				createSpan.AddEvent("created")
 				createSpan.End()
 			}
 
@@ -364,12 +365,12 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 		//
 		// 		err = l.lights.ActionHandler(ctx, action)
 		// 		if err != nil {
-		// 			_ = level.Error(l.logger).Log("err", err.Error())
+		// 			l.logger.Errorln("err", err.Error())
 		// 		}
 		// 	}
 
 	default:
-		_ = level.Error(l.logger).Log("unhandled iot message type", fmt.Sprintf("%T", msg))
+		l.logger.Error("unhandled iot message type", "type", fmt.Sprintf("%T", msg))
 	}
 
 	return nil
@@ -380,10 +381,10 @@ func (l *Telemetry) handleZigbeeDeviceUpdate(ctx context.Context, m iot.ZigbeeBr
 	defer span.End()
 
 	// zigbee2mqtt/bridge/request/device/ota_update/update
-	_ = level.Debug(l.logger).Log("msg", "upgrade report",
+	l.logger.With(
 		"device", m.Meta["device"],
 		"status", m.Meta["status"],
-	)
+	).Debug("upgrade report")
 
 	req := &iotv1.UpdateDeviceRequest{
 		Device: m.Meta["device"].(string),
@@ -392,7 +393,7 @@ func (l *Telemetry) handleZigbeeDeviceUpdate(ctx context.Context, m iot.ZigbeeBr
 	go func() {
 		_, err := l.iotServer.UpdateDevice(ctx, req)
 		if err != nil {
-			_ = level.Error(l.logger).Log("err", err.Error())
+			l.logger.Error("failed to update device", "err", err.Error())
 		}
 	}()
 
@@ -404,7 +405,7 @@ func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessage
 	defer span.End()
 
 	traceID := trace.SpanContextFromContext(spanCtx).TraceID().String()
-	_ = level.Debug(l.logger).Log("msg", "devices report", "traceID", traceID)
+	l.logger.Debug("devices report", "traceID", traceID)
 
 	for _, d := range m {
 		select {
@@ -412,7 +413,7 @@ func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessage
 		default:
 			if err := l.handleZigbeeBridgeDevice(spanCtx, d); err != nil {
 				span.SetStatus(codes.Error, err.Error())
-				_ = level.Error(l.logger).Log("msg", "device report failed", "traceID", traceID, "err", err)
+				l.logger.Error("device report failed", "traceID", traceID, "err", err)
 			}
 		}
 	}
@@ -428,7 +429,7 @@ func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, d iot.ZigbeeBr
 		attribute.String("name", d.FriendlyName),
 	)
 
-	_ = level.Debug(l.logger).Log("msg", "device report", "traceID", trace.SpanContextFromContext(ctx).TraceID().String())
+	l.logger.Debug("device report", "traceID", trace.SpanContextFromContext(ctx).TraceID().String())
 
 	deviceName := types.NamespacedName{
 		Namespace: namespace,
@@ -437,12 +438,12 @@ func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, d iot.ZigbeeBr
 
 	var device apiv1.Device
 	if err := l.kubeclient.Get(ctx, deviceName, &device); err != nil {
-		level.Error(l.logger).Log("msg", "failed to get device", "err", err)
+		l.logger.Error("failed to get device", "err", err)
 		device.SetName(d.FriendlyName)
 		device.SetNamespace(namespace)
 
 		if err := l.kubeclient.Create(ctx, &device); err != nil {
-			level.Error(l.logger).Log("msg", "failed to create new device", "err", err)
+			l.logger.Error("failed to create new device", "err", err)
 		}
 	}
 
@@ -453,13 +454,13 @@ func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, d iot.ZigbeeBr
 	device.Spec.Description = d.Definition.Description
 
 	if err := l.kubeclient.Update(ctx, &device); err != nil {
-		level.Error(l.logger).Log("msg", "failed to update device spec", "err", err)
+		l.logger.Error("failed to update device spec", "err", err)
 	}
 
 	device.Status.SoftwareBuildID = d.SoftwareBuildID
 
 	if err := l.kubeclient.Status().Update(ctx, &device); err != nil {
-		level.Error(l.logger).Log("msg", "failed to update device status", "err", err)
+		l.logger.Error("failed to update device status", "err", err)
 	}
 
 	return nil

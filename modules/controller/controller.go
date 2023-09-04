@@ -2,9 +2,9 @@ package controller
 
 import (
 	"context"
+	"log/slog"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
@@ -26,7 +26,7 @@ type Controller struct {
 
 	cfg *Config
 
-	logger     log.Logger
+	logger     *slog.Logger
 	tracer     trace.Tracer
 	mqttclient mqtt.Client
 
@@ -45,10 +45,10 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
-func New(cfg Config, logger log.Logger) (*Controller, error) {
+func New(cfg Config, logger *slog.Logger) (*Controller, error) {
 	c := &Controller{
 		cfg:    &cfg,
-		logger: log.With(logger, "module", "controller"),
+		logger: logger.With("module", "controller"),
 		tracer: otel.Tracer("controller"),
 	}
 
