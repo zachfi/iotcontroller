@@ -2,6 +2,7 @@ package conditioner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -55,7 +56,8 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1.AlertRequest) (*iotv
 	c.logger.With(
 		"group", req.Group,
 		"status", req.Status,
-		"labels", fmt.Sprintf("%+v", req.GroupLabels),
+		"labels", fmt.Sprintf("%+v", req.Labels),
+		"req", fmt.Sprintf("%+v", req),
 	).Info("alert received")
 
 	_, span := c.tracer.Start(
@@ -65,12 +67,15 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1.AlertRequest) (*iotv
 	)
 	defer span.End()
 
-	// TODO: we should query for the condition objects, and find any that match this alert name.  Then we should switch the zone state based on the condition, and flush the zone.  Perhaps we want to keep track of the previous state, so that when the alert clears.  Or perhaps we want to have an ENABLED state and a DISABLED, or ACTIVE/INACTIVE.  This way, there is a definitive on, and off condition to match the alert firing.
-	var list *apiv1.ConditionList
+	list := &apiv1.ConditionList{}
+	var errs []error
 
-	set := fields.SelectorFromSet(fields.Set{"alert_name": req.Group})
-	listOptions := &client.ListOptions{FieldSelector: set}
-	c.kubeclient.List(ctx, list, listOptions)
+	selector := fields.SelectorFromSet(fields.Set{"alert_name": req.Name})
+	listOptions := &client.ListOptions{FieldSelector: selector}
+	err := c.kubeclient.List(ctx, list, listOptions)
+	if err != nil {
+		return &iotv1.AlertResponse{}, err
+	}
 
 	for _, cond := range list.Items {
 		for _, rem := range cond.Spec.Remediations {
@@ -104,12 +109,18 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1.AlertRequest) (*iotv
 				zoneState = iotv1.ZoneState_ZONE_STATE_MORNINGVISION
 			}
 
-			c.iotClient.SetState(ctx, &iotv1.ZoneServiceSetStateRequest{
+			_, err := c.iotClient.SetState(ctx, &iotv1.ZoneServiceSetStateRequest{
 				Name:  rem.Zone,
 				State: zoneState,
 			})
-
+			if err != nil {
+				errs = append(errs, err)
+			}
 		}
+	}
+
+	if len(errs) > 0 {
+		return &iotv1.AlertResponse{}, errors.Join(errs...)
 	}
 
 	return &iotv1.AlertResponse{}, nil
