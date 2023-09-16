@@ -55,17 +55,43 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	in := &iotv1.AlertRequest{
-		Group:       m.GroupKey,
-		Status:      m.Status,
-		GroupLabels: make(map[string]string),
-	}
+	// {Version:4 GroupKey:{}/{}:{zone="tent"} Status:firing Receiver:iotcontroller GroupLabels:map[zone:tent] CommonLabels:map[cluster:k severity:critical zone:tent] CommonAnnotations:map[] ExternalURL:http://alertmanager.metric.svc.cluster.znet/alertmanager Alerts:[{Labels:map[alertname:highTemp cluster:k severity:critical zone:tent] Annotations:map[description:Temperature outside nominal range at tent (current value: 29.6) summary:High Tent Temperature] StartsAt:2023-09-14T15:10:16.419Z EndsAt:0001-01-01T00:00:00Z} {Labels:map[alertname:lowHumidity cluster:k severity:critical zone:tent] Annotations:map[description:Humidity outside nominal range at  (current value: 39.2) summary:Low Tent Humidity] StartsAt:2023-09-14T21:32:16.419Z EndsAt:0001-01-01T00:00:00Z}]}
 
+	labels := make(map[string]string)
 	for k, v := range m.GroupLabels {
-		in.GroupLabels[k] = v
+		labels[k] = v
 	}
 
-	h.alertReceiverClient.Alert(ctx, in)
+	for k, v := range m.CommonLabels {
+		labels[k] = v
+	}
+
+	for _, l := range m.Alerts {
+		var name string
+		if v, ok := l.Labels["alertname"]; ok {
+			name = v
+		} else {
+			continue
+		}
+
+		in := &iotv1.AlertRequest{
+			Name:   name,
+			Group:  m.GroupKey,
+			Status: m.Status,
+			Labels: labels,
+		}
+
+		for k, v := range l.Labels {
+			if _, ok := in.Labels[k]; !ok {
+				in.Labels[k] = v
+			}
+		}
+
+		_, err := h.alertReceiverClient.Alert(ctx, in)
+		if err != nil {
+			h.logger.Error("failed to send alert", "err", err)
+		}
+	}
 }
 
 func (h *HookReceiver) starting(ctx context.Context) error {
