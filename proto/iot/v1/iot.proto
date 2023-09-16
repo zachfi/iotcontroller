@@ -24,7 +24,8 @@ message Action {
 message AlertRequest {
   string group = 1;
   string status = 2;
-  map<string, string> group_labels = 3;
+  string name = 3;
+  map<string, string> labels = 4;
 }
 
 message UpdateDeviceRequest { string device = 1; }
