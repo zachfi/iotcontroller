@@ -25,7 +25,8 @@ message AlertRequest {
   string group = 1;
   string status = 2;
   string name = 3;
-  map<string, string> labels = 4;
+  string zone = 4;
+  map<string, string> labels = 5;
 }
 
 message UpdateDeviceRequest { string device = 1; }
@@ -82,4 +83,18 @@ message ZoneServiceSetStateRequest {
 service ZoneService {
   rpc SetState(ZoneServiceSetStateRequest)
       returns (ZoneServiceSetStateResponse);
+}
+
+message Device { string name = 1; }
+
+enum DeviceType {
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  DEVICE_TYPE_COORDINATOR = 1;
+  DEVICE_TYPE_BASIC_LIGHT = 2;
+  DEVICE_TYPE_COLOR_LIGHT = 3;
+  DEVICE_TYPE_RELAY = 4;
+  DEVICE_TYPE_LEAK = 5;
+  DEVICE_TYPE_BUTTON = 6;
+  DEVICE_TYPE_MOISTURE = 7;
+  DEVICE_TYPE_TEMPERATURE = 8;
 }
