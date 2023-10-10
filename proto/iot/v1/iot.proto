@@ -85,7 +85,10 @@ service ZoneService {
       returns (ZoneServiceSetStateResponse);
 }
 
-message Device { string name = 1; }
+message Device {
+  string name = 1;
+  DeviceType type = 2;
+}
 
 enum DeviceType {
   DEVICE_TYPE_UNSPECIFIED = 0;
@@ -97,4 +100,5 @@ enum DeviceType {
   DEVICE_TYPE_BUTTON = 6;
   DEVICE_TYPE_MOISTURE = 7;
   DEVICE_TYPE_TEMPERATURE = 8;
+  DEVICE_TYPE_MOTION = 9;
 }
