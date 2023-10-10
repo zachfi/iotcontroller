@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 func TestParseTopicPath(t *testing.T) {
@@ -265,13 +267,13 @@ func TestZigbeeDeviceType(t *testing.T) {
 
 	cases := []struct {
 		bridgeDevice ZigbeeBridgeDevice
-		devType      DeviceType
+		devType      iotv1proto.DeviceType
 	}{
 		{
 			bridgeDevice: ZigbeeBridgeDevice{
 				Type: "Coordinator",
 			},
-			devType: Coordinator,
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR,
 		},
 		{
 			bridgeDevice: ZigbeeBridgeDevice{
@@ -280,7 +282,7 @@ func TestZigbeeDeviceType(t *testing.T) {
 				},
 				ModelID: "LCA003",
 			},
-			devType: ColorLight,
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT,
 		},
 		{
 			bridgeDevice: ZigbeeBridgeDevice{
@@ -289,7 +291,7 @@ func TestZigbeeDeviceType(t *testing.T) {
 				},
 				ModelID: "LCB002",
 			},
-			devType: ColorLight,
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT,
 		},
 		{
 			bridgeDevice: ZigbeeBridgeDevice{
@@ -298,7 +300,7 @@ func TestZigbeeDeviceType(t *testing.T) {
 					Model:  "S31ZB",
 				},
 			},
-			devType: Relay,
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_RELAY,
 		},
 		{
 			bridgeDevice: ZigbeeBridgeDevice{
@@ -307,7 +309,7 @@ func TestZigbeeDeviceType(t *testing.T) {
 					Model:  "S40ZBTPB",
 				},
 			},
-			devType: Relay,
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_RELAY,
 		},
 	}
 

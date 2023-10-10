@@ -15,7 +15,7 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 	mqttOpts.SetCleanSession(true)
 	mqttOpts.SetAutoReconnect(true)
 	mqttOpts.SetConnectRetry(true)
-	mqttOpts.SetConnectRetryInterval(10 * time.Second)
+	mqttOpts.SetConnectRetryInterval(3 * time.Second)
 
 	if cfg.Username != "" && cfg.Password != "" {
 		mqttOpts.SetUsername(cfg.Username)

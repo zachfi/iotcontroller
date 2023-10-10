@@ -16,6 +16,8 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/stretchr/testify/require"
+
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 func TTTestUpdateMessageFixtures(t *testing.T) {
@@ -83,7 +85,7 @@ func TestZigbeeBridgeLog_devices(t *testing.T) {
 
 		for _, d := range obj {
 			x := ZigbeeDeviceType(d)
-			require.Greater(t, x, Unknown,
+			require.Greater(t, x, iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED,
 				fmt.Sprintf("device: %+v", d),
 			)
 		}

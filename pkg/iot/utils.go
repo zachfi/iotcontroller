@@ -9,7 +9,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	log "github.com/sirupsen/logrus"
 
-	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 type TopicPath struct {
@@ -20,8 +20,8 @@ type TopicPath struct {
 	Endpoints       []string
 }
 
-func ParseDiscoveryMessage(topicPath TopicPath, msg mqtt.Message) *iotv1.DeviceDiscovery {
-	return &iotv1.DeviceDiscovery{
+func ParseDiscoveryMessage(topicPath TopicPath, msg mqtt.Message) *iotv1proto.DeviceDiscovery {
+	return &iotv1proto.DeviceDiscovery{
 		Component: topicPath.Component,
 		NodeId:    topicPath.NodeID,
 		ObjectId:  topicPath.ObjectID,
@@ -185,53 +185,61 @@ func ReadMessage(objectID string, payload []byte, endpoint ...string) (interface
 	return nil, nil
 }
 
-func ZigbeeDeviceType(z ZigbeeBridgeDevice) DeviceType {
+func ZigbeeDeviceType(z ZigbeeBridgeDevice) iotv1proto.DeviceType {
 	switch z.Type {
 	case "Coordinator":
-		return Coordinator
+		return iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR
 	}
 
 	switch z.Definition.Vendor {
 	case "Philips":
 		switch z.ModelID {
 		case "LWB014":
-			return BasicLight
+			return iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT
 		case "ROM001":
-			return Button
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
 		default:
 			if strings.HasPrefix(z.ModelID, "LC") {
-				return ColorLight
+				return iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT
 			}
 		}
 
 	case "Xiaomi":
 		switch z.Definition.Model {
 		case "WXKG11LM":
-			return Button
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
 		}
 
 		switch z.ModelID {
 		case "lumi.sensor_switch":
-			return Button
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
 		case "lumi.sensor_motion.aq2":
-			return Motion
+			return iotv1proto.DeviceType_DEVICE_TYPE_MOTION
 		case "lumi.weather":
-			return Temperature
+			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
 		case "lumi.sensor_cube.aqgl01":
-			return Button
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
 		case "lumi.remote.b1acn01":
-			return Button
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
 		case "lumi.sensor_wleak.aq1":
-			return Leak
+			return iotv1proto.DeviceType_DEVICE_TYPE_LEAK
 		}
 
 	case "SONOFF":
 		relayRegex := regexp.MustCompile(`^S[0-9]{2}ZB.*$`)
 		match := relayRegex.FindAllString(z.Definition.Model, -1)
 		if len(match) == 1 {
-			return Relay
+			return iotv1proto.DeviceType_DEVICE_TYPE_RELAY
 		}
 	}
 
-	return Unknown
+	return iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED
+}
+
+func ZoneStateToProto(status string) iotv1proto.ZoneState {
+	if v, ok := iotv1proto.ZoneState_value[status]; ok {
+		return iotv1proto.ZoneState(v)
+	}
+
+	return iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
 }
