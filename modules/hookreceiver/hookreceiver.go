@@ -11,7 +11,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 
-	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+)
+
+const (
+	zoneLabel      = "zone"
+	alertnameLabel = "alertname"
 )
 
 type HookReceiver struct {
@@ -21,7 +26,7 @@ type HookReceiver struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	alertReceiverClient iotv1.AlertReceiverServiceClient
+	alertReceiverClient iotv1proto.AlertReceiverServiceClient
 }
 
 func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*HookReceiver, error) {
@@ -29,7 +34,7 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*HookReceiver,
 		cfg:                 &cfg,
 		logger:              logger.With("module", "hookreceiver"),
 		tracer:              otel.Tracer("hookreceiver"),
-		alertReceiverClient: iotv1.NewAlertReceiverServiceClient(conn),
+		alertReceiverClient: iotv1proto.NewAlertReceiverServiceClient(conn),
 	}
 
 	h.Service = services.NewIdleService(h.starting, h.stopping)
@@ -39,7 +44,7 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*HookReceiver,
 func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	_, span := h.tracer.Start(
+	spanCtx, span := h.tracer.Start(
 		ctx,
 		"HookReceiver.Handler",
 		trace.WithSpanKind(trace.SpanKindServer),
@@ -68,17 +73,25 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 
 	for _, l := range m.Alerts {
 		var name string
-		if v, ok := l.Labels["alertname"]; ok {
+		if v, ok := l.Labels[alertnameLabel]; ok {
 			name = v
-		} else {
+		}
+
+		var zone string
+		if v, ok := l.Labels[zoneLabel]; ok {
+			zone = v
+		}
+
+		if name == "" || zone == "" {
 			continue
 		}
 
-		in := &iotv1.AlertRequest{
-			Name:   name,
+		in := &iotv1proto.AlertRequest{
 			Group:  m.GroupKey,
-			Status: m.Status,
 			Labels: labels,
+			Name:   name,
+			Status: m.Status,
+			Zone:   zone,
 		}
 
 		for k, v := range l.Labels {
@@ -87,7 +100,7 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		_, err := h.alertReceiverClient.Alert(ctx, in)
+		_, err := h.alertReceiverClient.Alert(spanCtx, in)
 		if err != nil {
 			h.logger.Error("failed to send alert", "err", err)
 		}
