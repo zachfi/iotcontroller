@@ -60,7 +60,7 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1.AlertRequest) (*iotv
 		"req", fmt.Sprintf("%+v", req),
 	).Info("alert received")
 
-	_, span := c.tracer.Start(
+	ctx, span := c.tracer.Start(
 		ctx,
 		"Conditioner.Alert",
 		trace.WithSpanKind(trace.SpanKindServer),
@@ -70,7 +70,7 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1.AlertRequest) (*iotv
 	list := &apiv1.ConditionList{}
 	var errs []error
 
-	selector := fields.SelectorFromSet(fields.Set{"alert_name": req.Name})
+	selector := fields.SelectorFromSet(fields.Set{"alertname": req.Name})
 	listOptions := &client.ListOptions{FieldSelector: selector}
 	err := c.kubeclient.List(ctx, list, listOptions)
 	if err != nil {

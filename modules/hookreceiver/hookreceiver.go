@@ -71,15 +71,17 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 		labels[k] = v
 	}
 
-	for _, l := range m.Alerts {
+	for _, alert := range m.Alerts {
 		var name string
-		if v, ok := l.Labels[alertnameLabel]; ok {
-			name = v
-		}
-
 		var zone string
-		if v, ok := l.Labels[zoneLabel]; ok {
-			zone = v
+
+		for _, v := range alert.Labels {
+			switch v.Key {
+			case zoneLabel:
+				zone = v.Value
+			case alertnameLabel:
+				name = v.Value
+			}
 		}
 
 		if name == "" || zone == "" {
@@ -94,9 +96,9 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 			Zone:   zone,
 		}
 
-		for k, v := range l.Labels {
-			if _, ok := in.Labels[k]; !ok {
-				in.Labels[k] = v
+		for _, v := range alert.Labels {
+			if v.Key == alertnameLabel {
+				in.Labels[v.Key] = v.Value
 			}
 		}
 
@@ -127,9 +129,14 @@ type HookMessage struct {
 	Alerts            []Alert           `json:"alerts"`
 }
 
+type Label struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // Alert is a single alert.
 type Alert struct {
-	Labels      map[string]string `json:"labels"`
+	Labels      []Label           `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
 	StartsAt    string            `json:"startsAt,omitempty"`
 	EndsAt      string            `json:"EndsAt,omitempty"`

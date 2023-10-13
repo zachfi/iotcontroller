@@ -83,10 +83,24 @@ func New(cfg Config, logger *slog.Logger) (*Controller, error) {
 		Scheme: mgr.GetScheme(),
 	}
 	deviceController.SetMQTTClient(c.mqttclient)
+	deviceController.SetLogger(slog.With(c.logger, "reconciler", "device"))
 	deviceController.SetTracer(c.tracer)
 
 	if err = deviceController.SetupWithManager(mgr); err != nil {
 		return nil, errors.Wrap(err, "unable to create Device controller")
+	}
+
+	zoneController := &controllers.ZoneReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	zoneController.SetMQTTClient(c.mqttclient)
+	zoneController.SetTracer(c.tracer)
+	zoneController.SetLogger(slog.With(c.logger, "reconciler", "zone"))
+	zoneController.SetHandlers()
+
+	if err = zoneController.SetupWithManager(mgr); err != nil {
+		return nil, errors.Wrap(err, "unable to create Zone controller")
 	}
 
 	c.mgr = mgr
