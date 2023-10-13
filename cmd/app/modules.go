@@ -66,13 +66,13 @@ func (a *App) setupModuleManager() error {
 		// Server:       nil,
 
 		Client:       {Server},
-		Conditioner:  {Server, MQTTClient, Controller},
+		Conditioner:  {Server, MQTTClient, Client, Controller},
 		Controller:   {Server},
 		Harvester:    {Server, MQTTClient, Client, Telemetry},
 		HookReceiver: {Server, Client, Conditioner},
 		MQTTClient:   {Server},
 		Telemetry:    {Server, Controller},
-		ZoneKeeper:   {Server, MQTTClient},
+		ZoneKeeper:   {Server, MQTTClient, Controller},
 
 		// Inventory: {Server},
 		// Lights:          {Server},
@@ -164,13 +164,6 @@ func (a *App) initController() (services.Service, error) {
 // }
 
 func (a *App) initTelemetry() (services.Service, error) {
-	// invClient, err := inventory.NewLDAPInventory(a.cfg.Inventory, a.logger)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	fmt.Printf("%+v", a.controller)
-
 	t, err := telemetry.New(a.cfg.Telemetry, a.logger, a.controller.Client())
 	if err != nil {
 		return nil, err
@@ -183,7 +176,7 @@ func (a *App) initTelemetry() (services.Service, error) {
 }
 
 func (a *App) initZoneKeeper() (services.Service, error) {
-	z, err := zonekeeper.New(a.cfg.ZoneKeeper, a.logger, a.mqttclient)
+	z, err := zonekeeper.New(a.cfg.ZoneKeeper, a.logger, a.mqttclient, a.controller.Client())
 	if err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/prometheus/common/version"
 
 	"github.com/zachfi/iotcontroller/modules/client"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
@@ -167,7 +168,9 @@ func (a *App) statusHandler() http.HandlerFunc {
 		msg := bytes.Buffer{}
 
 		simpleEndpoints := map[string]func(io.Writer) error{
+			"version":   a.writeStatusVersion,
 			"endpoints": a.writeStatusEndpoints,
+			"services":  a.writeStatusServices,
 		}
 
 		wrapStatus := func(endpoint string) {
@@ -185,6 +188,8 @@ func (a *App) statusHandler() http.HandlerFunc {
 		if endpoint, ok := vars["endpoint"]; ok {
 			wrapStatus(endpoint)
 		} else {
+			wrapStatus("version")
+			wrapStatus("services")
 			wrapStatus("endpoints")
 		}
 
@@ -270,6 +275,47 @@ func (a *App) writeStatusEndpoints(w io.Writer) error {
 
 	x.AppendSeparator()
 	x.Render()
+
+	return nil
+}
+
+func (a *App) writeStatusServices(w io.Writer) error {
+	svcNames := make([]string, 0, len(a.serviceMap))
+	for name := range a.serviceMap {
+		svcNames = append(svcNames, name)
+	}
+
+	sort.Strings(svcNames)
+
+	x := table.NewWriter()
+	x.SetOutputMirror(w)
+	x.AppendHeader(table.Row{"service name", "status", "failure case"})
+
+	for _, name := range svcNames {
+		service := a.serviceMap[name]
+
+		var e string
+
+		if err := service.FailureCase(); err != nil {
+			e = err.Error()
+		}
+
+		x.AppendRows([]table.Row{
+			{name, service.State(), e},
+		})
+	}
+
+	x.AppendSeparator()
+	x.Render()
+
+	return nil
+}
+
+func (t *App) writeStatusVersion(w io.Writer) error {
+	_, err := w.Write([]byte(version.Print(appName) + "\n"))
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
