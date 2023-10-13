@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// DeviceSpec defines the desired state of Device
+// DeviceSpec defines the desired state of Device in the Kubernetes API.
 type DeviceSpec struct {
 	Name            string `json:"friendly_name,omitempty"`
 	Description     string `json:"description,omitempty"`

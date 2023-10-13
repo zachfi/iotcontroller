@@ -28,7 +28,10 @@ type ZoneSpec struct {
 
 // ZoneStatus defines the observed state of Zone
 type ZoneStatus struct {
-	State string `json:"state,omitempty"`
+	State            string `json:"state,omitempty"`
+	Brightness       int8   `json:"brightness,omitempty"`
+	Color            string `json:"color,omitempty"`
+	ColorTemperature int32  `json:"color_temperature,omitempty"`
 }
 
 //+kubebuilder:object:root=true

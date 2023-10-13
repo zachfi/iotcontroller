@@ -38,6 +38,7 @@ spec:
               description:
                 type: string
               device_type:
+                format: int32
                 type: integer
               friendly_name:
                 type: string

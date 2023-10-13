@@ -19,14 +19,14 @@ package v1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/zachfi/iotcontroller/pkg/iot"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 // DeviceTypeSpec defines the desired state of DeviceType
 type DeviceTypeSpec struct {
-	Name        string         `json:"friendly_name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	DeviceType  iot.DeviceType `json:"device_type,omitempty"`
+	Name        string                `json:"friendly_name,omitempty"`
+	Description string                `json:"description,omitempty"`
+	DeviceType  iotv1proto.DeviceType `json:"device_type,omitempty"`
 }
 
 // DeviceTypeStatus defines the observed state of DeviceType

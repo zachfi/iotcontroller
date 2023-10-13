@@ -24,7 +24,8 @@ import (
 type ConditionSpec struct {
 	Name         string        `json:"name,omitempty"`
 	Enabled      bool          `json:"enabled,omitempty"`
-	AlertName    string        `json:"alert_name,omitempty"`
+	Alertname    string        `json:"alertname,omitempty"`
+	Zone         string        `json:"zone,omitempty"`
 	Remediations []Remediation `json:"remediations,omitempty"`
 }
 

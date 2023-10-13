@@ -33,7 +33,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: DeviceSpec defines the desired state of Device
+            description: DeviceSpec defines the desired state of Device in the Kubernetes
+              API.
             properties:
               date_code:
                 type: string
