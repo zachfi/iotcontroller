@@ -346,6 +346,8 @@ github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9dec
 github.com/yuin/goldmark v1.3.5/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1Zlc8k=
 github.com/zachfi/zkit v0.1.1-0.20230829172418-90c6c977de4f h1:Iaoho5JMh6PRiK5nOVoD3hnTcsM/PkbBRZytfABBsUg=
 github.com/zachfi/zkit v0.1.1-0.20230829172418-90c6c977de4f/go.mod h1:kgY137tLbVf/eeisOQeFxQBfK6gVZ2rHckoWG4U0d20=
+github.com/zachfi/zkit v0.1.1-0.20231103135530-91e89c2f96ce h1:4aWbdnWdT9NxfAswWUeiL3qR5vuZK8K7GyY2N/ytexY=
+github.com/zachfi/zkit v0.1.1-0.20231103135530-91e89c2f96ce/go.mod h1:kgY137tLbVf/eeisOQeFxQBfK6gVZ2rHckoWG4U0d20=
 github.com/zachfi/znet v0.32.16 h1:P1HRuVIpYQOT5PwR7eT4dJ4kN9PukUVkbxG551didMQ=
 github.com/zachfi/znet v0.32.16/go.mod h1:Y80y5v0cCIGZHdTS7k9pqtOi1MMpZdOqi7fgXn7IiUg=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
