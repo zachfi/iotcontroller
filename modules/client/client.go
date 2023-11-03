@@ -26,9 +26,9 @@ func New(cfg Config, logger *slog.Logger) (*Client, error) {
 	var err error
 
 	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
 		grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 	conn, err := grpc.Dial(cfg.ServerAddress, opts...)
 	if err != nil {

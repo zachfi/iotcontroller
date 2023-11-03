@@ -186,84 +186,156 @@ var AlertReceiverService_ServiceDesc = grpc.ServiceDesc{
 	Metadata: "iot/v1/iot.proto",
 }
 
-// ZoneServiceClient is the client API for ZoneService service.
+// ZoneKeeperServiceClient is the client API for ZoneKeeperService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type ZoneServiceClient interface {
-	SetState(ctx context.Context, in *ZoneServiceSetStateRequest, opts ...grpc.CallOption) (*ZoneServiceSetStateResponse, error)
+type ZoneKeeperServiceClient interface {
+	SetState(ctx context.Context, in *SetStateRequest, opts ...grpc.CallOption) (*SetStateResponse, error)
+	GetDeviceZone(ctx context.Context, in *GetDeviceZoneRequest, opts ...grpc.CallOption) (*GetDeviceZoneResponse, error)
+	ActionHandler(ctx context.Context, in *ActionHandlerRequest, opts ...grpc.CallOption) (*ActionHandlerResponse, error)
 }
 
-type zoneServiceClient struct {
+type zoneKeeperServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewZoneServiceClient(cc grpc.ClientConnInterface) ZoneServiceClient {
-	return &zoneServiceClient{cc}
+func NewZoneKeeperServiceClient(cc grpc.ClientConnInterface) ZoneKeeperServiceClient {
+	return &zoneKeeperServiceClient{cc}
 }
 
-func (c *zoneServiceClient) SetState(ctx context.Context, in *ZoneServiceSetStateRequest, opts ...grpc.CallOption) (*ZoneServiceSetStateResponse, error) {
-	out := new(ZoneServiceSetStateResponse)
-	err := c.cc.Invoke(ctx, "/iot.v1.ZoneService/SetState", in, out, opts...)
+func (c *zoneKeeperServiceClient) SetState(ctx context.Context, in *SetStateRequest, opts ...grpc.CallOption) (*SetStateResponse, error) {
+	out := new(SetStateResponse)
+	err := c.cc.Invoke(ctx, "/iot.v1.ZoneKeeperService/SetState", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// ZoneServiceServer is the server API for ZoneService service.
-// All implementations should embed UnimplementedZoneServiceServer
+func (c *zoneKeeperServiceClient) GetDeviceZone(ctx context.Context, in *GetDeviceZoneRequest, opts ...grpc.CallOption) (*GetDeviceZoneResponse, error) {
+	out := new(GetDeviceZoneResponse)
+	err := c.cc.Invoke(ctx, "/iot.v1.ZoneKeeperService/GetDeviceZone", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *zoneKeeperServiceClient) ActionHandler(ctx context.Context, in *ActionHandlerRequest, opts ...grpc.CallOption) (*ActionHandlerResponse, error) {
+	out := new(ActionHandlerResponse)
+	err := c.cc.Invoke(ctx, "/iot.v1.ZoneKeeperService/ActionHandler", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ZoneKeeperServiceServer is the server API for ZoneKeeperService service.
+// All implementations should embed UnimplementedZoneKeeperServiceServer
 // for forward compatibility
-type ZoneServiceServer interface {
-	SetState(context.Context, *ZoneServiceSetStateRequest) (*ZoneServiceSetStateResponse, error)
+type ZoneKeeperServiceServer interface {
+	SetState(context.Context, *SetStateRequest) (*SetStateResponse, error)
+	GetDeviceZone(context.Context, *GetDeviceZoneRequest) (*GetDeviceZoneResponse, error)
+	ActionHandler(context.Context, *ActionHandlerRequest) (*ActionHandlerResponse, error)
 }
 
-// UnimplementedZoneServiceServer should be embedded to have forward compatible implementations.
-type UnimplementedZoneServiceServer struct {
+// UnimplementedZoneKeeperServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedZoneKeeperServiceServer struct {
 }
 
-func (UnimplementedZoneServiceServer) SetState(context.Context, *ZoneServiceSetStateRequest) (*ZoneServiceSetStateResponse, error) {
+func (UnimplementedZoneKeeperServiceServer) SetState(context.Context, *SetStateRequest) (*SetStateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetState not implemented")
 }
+func (UnimplementedZoneKeeperServiceServer) GetDeviceZone(context.Context, *GetDeviceZoneRequest) (*GetDeviceZoneResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceZone not implemented")
+}
+func (UnimplementedZoneKeeperServiceServer) ActionHandler(context.Context, *ActionHandlerRequest) (*ActionHandlerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ActionHandler not implemented")
+}
 
-// UnsafeZoneServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ZoneServiceServer will
+// UnsafeZoneKeeperServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ZoneKeeperServiceServer will
 // result in compilation errors.
-type UnsafeZoneServiceServer interface {
-	mustEmbedUnimplementedZoneServiceServer()
+type UnsafeZoneKeeperServiceServer interface {
+	mustEmbedUnimplementedZoneKeeperServiceServer()
 }
 
-func RegisterZoneServiceServer(s grpc.ServiceRegistrar, srv ZoneServiceServer) {
-	s.RegisterService(&ZoneService_ServiceDesc, srv)
+func RegisterZoneKeeperServiceServer(s grpc.ServiceRegistrar, srv ZoneKeeperServiceServer) {
+	s.RegisterService(&ZoneKeeperService_ServiceDesc, srv)
 }
 
-func _ZoneService_SetState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ZoneServiceSetStateRequest)
+func _ZoneKeeperService_SetState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetStateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ZoneServiceServer).SetState(ctx, in)
+		return srv.(ZoneKeeperServiceServer).SetState(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/iot.v1.ZoneService/SetState",
+		FullMethod: "/iot.v1.ZoneKeeperService/SetState",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ZoneServiceServer).SetState(ctx, req.(*ZoneServiceSetStateRequest))
+		return srv.(ZoneKeeperServiceServer).SetState(ctx, req.(*SetStateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// ZoneService_ServiceDesc is the grpc.ServiceDesc for ZoneService service.
+func _ZoneKeeperService_GetDeviceZone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeviceZoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZoneKeeperServiceServer).GetDeviceZone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/iot.v1.ZoneKeeperService/GetDeviceZone",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZoneKeeperServiceServer).GetDeviceZone(ctx, req.(*GetDeviceZoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ZoneKeeperService_ActionHandler_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ActionHandlerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZoneKeeperServiceServer).ActionHandler(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/iot.v1.ZoneKeeperService/ActionHandler",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZoneKeeperServiceServer).ActionHandler(ctx, req.(*ActionHandlerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ZoneKeeperService_ServiceDesc is the grpc.ServiceDesc for ZoneKeeperService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var ZoneService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "iot.v1.ZoneService",
-	HandlerType: (*ZoneServiceServer)(nil),
+var ZoneKeeperService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iot.v1.ZoneKeeperService",
+	HandlerType: (*ZoneKeeperServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "SetState",
-			Handler:    _ZoneService_SetState_Handler,
+			Handler:    _ZoneKeeperService_SetState_Handler,
+		},
+		{
+			MethodName: "GetDeviceZone",
+			Handler:    _ZoneKeeperService_GetDeviceZone_Handler,
+		},
+		{
+			MethodName: "ActionHandler",
+			Handler:    _ZoneKeeperService_ActionHandler_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

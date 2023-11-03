@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"reflect"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grafana/dskit/services"
@@ -15,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -22,8 +25,8 @@ import (
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/pkg/iot"
-	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
-	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
 const (
@@ -42,11 +45,14 @@ type Telemetry struct {
 	tracer trace.Tracer
 
 	keeper thingKeeper
-	// lights     *lights.Lights
-	iotServer  *iot.Server
+
+	// TODO: hmm iot.Server???
+	iotServer        *iot.Server
+	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
+
 	seenThings map[string]time.Time
 
-	reportQueue chan *telemetryv1.TelemetryReportIOTDeviceRequest
+	reportQueue chan *telemetryv1proto.TelemetryReportIOTDeviceRequest
 
 	kubeclient client.Client
 
@@ -55,20 +61,18 @@ type Telemetry struct {
 
 type thingKeeper map[string]map[string]string
 
-func New(cfg Config, logger *slog.Logger, kubeclient client.Client) (*Telemetry, error) {
+func New(cfg Config, logger *slog.Logger, kubeclient client.Client, conn *grpc.ClientConn) (*Telemetry, error) {
 	s := &Telemetry{
 		cfg:    &cfg,
 		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 
-		// lights:     lig,
-		kubeclient: kubeclient,
+		kubeclient:       kubeclient,
+		zonekeeperClient: iotv1proto.NewZoneKeeperServiceClient(conn),
 
-		// cached: cached,
-		reportQueue: make(chan *telemetryv1.TelemetryReportIOTDeviceRequest, 1000),
-
-		keeper:     make(thingKeeper),
-		seenThings: make(map[string]time.Time),
+		reportQueue: make(chan *telemetryv1proto.TelemetryReportIOTDeviceRequest, 1000),
+		keeper:      make(thingKeeper),
+		seenThings:  make(map[string]time.Time),
 	}
 
 	// go func(s *Telemetry) {
@@ -167,74 +171,74 @@ func (l *Telemetry) hasLabels(nodeID string, labels []string) bool {
 }
 
 func (l *Telemetry) reportReceiver(ctx context.Context) {
-	var err error
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case req := <-l.reportQueue:
+			var err error
 			rCtx, span := l.tracer.Start(
 				context.Background(),
-				"Telemetry.TelemetryReportIOTDevice",
+				"Telemetry.ReportIOTDevice",
 				trace.WithSpanKind(trace.SpanKindServer),
 			)
 
-			discovery := req.GetDeviceDiscovery()
-
-			if discovery.ObjectId != "" {
-				telemetryIOTReport.WithLabelValues(discovery.ObjectId, discovery.Component).Inc()
-
-				span.SetAttributes(
-					attribute.String("component", discovery.Component),
-					attribute.String("object_id", discovery.ObjectId),
-				)
+			if req.DeviceDiscovery.ObjectId != "" {
+				telemetryIOTReport.WithLabelValues(req.DeviceDiscovery.ObjectId, req.DeviceDiscovery.Component).Inc()
 			}
 
-			switch discovery.Component {
+			span.SetAttributes(
+				attribute.String("component", req.DeviceDiscovery.Component),
+				attribute.String("node_id", req.DeviceDiscovery.NodeId),
+				attribute.String("object_id", req.DeviceDiscovery.ObjectId),
+				attribute.StringSlice("endpoints", req.DeviceDiscovery.Endpoints),
+			)
+
+			switch req.DeviceDiscovery.Component {
 			case "zigbee2mqtt":
 				err = l.handleZigbeeReport(rCtx, req)
-				if err != nil {
-					l.logger.Error("failed to handle zigbee report", "err", err)
-				}
+				_ = l.errHandler(span, err, "failed to handle zigbee report")
+				continue
+			case "ispindel":
+				err = l.handleIspindelReport(rCtx, req)
+				_ = l.errHandler(span, err, "failed to handle ispindel report")
 				continue
 			}
 
-			switch discovery.ObjectId {
+			switch req.DeviceDiscovery.ObjectId {
 			case "wifi":
-				err = l.handleWifiReport(req)
-				if err != nil {
-					l.logger.Error("failed to handle wifi report", "err", err)
-				}
-			case "air":
-				err = l.handleAirReport(req)
-				if err != nil {
-					l.logger.Error("failed to handle air report", "err", err)
-				}
-			case "water":
-				err = l.handleWaterReport(req)
-				if err != nil {
-					l.logger.Error("failed to handle water report", "err", err)
-				}
-			case "led1", "led2":
-				err = l.handleLEDReport(req)
-				if err != nil {
-					l.logger.Error("failed to handle led report", "err", err)
-				}
-			default:
-				telemetryIOTUnhandledReport.WithLabelValues(discovery.ObjectId, discovery.Component).Inc()
-			}
+				err = l.handleWifiReport(rCtx, req)
+				_ = l.errHandler(span, err, "failed to handle wifi report")
 
+			case "air":
+				err = l.handleAirReport(rCtx, req)
+				_ = l.errHandler(span, err, "failed to handle air report")
+
+			case "water":
+				err = l.handleWaterReport(rCtx, req)
+				_ = l.errHandler(span, err, "failed to handle water report")
+
+			case "led1", "led2":
+				err = l.handleLEDReport(rCtx, req)
+				_ = l.errHandler(span, err, "failed to handle led report")
+
+			default:
+				telemetryIOTUnhandledReport.WithLabelValues(req.DeviceDiscovery.ObjectId, req.DeviceDiscovery.Component).Inc()
+			}
 		}
 	}
 }
 
-func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1.TelemetryService_TelemetryReportIOTDeviceServer) error {
+func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1proto.TelemetryService_TelemetryReportIOTDeviceServer) error {
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
 			// Close the connection and return the response to the client
-			return stream.SendAndClose(&telemetryv1.TelemetryReportIOTDeviceResponse{})
+			return stream.SendAndClose(&telemetryv1proto.TelemetryReportIOTDeviceResponse{})
+		}
+
+		if errors.Is(err, context.Canceled) {
+			return nil
 		}
 
 		if err != nil {
@@ -242,16 +246,8 @@ func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1.TelemetryService
 			return err
 		}
 
-		_, span := l.tracer.Start(
-			context.Background(),
-			"Telemetry.TelemetryReportIOTDevice",
-			trace.WithSpanKind(trace.SpanKindServer),
-		)
-
 		l.reportQueue <- req
 		workQueueLength.With(prometheus.Labels{}).Set(float64(len(l.reportQueue)))
-
-		span.End()
 	}
 }
 
@@ -265,23 +261,115 @@ func (l *Telemetry) SetIOTServer(iotServer *iot.Server) error {
 	return nil
 }
 
-func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1.TelemetryReportIOTDeviceRequest) error {
-	if request == nil {
+func (l *Telemetry) handleIspindelReport(ctx context.Context, req *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {
+	var err error
+
+	if len(req.DeviceDiscovery.Endpoints) == 0 {
+		l.logger.Debug("unhandled empty ispindel endpoints", "discovery", fmt.Sprintf("%+v", req.DeviceDiscovery))
+		return nil
+	}
+
+	ctx, span := l.tracer.Start(ctx, "handleIspindelReport")
+	defer span.End()
+
+	name := strings.ToLower(req.DeviceDiscovery.ObjectId)
+	device, err := l.getOrCreateAPIDevice(ctx, name)
+	if err != nil {
+		return l.errHandler(span, err, "failed to get or create API device")
+	}
+
+	err = l.updateLastSeen(ctx, device)
+	if err != nil {
+		return l.errHandler(span, err, "failed to update last seen")
+	}
+
+	if device.Spec.Type != iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL.String() {
+		device.Spec.Type = iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL.String()
+		if err = l.kubeclient.Update(ctx, device); err != nil {
+			return fmt.Errorf("failed to update device spec: %w", err)
+		}
+	}
+
+	// in := &iotv1proto.GetDeviceZoneRequest{
+	// 	Device: req.DeviceDiscovery.ObjectId,
+	// }
+
+	// resp, err := l.zonekeeperClient.GetDeviceZone(ctx, in)
+	// if err != nil {
+	// 	return err
+	// }
+
+	var z string
+	if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
+		z = zone
+	}
+	if z == "" {
+		return fmt.Errorf("unable to metric without a zone")
+	}
+
+	d := req.DeviceDiscovery.ObjectId
+	m := req.DeviceDiscovery.Message
+
+	span.SetAttributes(
+		attribute.String("z", z),
+		attribute.String("d", d),
+		attribute.String("m", string(m)),
+	)
+
+	switch req.DeviceDiscovery.Endpoints[0] {
+	case "tilt":
+		f, err := strconv.ParseFloat(string(m), 64)
+		if err != nil {
+			return err
+		}
+		metricTiltAngle.WithLabelValues(d, z).Set(f)
+	case "temperature":
+		f, err := strconv.ParseFloat(string(m), 64)
+		if err != nil {
+			return err
+		}
+		metricTemperature.WithLabelValues(d, z).Set(f)
+	case "temp_units":
+	case "battery":
+		f, err := strconv.ParseFloat(string(m), 64)
+		if err != nil {
+			return err
+		}
+		metricBattery.WithLabelValues(d, z).Set(f)
+	case "gravity":
+		f, err := strconv.ParseFloat(string(m), 64)
+		if err != nil {
+			return err
+		}
+		metricSpecificGravity.WithLabelValues(d, z).Set(f)
+	case "interval":
+	case "RSSI":
+	}
+
+	return nil
+}
+
+func (l *Telemetry) handleZigbeeReport(ctx context.Context, req *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {
+	if req == nil {
 		return fmt.Errorf("unable to read zigbee report from nil request")
 	}
 
 	ctx, span := l.tracer.Start(ctx, "handleZigbeeReport")
 	defer span.End()
-	traceID := trace.SpanContextFromContext(ctx).TraceID().String()
-	l.logger.With("traceID", traceID).Debug("zigbee report")
 
-	discovery := request.DeviceDiscovery
+	name := strings.ToLower(req.DeviceDiscovery.ObjectId)
 
-	span.SetAttributes(
-		attribute.String("component", discovery.Component),
-	)
+	device, err := l.getOrCreateAPIDevice(ctx, name)
+	if err != nil {
+		return l.errHandler(span, err, "failed to get or create API device")
+	}
 
-	msg, err := iot.ReadZigbeeMessage(discovery.ObjectId, discovery.Message, discovery.Endpoints...)
+	err = l.updateLastSeen(ctx, device)
+	if err != nil {
+		return l.errHandler(span, err, "failed to update last seen")
+	}
+
+	msg, err := iot.ReadZigbeeMessage(ctx, l.tracer, req.DeviceDiscovery)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		return errors.Wrap(err, "failed to read zigbee message")
@@ -293,6 +381,7 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 
 	switch reflect.TypeOf(msg).String() {
 	case "iot.ZigbeeBridgeState":
+		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeBridgeState"))
 		m := msg.(iot.ZigbeeBridgeState)
 		switch m {
 		case iot.Offline:
@@ -302,72 +391,53 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, request *telemetryv1
 		}
 
 	case "iot.ZigbeeMessageBridgeDevices":
+		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeMessageBridgeDevices"))
 		m := msg.(iot.ZigbeeMessageBridgeDevices)
 		return l.handleZigbeeDevices(ctx, m)
-
 	case "iot.ZigbeeBridgeInfo":
+		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeBridgeInfo"))
 		// zigbee2mqtt/bridge/info
 	case "iot.ZigbeeBridgeLog":
+		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeBridgeLog"))
 		// zigbee2mqtt/bridge/log
 	case "iot.ZigbeeMessage":
+		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeMessage"))
 		m := msg.(iot.ZigbeeMessage)
 
-		var d apiv1.Device
-		nsn := types.NamespacedName{
-			Name:      request.DeviceDiscovery.ObjectId,
-			Namespace: namespace,
-		}
+		l.updateZigbeeMessageMetrics(ctx, m, req.DeviceDiscovery.Component, device)
 
-		_, getSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Get")
-		err := l.kubeclient.Get(ctx, nsn, &d)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				d.SetName(request.DeviceDiscovery.ObjectId)
-				d.SetNamespace(namespace)
+		// If this device has been annotated by a zone, then we pass the action to
+		// the zone handler.
+		if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
+			span.SetAttributes(
+				attribute.String("zone", zone),
+				attribute.String("m", fmt.Sprintf("%+v", m)),
+			)
 
-				_, createSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Create")
-				err = l.kubeclient.Create(ctx, &d)
-				if err != nil {
-					return errHandler(createSpan, err)
+			if m.Action != nil {
+				_, actionSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/ActionHandler")
+
+				req := &iotv1proto.ActionHandlerRequest{
+					Event:  *m.Action,
+					Device: device.Name,
+					Zone:   zone,
 				}
-				createSpan.AddEvent("created")
-				createSpan.End()
+
+				actionSpan.SetAttributes(
+					attribute.String("event", *m.Action),
+					attribute.String("device", device.Name),
+					attribute.String("zone", zone),
+				)
+
+				_, err := l.zonekeeperClient.ActionHandler(ctx, req)
+				if err != nil {
+					_ = l.errHandler(actionSpan, err, "action failed")
+					l.logger.Error("action failed", "err", err.Error())
+				} else {
+					_ = l.errHandler(span, err, "")
+				}
 			}
-
-			return errHandler(getSpan, err)
 		}
-		getSpan.End()
-
-		d.Status.LastSeen = uint64(time.Now().Unix())
-
-		_, statusUpdateSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/Status/Update")
-		if err = l.kubeclient.Status().Update(ctx, &d); err != nil {
-			statusUpdateSpan.SetStatus(codes.Error, err.Error())
-			statusUpdateSpan.End()
-			return err
-		}
-		statusUpdateSpan.End()
-
-		l.updateZigbeeMessageMetrics(m, request.DeviceDiscovery.Component, d)
-
-		// TODO: implement all actions needed to condition the environment according to spec.
-
-		// TODO: maybe implement this as an alert receiver.  I think this ends up being simpler to reason about, and avoids trying to rebuild promql in the Condition spec.
-		// l.conditioner(ctx, m, d)
-
-		// TODO: need to handle events for button presses, etc.
-		// 	if m.Action != nil {
-		// 		action := &iotv1.Action{
-		// 			Event:  *m.Action,
-		// 			Device: x.Name,
-		// 			Zone:   result.IotZone,
-		// 		}
-		//
-		// 		err = l.lights.ActionHandler(ctx, action)
-		// 		if err != nil {
-		// 			l.logger.Errorln("err", err.Error())
-		// 		}
-		// 	}
 
 	default:
 		l.logger.Error("unhandled iot message type", "type", fmt.Sprintf("%T", msg))
@@ -386,7 +456,7 @@ func (l *Telemetry) handleZigbeeDeviceUpdate(ctx context.Context, m iot.ZigbeeBr
 		"status", m.Meta["status"],
 	).Debug("upgrade report")
 
-	req := &iotv1.UpdateDeviceRequest{
+	req := &iotv1proto.UpdateDeviceRequest{
 		Device: m.Meta["device"].(string),
 	}
 
@@ -405,16 +475,14 @@ func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessage
 	defer span.End()
 
 	traceID := trace.SpanContextFromContext(spanCtx).TraceID().String()
-	l.logger.Debug("devices report", "traceID", traceID)
 
 	for _, d := range m {
-		select {
-		case <-ctx.Done():
-		default:
-			if err := l.handleZigbeeBridgeDevice(spanCtx, d); err != nil {
-				span.SetStatus(codes.Error, err.Error())
-				l.logger.Error("device report failed", "traceID", traceID, "err", err)
-			}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		if err := l.handleZigbeeBridgeDevice(spanCtx, d); err != nil {
+			l.logger.Error("device report failed", "traceID", traceID, "err", err)
 		}
 	}
 
@@ -422,8 +490,12 @@ func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessage
 }
 
 func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, d iot.ZigbeeBridgeDevice) error {
-	ctx, span := l.tracer.Start(ctx, "handleZigbeeDevice")
-	defer span.End()
+	var err error
+
+	ctx, span := l.tracer.Start(ctx, "Telemetry.handleZigbeeBridgeDevices")
+	defer func() {
+		_ = l.errHandler(span, err, "failed to handle zigbee bridge device")
+	}()
 
 	span.SetAttributes(
 		attribute.String("name", d.FriendlyName),
@@ -431,21 +503,15 @@ func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, d iot.ZigbeeBr
 
 	l.logger.Debug("device report", "traceID", trace.SpanContextFromContext(ctx).TraceID().String())
 
-	deviceName := types.NamespacedName{
-		Namespace: namespace,
-		Name:      d.FriendlyName,
+	var device *apiv1.Device
+	device, err = l.getOrCreateAPIDevice(ctx, d.FriendlyName)
+	if err != nil {
+		return l.errHandler(span, err, "failed to get or create API device")
 	}
 
-	var device apiv1.Device
-	if err := l.kubeclient.Get(ctx, deviceName, &device); err != nil {
-		l.logger.Error("failed to get device", "err", err)
-		device.SetName(d.FriendlyName)
-		device.SetNamespace(namespace)
-
-		if err := l.kubeclient.Create(ctx, &device); err != nil {
-			l.logger.Error("failed to create new device", "err", err)
-		}
-	}
+	span.SetAttributes(
+		attribute.String("d", fmt.Sprintf("%+v", d)),
+	)
 
 	device.Spec.Type = iot.ZigbeeDeviceType(d).String()
 	device.Spec.DateCode = d.DateCode
@@ -453,29 +519,40 @@ func (l *Telemetry) handleZigbeeBridgeDevice(ctx context.Context, d iot.ZigbeeBr
 	device.Spec.Vendor = d.Definition.Vendor
 	device.Spec.Description = d.Definition.Description
 
-	if err := l.kubeclient.Update(ctx, &device); err != nil {
-		l.logger.Error("failed to update device spec", "err", err)
+	span.SetAttributes(
+		attribute.String("d", fmt.Sprintf("%+v", d)),
+		attribute.String("type", device.Spec.Type),
+		attribute.String("model", device.Spec.Model),
+		attribute.String("vendor", device.Spec.Vendor),
+		attribute.String("description", device.Spec.Description),
+	)
+
+	if err = l.kubeclient.Update(ctx, device); err != nil {
+		return fmt.Errorf("failed to update device spec: %w", err)
 	}
 
 	device.Status.SoftwareBuildID = d.SoftwareBuildID
 
-	if err := l.kubeclient.Status().Update(ctx, &device); err != nil {
-		l.logger.Error("failed to update device status", "err", err)
+	if err = l.kubeclient.Status().Update(ctx, device); err != nil {
+		return fmt.Errorf("failed to update device status: %w", err)
 	}
 
 	return nil
 }
 
-func (l *Telemetry) handleLEDReport(request *telemetryv1.TelemetryReportIOTDeviceRequest) error {
+func (l *Telemetry) handleLEDReport(ctx context.Context, request *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {
 	if request == nil {
 		return fmt.Errorf("unable to read led report from nil request")
 	}
+
+	_, span := l.tracer.Start(ctx, "Telemetry.handleLEDReport")
+	defer span.End()
 
 	discovery := request.DeviceDiscovery
 
 	msg, err := iot.ReadMessage("led", discovery.Message, discovery.Endpoints...)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read message: %w", err)
 	}
 
 	if msg != nil {
@@ -491,7 +568,7 @@ func (l *Telemetry) handleLEDReport(request *telemetryv1.TelemetryReportIOTDevic
 	return nil
 }
 
-func (l *Telemetry) handleWaterReport(request *telemetryv1.TelemetryReportIOTDeviceRequest) error {
+func (l *Telemetry) handleWaterReport(ctx context.Context, request *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {
 	if request == nil {
 		return fmt.Errorf("unable to read water report from nil request")
 	}
@@ -514,7 +591,7 @@ func (l *Telemetry) handleWaterReport(request *telemetryv1.TelemetryReportIOTDev
 	return nil
 }
 
-func (l *Telemetry) handleAirReport(request *telemetryv1.TelemetryReportIOTDeviceRequest) error {
+func (l *Telemetry) handleAirReport(ctx context.Context, request *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {
 	if request == nil {
 		return fmt.Errorf("unable to read air report from nil request")
 	}
@@ -547,7 +624,7 @@ func (l *Telemetry) handleAirReport(request *telemetryv1.TelemetryReportIOTDevic
 	return nil
 }
 
-func (l *Telemetry) handleWifiReport(request *telemetryv1.TelemetryReportIOTDeviceRequest) error {
+func (l *Telemetry) handleWifiReport(ctx context.Context, request *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {
 	if request == nil {
 		return fmt.Errorf("unable to read wifi report from nil request")
 	}
@@ -583,15 +660,11 @@ func (l *Telemetry) handleWifiReport(request *telemetryv1.TelemetryReportIOTDevi
 	return nil
 }
 
-func (l *Telemetry) updateZigbeeMessageMetrics(
-	m iot.ZigbeeMessage,
-	component string,
-	device apiv1.Device,
-) {
+func (l *Telemetry) updateZigbeeMessageMetrics(ctx context.Context, m iot.ZigbeeMessage, component string, device *apiv1.Device) {
 	var zone string
 
-	if val := device.Spec.Zone; val != "" {
-		zone = val
+	if v, ok := device.Labels[iot.DeviceZoneLabel]; ok {
+		zone = v
 	}
 
 	if m.Battery != nil {
@@ -660,9 +733,72 @@ func (l *Telemetry) updateZigbeeMessageMetrics(
 	}
 }
 
-func errHandler(span trace.Span, err error) error {
+func (l *Telemetry) getOrCreateAPIDevice(ctx context.Context, name string) (*apiv1.Device, error) {
+	_, span := l.tracer.Start(ctx, "Telemetry/getOrCreateAPIDevice", trace.WithAttributes(
+		attribute.String("device", name),
+	))
+
+	var (
+		err    error
+		device apiv1.Device
+	)
+
+	nsn := types.NamespacedName{
+		Name:      strings.ToLower(name),
+		Namespace: namespace,
+	}
+
+	err = l.kubeclient.Get(ctx, nsn, &device)
 	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
+		if apierrors.IsNotFound(err) {
+			span.AddEvent("zone not found")
+			err = l.createAPIDevice(ctx, &device, nsn.Name)
+			if err != nil {
+				return nil, l.errHandler(span, err, "failed")
+			}
+		}
+	}
+	return &device, l.errHandler(span, err, "")
+}
+
+func (l *Telemetry) createAPIDevice(ctx context.Context, device *apiv1.Device, name string) error {
+	_, span := l.tracer.Start(ctx, "Telemetry/createAPIDevice", trace.WithAttributes(
+		attribute.String("device", device.Name),
+	))
+
+	device.Name = name
+	device.Namespace = namespace
+
+	err := l.kubeclient.Create(ctx, device)
+	if err != nil {
+		return l.errHandler(span, err, "failed to create API device")
+	}
+
+	span.AddEvent("created")
+
+	return l.errHandler(span, err, "")
+}
+
+func (l *Telemetry) updateLastSeen(ctx context.Context, device *apiv1.Device) error {
+	ctx, span := l.tracer.Start(ctx, "Telemetry/updateLastSeen")
+	var err error
+
+	device.Status.LastSeen = uint64(time.Now().Unix())
+
+	err = l.kubeclient.Status().Update(ctx, device)
+	if err != nil {
+		return l.errHandler(span, err, "failed to update status")
+	}
+
+	return l.errHandler(span, err, "")
+}
+
+func (l *Telemetry) errHandler(span trace.Span, err error, message string) error {
+	if err != nil {
+		l.logger.Error(message, "err", err)
+		span.SetStatus(codes.Error, fmt.Errorf("%s: %w", message, err).Error())
+	} else {
+		span.SetStatus(codes.Ok, "ok")
 	}
 	span.End()
 	return err

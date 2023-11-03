@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	sync "sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
@@ -43,20 +47,10 @@ var defaultBrightnessMap = map[iotv1proto.Brightness]uint8{
 }
 var defaultScheduleDuration = time.Minute * 10
 
-func NewZone(name string) *Zone {
-	z := &Zone{
-		colorTemp:     tempDay,
-		brightnessMap: defaultBrightnessMap,
-		colorTempMap:  defaultColorTemperatureMap,
-	}
-
-	z.SetName(name)
-
-	return z
-}
-
 type Zone struct {
-	sync.Mutex
+	mtx    sync.Mutex
+	logger *slog.Logger
+	tracer trace.Tracer
 
 	name string
 
@@ -73,14 +67,36 @@ type Zone struct {
 }
 
 func (z *Zone) State() iotv1proto.ZoneState {
-	z.Lock()
-	defer z.Unlock()
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
 	return z.state
 }
 
+func NewZone(name string, logger *slog.Logger) (*Zone, error) {
+	if name == "" {
+		return nil, fmt.Errorf("zone name required")
+	}
+
+	z := &Zone{
+		name:          name,
+		logger:        logger.With("zone", name),
+		tracer:        otel.Tracer(name),
+		colorPool:     defaultColorPool,
+		colorTemp:     tempDay,
+		brightnessMap: defaultBrightnessMap,
+		colorTempMap:  defaultColorTemperatureMap,
+	}
+
+	return z, nil
+}
+
 func (z *Zone) SetDevice(device *iotv1proto.Device, handler Handler) error {
-	z.Lock()
-	defer z.Unlock()
+	if handler == nil {
+		return fmt.Errorf("unable to set nil handler on device: %q", device.Name)
+	}
+
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
 
 	if device == nil {
 		return ErrInvalidDevice
@@ -90,8 +106,17 @@ func (z *Zone) SetDevice(device *iotv1proto.Device, handler Handler) error {
 		return ErrInvalidDevice
 	}
 
+	if device.Type == iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED {
+		return ErrInvalidDevice
+	}
+
+	if z.devices == nil {
+		z.devices = make(map[*iotv1proto.Device]Handler)
+	}
+
 	for k := range z.devices {
-		if k.Name == device.Name {
+		if strings.EqualFold(k.Name, device.Name) {
+			k.Type = device.Type
 			return nil
 		}
 	}
@@ -101,21 +126,15 @@ func (z *Zone) SetDevice(device *iotv1proto.Device, handler Handler) error {
 	return nil
 }
 
-func (z *Zone) SetName(name string) {
-	z.Lock()
-	defer z.Unlock()
-	z.name = name
-}
-
 func (z *Zone) SetBrightnessMap(m map[iotv1proto.Brightness]uint8) {
-	z.Lock()
-	defer z.Unlock()
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
 	z.brightnessMap = m
 }
 
 func (z *Zone) SetColorTemperatureMap(m map[iotv1proto.ColorTemperature]int32) {
-	z.Lock()
-	defer z.Unlock()
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
 	z.colorTempMap = m
 }
 
@@ -169,17 +188,6 @@ func (z *Zone) On(ctx context.Context) error {
 	return z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
 }
 
-// func (z *Zone) Alert(ctx context.Context) error {
-// 	for _, h := range z.handlers {
-// 		err := h.Alert(ctx, z.Name())
-// 		if err != nil {
-// 			return fmt.Errorf("%s alert: %w", z.name, ErrHandlerFailed)
-// 		}
-// 	}
-//
-// 	return nil
-// }
-
 func (z *Zone) SetColor(ctx context.Context, color string) error {
 	z.color = color
 	return z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_COLOR)
@@ -194,22 +202,40 @@ func (z *Zone) SetState(ctx context.Context, state iotv1proto.ZoneState) error {
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
-	z.Lock()
-	defer z.Unlock()
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
 
 	z.state = state
 
 	return z.Flush(ctx)
 }
 
+func (z *Zone) HasDevice(device string) bool {
+	z.logger.Info("HasDevice", "devices", len(z.devices))
+
+	for d := range z.devices {
+		z.logger.Info("equalfold", "d.Name", d.Name, "device", device)
+		if strings.EqualFold(d.Name, device) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Flush handles pushing the current state out to each of the hnadlers.
 func (z *Zone) Flush(ctx context.Context) error {
 	if z.name == "" {
-		return fmt.Errorf("unable to handle unnamed zone")
+		return fmt.Errorf("unable to handle unnamed zone: %+v", z)
 	}
 
-	span := trace.SpanFromContext(ctx)
+	ctx, span := z.tracer.Start(ctx, "Zone.Flush")
 	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("name", z.name),
+		attribute.String("state", z.state.String()),
+	)
 
 	switch z.state {
 	case iotv1proto.ZoneState_ZONE_STATE_ON:
@@ -217,19 +243,9 @@ func (z *Zone) Flush(ctx context.Context) error {
 	case iotv1proto.ZoneState_ZONE_STATE_OFF:
 		return z.handleOff(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_COLOR:
-		for device, h := range z.devices {
-			err := h.SetColor(ctx, device, z.color)
-			if err != nil {
-				return fmt.Errorf("%s color: %w", z.name, ErrHandlerFailed)
-			}
-		}
+		return z.handleColor(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR:
-		for device, h := range z.devices {
-			err := h.RandomColor(ctx, device, z.colorPool)
-			if err != nil {
-				return fmt.Errorf("%s random color: %w", z.name, ErrHandlerFailed)
-			}
-		}
+		return z.handleRandomColor(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION:
 		z.color = nightVisionColor
 		return z.handleColor(ctx)
@@ -248,6 +264,9 @@ func (z *Zone) Flush(ctx context.Context) error {
 // includes brightness and color temperature.  The color hue of the light is
 // handled by ZoneState_COLOR.
 func (z *Zone) handleOn(ctx context.Context) error {
+	ctx, span := z.tracer.Start(ctx, "Zone.handleOn")
+	defer span.End()
+
 	var err error
 	var errs []error
 	for device, h := range z.devices {
@@ -284,6 +303,9 @@ func (z *Zone) handleOn(ctx context.Context) error {
 }
 
 func (z *Zone) handleOff(ctx context.Context) error {
+	ctx, span := z.tracer.Start(ctx, "Zone.handleOff")
+	defer span.End()
+
 	var err error
 	var errs []error
 	for device, h := range z.devices {
@@ -310,6 +332,9 @@ func (z *Zone) handleOff(ctx context.Context) error {
 }
 
 func (z *Zone) handleColorTemperature(ctx context.Context) error {
+	ctx, span := z.tracer.Start(ctx, "Zone.handleColorTemperature")
+	defer span.End()
+
 	var err error
 	var errs []error
 	for device, h := range z.devices {
@@ -334,6 +359,9 @@ func (z *Zone) handleColorTemperature(ctx context.Context) error {
 }
 
 func (z *Zone) handleBrightness(ctx context.Context) error {
+	ctx, span := z.tracer.Start(ctx, "Zone.handleBrightness")
+	defer span.End()
+
 	var err error
 	var errs []error
 	for device, h := range z.devices {
@@ -359,6 +387,9 @@ func (z *Zone) handleBrightness(ctx context.Context) error {
 }
 
 func (z *Zone) handleColor(ctx context.Context) error {
+	ctx, span := z.tracer.Start(ctx, "Zone.handleColor")
+	defer span.End()
+
 	var err error
 	var errs []error
 	for device, h := range z.devices {
@@ -370,6 +401,33 @@ func (z *Zone) handleColor(ctx context.Context) error {
 		}
 
 		err = h.SetColor(ctx, device, z.color)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+func (z *Zone) handleRandomColor(ctx context.Context) error {
+	ctx, span := z.tracer.Start(ctx, "Zone.handleRandomColor")
+	defer span.End()
+
+	var err error
+	var errs []error
+	for device, h := range z.devices {
+
+		switch device.Type {
+		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
+		default:
+			continue
+		}
+
+		err = h.RandomColor(ctx, device, z.colorPool)
 		if err != nil {
 			errs = append(errs, err)
 		}

@@ -5,7 +5,7 @@ package telemetry.v1;
 import "iot/v1/iot.proto";
 
 message TelemetryReportIOTDeviceRequest {
-  iot.v1.DeviceDiscovery device_discovery = 2;
+  iot.v1.DeviceDiscovery device_discovery = 1;
 }
 
 message TelemetryReportIOTDeviceResponse {}

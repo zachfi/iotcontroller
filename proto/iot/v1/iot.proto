@@ -15,12 +15,6 @@ message DeviceDiscovery {
   bytes message = 6;
 }
 
-message Action {
-  string event = 1;
-  string device = 2;
-  string zone = 3;
-}
-
 message AlertRequest {
   string group = 1;
   string status = 2;
@@ -73,16 +67,29 @@ enum ZoneState {
   ZONE_STATE_MORNINGVISION = 8;
 }
 
-message ZoneServiceSetStateResponse {}
+message SetStateResponse {}
 
-message ZoneServiceSetStateRequest {
+message SetStateRequest {
   string name = 1;
   ZoneState state = 2;
 }
 
-service ZoneService {
-  rpc SetState(ZoneServiceSetStateRequest)
-      returns (ZoneServiceSetStateResponse);
+message GetDeviceZoneRequest { string device = 1; }
+
+message GetDeviceZoneResponse { string zone = 1; }
+
+message ActionHandlerRequest {
+  string event = 1;
+  string device = 2;
+  string zone = 3;
+}
+
+message ActionHandlerResponse {}
+
+service ZoneKeeperService {
+  rpc SetState(SetStateRequest) returns (SetStateResponse);
+  rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
+  rpc ActionHandler(ActionHandlerRequest) returns (ActionHandlerResponse);
 }
 
 message Device {
@@ -101,4 +108,5 @@ enum DeviceType {
   DEVICE_TYPE_MOISTURE = 7;
   DEVICE_TYPE_TEMPERATURE = 8;
   DEVICE_TYPE_MOTION = 9;
+  DEVICE_TYPE_ISPINDEL = 10;
 }

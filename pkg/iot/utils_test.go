@@ -1,12 +1,12 @@
-//go:build unit
-
 package iot
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	trace "go.opentelemetry.io/otel/trace"
 
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -85,6 +85,15 @@ func TestParseTopicPath(t *testing.T) {
 				Component: "zigbee2mqtt",
 				ObjectID:  "0x00158d0004238a81",
 				Endpoints: []string{},
+			},
+		},
+
+		{
+			Topic: "ispindel/brewHydroWhite/RSSI",
+			Should: TopicPath{
+				Component: "ispindel",
+				ObjectID:  "brewHydroWhite",
+				Endpoints: []string{"RSSI"},
 			},
 		},
 
@@ -215,21 +224,22 @@ func TestReadZigbeeMessage(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		ObjectID  string
-		Payload   []byte
-		Endpoints []string
+		discovery *iotv1proto.DeviceDiscovery
 		Obj       interface{}
 		Err       error
 	}{
 		{
-			ObjectID:  "bridge",
-			Payload:   []byte(`online`),
-			Endpoints: []string{"state"},
-			Obj:       ZigbeeBridgeState("online"),
+			discovery: &iotv1proto.DeviceDiscovery{
+				ObjectId:  "bridge",
+				Message:   []byte(`online`),
+				Endpoints: []string{"state"},
+			},
+			Obj: ZigbeeBridgeState("online"),
 		},
 		{
-			ObjectID: "bridge",
-			Payload: []byte(`{
+			discovery: &iotv1proto.DeviceDiscovery{
+				ObjectId: "bridge",
+				Message: []byte(`{
 				"message":"Update available for '0x001777090899e9c9'",
 				"meta":{
 					"device":"0x001777090899e9c9",
@@ -237,7 +247,8 @@ func TestReadZigbeeMessage(t *testing.T) {
 				},
 				"type":"ota_update"
 			}`),
-			Endpoints: []string{"log"},
+				Endpoints: []string{"log"},
+			},
 			Obj: ZigbeeBridgeLog{
 				Message: "Update available for '0x001777090899e9c9'",
 				Meta: map[string]interface{}{
@@ -248,15 +259,21 @@ func TestReadZigbeeMessage(t *testing.T) {
 			},
 		},
 		{
-			ObjectID:  "bridge",
-			Payload:   []byte(`online`),
-			Endpoints: []string{"config"},
-			Obj:       nil,
+			discovery: &iotv1proto.DeviceDiscovery{
+				ObjectId:  "bridge",
+				Message:   []byte(`online`),
+				Endpoints: []string{"config"},
+			},
+			Obj: nil,
 		},
 	}
 
+	ctx := context.Background()
+	tracer := trace.NewNoopTracerProvider().Tracer("test")
+
 	for _, tc := range cases {
-		result, err := ReadZigbeeMessage(tc.ObjectID, tc.Payload, tc.Endpoints...)
+
+		result, err := ReadZigbeeMessage(ctx, tracer, tc.discovery)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.Obj, result)
 	}
@@ -310,6 +327,62 @@ func TestZigbeeDeviceType(t *testing.T) {
 				},
 			},
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_RELAY,
+		},
+		{
+			bridgeDevice: ZigbeeBridgeDevice{
+				Definition: ZigbeeBridgeDeviceDefinition{
+					Vendor: "SONOFF",
+					Model:  "SNZB-01",
+				},
+			},
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
+		},
+		{
+			bridgeDevice: ZigbeeBridgeDevice{
+				Definition: ZigbeeBridgeDeviceDefinition{
+					Vendor:      "Philips",
+					Description: "Hue dimmer switch",
+				},
+			},
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
+		},
+		{
+			bridgeDevice: ZigbeeBridgeDevice{
+				Definition: ZigbeeBridgeDeviceDefinition{
+					Vendor:      "Philips",
+					Description: "Hue Tap dial switch",
+				},
+			},
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
+		},
+		{
+			bridgeDevice: ZigbeeBridgeDevice{
+				Definition: ZigbeeBridgeDeviceDefinition{
+					Vendor:      "Third Reality",
+					Description: "Temperature and humidity sensor",
+					Model:       "3RTHS24BZ",
+				},
+			},
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE,
+		},
+		{
+			bridgeDevice: ZigbeeBridgeDevice{
+				Definition: ZigbeeBridgeDeviceDefinition{
+					Vendor:      "Third Reality",
+					Description: "Smart button",
+					Model:       "3RSB22BZ",
+				},
+			},
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
+		},
+		{
+			bridgeDevice: ZigbeeBridgeDevice{
+				Definition: ZigbeeBridgeDeviceDefinition{
+					Vendor: "TuYa",
+					Model:  "TS0601_air_quality_sensor",
+				},
+			},
+			devType: iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE,
 		},
 	}
 

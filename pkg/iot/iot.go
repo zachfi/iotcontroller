@@ -3,6 +3,10 @@ package iot
 
 import "errors"
 
+const (
+	DeviceZoneLabel = "iot/zone"
+)
+
 var (
 	ErrHandlerFailed = errors.New("handler failed")
 	ErrInvalidDevice = errors.New("invalid device")

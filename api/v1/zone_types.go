@@ -22,7 +22,6 @@ import (
 
 // ZoneSpec defines the desired state of Zone
 type ZoneSpec struct {
-	Name    string   `json:"name,omitempty"`
 	Devices []string `json:"devices,omitempty"`
 }
 

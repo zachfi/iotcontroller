@@ -110,4 +110,37 @@ var (
 		Name: "iotcontroller_telemetry_queue_length",
 		Help: "The number of jobs in the work queue",
 	}, []string{})
+
+	// ispindel/brewHydroWhite/tilt 57.43604
+	// ispindel/brewHydroWhite/temperature 5.125
+	// ispindel/brewHydroWhite/temp_units C
+	// ispindel/brewHydroWhite/battery 4.139729
+	// ispindel/brewHydroWhite/gravity 1.056852
+	// ispindel/brewHydroWhite/interval 900
+	// ispindel/brewHydroWhite/RSSI -62
+
+	metricSpecificGravity = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "iot_specific_gravity",
+		Help: "Specific Gravity",
+	}, []string{"device", "zone"})
+
+	metricTiltAngle = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "iot_tilt_angle",
+		Help: "tilt angle",
+	}, []string{"device", "zone"})
+
+	metricTemperature = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "iot_temperature",
+		Help: "temperature",
+	}, []string{"device", "zone"})
+
+	metricBattery = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "iot_battery",
+		Help: "temperature",
+	}, []string{"device", "zone"})
+
+	metricRSSI = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "iot_rssi",
+		Help: "Device wireless RSSI",
+	}, []string{"device", "zone"})
 )

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -33,19 +32,23 @@ type ZigbeeHandler struct {
 
 const defaultTransitionTime = 0.5
 
-func New(mqttClient mqtt.Client, logger *slog.Logger) (*ZigbeeHandler, error) {
+func New(mqttClient mqtt.Client, logger *slog.Logger, tracer trace.Tracer) (*ZigbeeHandler, error) {
+	if mqttClient == nil {
+		return nil, fmt.Errorf("mqttClient cannot be nil")
+	}
+
 	return &ZigbeeHandler{
 		mqttClient: mqttClient,
 		logger:     logger.With("handler", "zigbee"),
-		tracer:     otel.Tracer("zigbeeHandler"),
+		tracer:     tracer,
 	}, nil
 }
 
 func (l ZigbeeHandler) On(ctx context.Context, device *iotv1proto.Device) error {
-	ctx, span := l.tracer.Start(ctx, "On")
-	defer span.End()
-	span.SetAttributes(attribute.String("device_name", device.Name))
-	span.SetAttributes(attribute.String("device_type", device.Type.String()))
+	_, span := l.tracer.Start(ctx, "ZigbeeHandler/On", trace.WithAttributes(
+		attribute.String("device_name", device.Name),
+		attribute.String("device_type", device.Type.String()),
+	))
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
 	message := map[string]interface{}{
@@ -66,10 +69,11 @@ func (l ZigbeeHandler) On(ctx context.Context, device *iotv1proto.Device) error 
 }
 
 func (l ZigbeeHandler) Off(ctx context.Context, device *iotv1proto.Device) error {
-	ctx, span := l.tracer.Start(ctx, "Off")
+	_, span := l.tracer.Start(ctx, "ZigbeeHandler/Off", trace.WithAttributes(
+		attribute.String("device_name", device.Name),
+		attribute.String("device_type", device.Type.String()),
+	))
 	defer span.End()
-	span.SetAttributes(attribute.String("device_name", device.Name))
-	span.SetAttributes(attribute.String("device_type", device.Type.String()))
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
 	message := map[string]interface{}{
@@ -90,10 +94,11 @@ func (l ZigbeeHandler) Off(ctx context.Context, device *iotv1proto.Device) error
 }
 
 func (l ZigbeeHandler) Alert(ctx context.Context, device *iotv1proto.Device) error {
-	ctx, span := l.tracer.Start(ctx, "Alert")
+	_, span := l.tracer.Start(ctx, "ZigbeeHandler/Alert", trace.WithAttributes(
+		attribute.String("device_name", device.Name),
+		attribute.String("device_type", device.Type.String()),
+	))
 	defer span.End()
-	span.SetAttributes(attribute.String("device_name", device.Name))
-	span.SetAttributes(attribute.String("device_type", device.Type.String()))
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
 	message := map[string]interface{}{
@@ -114,10 +119,11 @@ func (l ZigbeeHandler) Alert(ctx context.Context, device *iotv1proto.Device) err
 }
 
 func (l ZigbeeHandler) SetBrightness(ctx context.Context, device *iotv1proto.Device, brightness uint8) error {
-	ctx, span := l.tracer.Start(ctx, "SetBrightness")
+	_, span := l.tracer.Start(ctx, "ZigbeeHandler/SetBrightness", trace.WithAttributes(
+		attribute.String("device_name", device.Name),
+		attribute.String("device_type", device.Type.String()),
+	))
 	defer span.End()
-	span.SetAttributes(attribute.String("device_name", device.Name))
-	span.SetAttributes(attribute.String("device_type", device.Type.String()))
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
 	message := map[string]interface{}{
@@ -137,10 +143,11 @@ func (l ZigbeeHandler) SetBrightness(ctx context.Context, device *iotv1proto.Dev
 }
 
 func (l ZigbeeHandler) SetColor(ctx context.Context, device *iotv1proto.Device, hex string) error {
-	ctx, span := l.tracer.Start(ctx, "SetColor")
+	_, span := l.tracer.Start(ctx, "ZigbeeHandler/SetColor", trace.WithAttributes(
+		attribute.String("device_name", device.Name),
+		attribute.String("device_type", device.Type.String()),
+	))
 	defer span.End()
-	span.SetAttributes(attribute.String("device_name", device.Name))
-	span.SetAttributes(attribute.String("device_type", device.Type.String()))
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
 	message := map[string]interface{}{
@@ -163,10 +170,11 @@ func (l ZigbeeHandler) SetColor(ctx context.Context, device *iotv1proto.Device, 
 }
 
 func (l ZigbeeHandler) RandomColor(ctx context.Context, device *iotv1proto.Device, hex []string) error {
-	ctx, span := l.tracer.Start(ctx, "RandomColor")
+	_, span := l.tracer.Start(ctx, "ZigbeeHandler/RandomColor", trace.WithAttributes(
+		attribute.String("device_name", device.Name),
+		attribute.String("device_type", device.Type.String()),
+	))
 	defer span.End()
-	span.SetAttributes(attribute.String("device_name", device.Name))
-	span.SetAttributes(attribute.String("device_type", device.Type.String()))
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
 	message := map[string]interface{}{
@@ -189,10 +197,11 @@ func (l ZigbeeHandler) RandomColor(ctx context.Context, device *iotv1proto.Devic
 }
 
 func (l ZigbeeHandler) SetColorTemp(ctx context.Context, device *iotv1proto.Device, temp int32) error {
-	ctx, span := l.tracer.Start(ctx, "SetColorTemp")
+	_, span := l.tracer.Start(ctx, "ZigbeeHandler/SetColorTemp", trace.WithAttributes(
+		attribute.String("device_name", device.Name),
+		attribute.String("device_type", device.Type.String()),
+	))
 	defer span.End()
-	span.SetAttributes(attribute.String("device_name", device.Name))
-	span.SetAttributes(attribute.String("device_type", device.Type.String()))
 
 	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
 	message := map[string]interface{}{

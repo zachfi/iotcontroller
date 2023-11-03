@@ -3,17 +3,17 @@ module github.com/zachfi/iotcontroller
 go 1.21
 
 require (
+	github.com/davecgh/go-spew v1.1.1
 	github.com/eclipse/paho.mqtt.golang v1.4.2
 	github.com/go-kit/log v0.2.1
 	github.com/gorilla/mux v1.8.0
-	github.com/grafana/dskit v0.0.0-20230829141140-06955c011ffd
+	github.com/grafana/dskit v0.0.0-20231012002814-3b80e3b2a51c
 	github.com/jedib0t/go-pretty/v6 v6.4.6
 	github.com/onsi/ginkgo/v2 v2.4.0
 	github.com/onsi/gomega v1.24.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.15.1
 	github.com/prometheus/common v0.44.0
-	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.8.1
 	github.com/zachfi/zkit v0.1.1-0.20230829172418-90c6c977de4f
 	github.com/zachfi/znet v0.32.16
@@ -44,7 +44,6 @@ require (
 	github.com/cenkalti/backoff/v4 v4.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.8.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
@@ -87,7 +86,7 @@ require (
 	github.com/prometheus/exporter-toolkit v0.10.1-0.20230714054209-2f4150c63f97 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
-	github.com/sercand/kuberesolver/v4 v4.0.0 // indirect
+	github.com/sercand/kuberesolver/v5 v5.1.1 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/uber/jaeger-client-go v2.29.1+incompatible // indirect

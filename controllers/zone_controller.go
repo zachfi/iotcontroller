@@ -19,14 +19,15 @@ package controllers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,8 +36,6 @@ import (
 
 	iotv1 "github.com/zachfi/iotcontroller/api/v1"
 	iot "github.com/zachfi/iotcontroller/pkg/iot"
-	"github.com/zachfi/iotcontroller/pkg/iot/handlers/zigbee"
-	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 // ZoneReconciler reconciles a Zone object
@@ -45,19 +44,9 @@ type ZoneReconciler struct {
 	Scheme *runtime.Scheme
 	sync.Mutex
 
-	tracer     trace.Tracer
-	logger     *slog.Logger
-	mqttclient mqtt.Client
-
-	handlers map[controllerHandler]iot.Handler
-	zones    map[string]*iot.Zone
+	tracer trace.Tracer
+	logger *slog.Logger
 }
-
-type controllerHandler int
-
-const (
-	controllerHandlerZigbee controllerHandler = iota
-)
 
 //+kubebuilder:rbac:groups=iot.iot,resources=devices,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=iot.iot,resources=devices/status,verbs=get;update;patch
@@ -68,57 +57,70 @@ const (
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
-func (r *ZoneReconciler) Reconcile(rctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ZoneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var err error
-	log := log.FromContext(rctx)
-
-	// TODO: zleslie -- think about moving the iot.Zone object into the API so
-	// that the controller can act on it.  Flushing could be done here, since
-	// each time the status updated then we get a reconcile here, and so should
-	// be able to flush out the mqtt what the status should be.  Handlers could
-	// also be checked here, though perhaps static and receiving an API device.
-	// Knowing the type of device ahead of time will let us know which handler to
-	// call.  This might mean that the zonekeeper meerly updates the status in
-	// kubernetes and the logic of taking action on that zone is here.
+	log := log.FromContext(ctx)
 
 	attributes := []attribute.KeyValue{
-		attribute.String("req", req.String()),
+		attribute.String("req", req.Name),
 		attribute.String("namespace", req.Namespace),
 	}
-	ctx, span := r.tracer.Start(rctx, "Reconcile", trace.WithAttributes(attributes...))
-	defer func() {
-		if err != nil {
-			span.SetStatus(codes.Error, err.Error())
-		}
-		span.End()
-	}()
+	ctx, span := r.tracer.Start(ctx, "Zone.Reconcile", trace.WithAttributes(attributes...))
+	defer func() { handleErr(span, err) }()
 
-	var zone *iotv1.Zone
-
-	if err = r.Get(ctx, req.NamespacedName, zone); err != nil {
+	zone := iotv1.Zone{}
+	_, getZoneSpan := r.tracer.Start(ctx, "GetZone")
+	if err = r.Get(ctx, req.NamespacedName, &zone); err != nil {
 		log.Error(err, "failed to get resource")
+		handleErr(getZoneSpan, err)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	handleErr(getZoneSpan, err)
+	getZoneSpan.End()
 
-	// INFO: Think about moving the zone deices to the Status, then set the zone
-	// on the device, which we will then query for here.
+	deviceList := iotv1.DeviceList{}
 
-	// TODO: Get all of the devices that we have for this zone and update the
-	// existing instance with the devics.
+	// wg := sync.WaitGroup{}
+	// go func() {
+	// 	wg.Add(1)
+	// 	defer wg.Done()
+	//
+	// 	ctx, syncLabelSpan := r.tracer.Start(ctx, "Reconcile", trace.WithAttributes(attributes...))
+	// 	defer syncLabelSpan.End()
+	//
+	// 	device := iotv1.Device{}
+	// 	for _, id := range zone.Spec.Devices {
+	// 		nsn := types.NamespacedName{
+	// 			Namespace: zone.Namespace,
+	// 			Name:      id,
+	// 		}
+	//
+	// 		if err = r.Get(ctx, nsn, &device); err != nil {
+	// 		}
+	// 	}
+	// }()
 
-	deviceList := &iotv1.DeviceList{}
+	span.SetAttributes(
+		attribute.Int("devices", len(zone.Spec.Devices)),
+	)
 
-	selector := fields.SelectorFromSet(fields.Set{"zone": req.Name})
-	listOptions := &client.ListOptions{FieldSelector: selector}
-	err = r.Client.List(ctx, deviceList, listOptions)
+	err = r.syncLabels(ctx, &zone)
+
+	selector := labels.SelectorFromSet(labels.Set{iot.DeviceZoneLabel: req.Name})
+	listOptions := &client.ListOptions{
+		LabelSelector: selector,
+	}
+	_, listSpan := r.tracer.Start(ctx, "ListDevices")
+	err = r.List(ctx, &deviceList, listOptions)
 	if err != nil {
-		return ctrl.Result{}, err
+		listSpan.SetStatus(codes.Error, err.Error())
+		listSpan.End()
+		handleErr(listSpan, err)
+		return ctrl.Result{}, fmt.Errorf("failed to list zones: %w", err)
 	}
+	handleErr(listSpan, nil)
 
-	if err = r.flushZone(rctx, zone, deviceList); err != nil {
-		log.Error(err, "failed to flush zone state")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
+	// wg.Wait()
 
 	return ctrl.Result{}, nil
 }
@@ -128,12 +130,6 @@ func (r *ZoneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&iotv1.Zone{}).
 		Complete(r)
-}
-
-func (r *ZoneReconciler) SetMQTTClient(client mqtt.Client) {
-	if client != nil {
-		r.mqttclient = client
-	}
 }
 
 func (r *ZoneReconciler) SetTracer(tracer trace.Tracer) {
@@ -148,112 +144,56 @@ func (r *ZoneReconciler) SetLogger(logger *slog.Logger) {
 	}
 }
 
-// Once we create a new reconciler, lets set the hanlders from outside.
-func (r *ZoneReconciler) SetHandlers() error {
-	zigbeeHandler, err := zigbee.New(r.mqttclient, r.logger)
-	if err != nil {
-		return err
-	}
-
-	hhh := make(map[controllerHandler]iot.Handler, 0)
-	hhh[controllerHandlerZigbee] = zigbeeHandler
-	r.handlers = hhh
-
-	return nil
-}
-
-func (r *ZoneReconciler) flushZone(ctx context.Context, zone *iotv1.Zone, deviceList *iotv1.DeviceList) error {
-	var z *iot.Zone
-	if _, ok := r.zones[zone.Name]; !ok {
-		z = iot.NewZone(zone.Spec.Name)
-		r.zones[zone.Name] = z
-	}
-
-	if z == nil {
-		z = r.zones[zone.Name]
-	}
-
+func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error {
 	var err error
 	var errs []error
 
-	for _, d := range deviceList.Items {
-		device := &iotv1proto.Device{
-			Name: d.Spec.Name,
-		}
-		var handler iot.Handler
+	ctx, span := r.tracer.Start(ctx, "syncLabels")
+	defer func() { handleErr(span, err) }()
 
-		switch d.Spec.Type {
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_RELAY.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_LEAK.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BUTTON.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOISTURE.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE.String():
-			handler = r.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOTION.String():
-			handler = r.handlers[controllerHandlerZigbee]
+	span.SetAttributes(
+		attribute.Int("devices", len(zone.Spec.Devices)),
+	)
+
+	for _, d := range zone.Spec.Devices {
+		device := &iotv1.Device{}
+		nsn := types.NamespacedName{
+			Namespace: zone.Namespace,
+			Name:      strings.ToLower(d),
 		}
 
-		err = z.SetDevice(device, handler)
-		if err != nil {
+		r.logger.Debug("get for zone", "zone", zone.Name, "device", d)
+
+		if err = r.Get(ctx, nsn, device); err != nil {
 			errs = append(errs, err)
+			continue
+		}
+
+		if device.Labels == nil {
+			device.Labels = make(map[string]string)
+		}
+
+		device.Labels[iot.DeviceZoneLabel] = zone.Name
+
+		if err = r.Update(ctx, device); err != nil {
+			errs = append(errs, err)
+			continue
 		}
 	}
 
 	if len(errs) > 0 {
+		span.SetStatus(codes.Error, fmt.Sprintf("%s", errors.Join(errs...)))
 		return errors.Join(errs...)
 	}
 
-	err = z.SetState(ctx, iot.ZoneStateToProto(zone.Status.State))
-	if err != nil {
-		return err
-	}
-
-	err = z.SetBrightness(ctx, iotv1proto.Brightness(zone.Status.Brightness))
-	if err != nil {
-		return err
-	}
-
-	err = z.SetColor(ctx, zone.Status.Color)
-	if err != nil {
-		return err
-	}
-
-	err = z.SetColorTemperature(ctx, iotv1proto.ColorTemperature(zone.Status.ColorTemperature))
-	if err != nil {
-		return err
-	}
-
-	for _, d := range zone.Spec.Devices {
-		var device iotv1.Device
-		nsn := types.NamespacedName{
-			Namespace: zone.Namespace,
-			Name:      d,
-		}
-		if err = r.Get(ctx, nsn, &device); err != nil {
-			return err
-		}
-
-		switch device.Spec.Type {
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT.String():
-		}
-	}
-
-	err = z.Flush(ctx)
-	if err != nil {
-		return err
-	}
-
 	return nil
+}
+
+func handleErr(span trace.Span, err error) {
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Ok, "ok")
+	}
+	span.End()
 }

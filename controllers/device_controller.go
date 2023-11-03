@@ -27,8 +27,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-
 	iotv1 "github.com/zachfi/iotcontroller/api/v1"
 )
 
@@ -37,9 +35,8 @@ type DeviceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	tracer     trace.Tracer
-	mqttclient mqtt.Client
-	logger     *slog.Logger
+	tracer trace.Tracer
+	logger *slog.Logger
 }
 
 //+kubebuilder:rbac:groups=iot.iot,resources=devices,verbs=get;list;watch;create;update;patch;delete
@@ -56,7 +53,7 @@ func (r *DeviceReconciler) Reconcile(rctx context.Context, req ctrl.Request) (ct
 		attribute.String("req", req.String()),
 		attribute.String("namespace", req.Namespace),
 	}
-	_, span := r.tracer.Start(rctx, "Reconcile", trace.WithAttributes(attributes...))
+	_, span := r.tracer.Start(rctx, "Device.Reconcile", trace.WithAttributes(attributes...))
 	defer func() {
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
@@ -72,12 +69,6 @@ func (r *DeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&iotv1.Device{}).
 		Complete(r)
-}
-
-func (r *DeviceReconciler) SetMQTTClient(client mqtt.Client) {
-	if client != nil {
-		r.mqttclient = client
-	}
 }
 
 func (r *DeviceReconciler) SetTracer(tracer trace.Tracer) {

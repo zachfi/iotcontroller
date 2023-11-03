@@ -33,7 +33,14 @@ func New(cfg Config, logger *slog.Logger) (*MQTTClient, error) {
 		tracer: otel.Tracer(module),
 	}
 
+	client, err := iot.NewMQTTClient(m.cfg.MQTT, m.logger)
+	if err != nil {
+		return nil, err
+	}
+
+	m.client = client
 	m.Service = services.NewBasicService(m.starting, m.running, m.stopping)
+
 	return m, nil
 }
 
@@ -42,12 +49,14 @@ func (m *MQTTClient) Client() mqtt.Client {
 }
 
 func (m *MQTTClient) starting(ctx context.Context) error {
-	client, err := iot.NewMQTTClient(m.cfg.MQTT, m.logger)
+	token := m.client.Connect()
+	<-token.Done()
+
+	err := token.Error()
 	if err != nil {
 		return err
 	}
 
-	m.client = client
 	return nil
 }
 

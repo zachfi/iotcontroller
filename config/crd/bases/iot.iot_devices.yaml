@@ -40,8 +40,6 @@ spec:
                 type: string
               description:
                 type: string
-              friendly_name:
-                type: string
               manufacture_name:
                 type: string
               model:
@@ -53,8 +51,6 @@ spec:
               type:
                 type: string
               vendor:
-                type: string
-              zone:
                 type: string
             type: object
           status:

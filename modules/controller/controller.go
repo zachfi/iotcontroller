@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
@@ -19,6 +18,7 @@ import (
 
 	iotv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/controllers"
+	"github.com/zachfi/iotcontroller/modules/mqttclient"
 )
 
 type Controller struct {
@@ -26,17 +26,14 @@ type Controller struct {
 
 	cfg *Config
 
-	logger     *slog.Logger
-	tracer     trace.Tracer
-	mqttclient mqtt.Client
+	logger *slog.Logger
+	tracer trace.Tracer
 
-	mgr manager.Manager
+	mgr        manager.Manager
+	mqttclient *mqttclient.MQTTClient
 }
 
-var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
-)
+var scheme = runtime.NewScheme() // setupLog = ctrl.Log.WithName("setup")
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -45,7 +42,7 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
-func New(cfg Config, logger *slog.Logger) (*Controller, error) {
+func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*Controller, error) {
 	c := &Controller{
 		cfg:    &cfg,
 		logger: logger.With("module", "controller"),
@@ -78,37 +75,37 @@ func New(cfg Config, logger *slog.Logger) (*Controller, error) {
 		return nil, errors.Wrap(err, "unable to start manager")
 	}
 
-	deviceController := &controllers.DeviceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	deviceController.SetMQTTClient(c.mqttclient)
-	deviceController.SetLogger(slog.With(c.logger, "reconciler", "device"))
-	deviceController.SetTracer(c.tracer)
-
-	if err = deviceController.SetupWithManager(mgr); err != nil {
-		return nil, errors.Wrap(err, "unable to create Device controller")
-	}
-
-	zoneController := &controllers.ZoneReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-	zoneController.SetMQTTClient(c.mqttclient)
-	zoneController.SetTracer(c.tracer)
-	zoneController.SetLogger(slog.With(c.logger, "reconciler", "zone"))
-	zoneController.SetHandlers()
-
-	if err = zoneController.SetupWithManager(mgr); err != nil {
-		return nil, errors.Wrap(err, "unable to create Zone controller")
-	}
-
 	c.mgr = mgr
+	c.mqttclient = mqttclient
 
 	return c, nil
 }
 
 func (c *Controller) starting(ctx context.Context) error {
+	var err error
+
+	deviceController := &controllers.DeviceReconciler{
+		Client: c.mgr.GetClient(),
+		Scheme: c.mgr.GetScheme(),
+	}
+	deviceController.SetLogger(slog.With(c.logger, "reconciler", "device"))
+	deviceController.SetTracer(c.tracer)
+
+	if err = deviceController.SetupWithManager(c.mgr); err != nil {
+		return errors.Wrap(err, "unable to create Device controller")
+	}
+
+	zoneController := &controllers.ZoneReconciler{
+		Client: c.mgr.GetClient(),
+		Scheme: c.mgr.GetScheme(),
+	}
+	zoneController.SetLogger(slog.With(c.logger, "reconciler", "zone"))
+	zoneController.SetTracer(c.tracer)
+
+	if err = zoneController.SetupWithManager(c.mgr); err != nil {
+		return errors.Wrap(err, "unable to create Zone controller")
+	}
+
 	return nil
 }
 

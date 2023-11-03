@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	trace "go.opentelemetry.io/otel/trace"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/stretchr/testify/require"
 
@@ -28,11 +30,14 @@ func TTTestUpdateMessageFixtures(t *testing.T) {
 		Password: "xxx",
 	}
 
+	ctx := context.Background()
+	tracer := trace.NewNoopTracerProvider().Tracer("test")
+
 	var onMessageReceived mqtt.MessageHandler = func(_ mqtt.Client, msg mqtt.Message) {
 		topicPath, err := ParseTopicPath(msg.Topic())
 		require.NoError(t, err)
 		discovery := ParseDiscoveryMessage(topicPath, msg)
-		_, err = ReadZigbeeMessage(discovery.ObjectId, discovery.Message, discovery.Endpoints...)
+		_, err = ReadZigbeeMessage(ctx, tracer, discovery)
 		require.NoError(t, err)
 
 		e := strings.Join(discovery.Endpoints, "/")

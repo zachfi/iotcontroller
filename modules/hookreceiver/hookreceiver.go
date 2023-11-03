@@ -3,11 +3,13 @@ package hookreceiver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/grafana/dskit/services"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 
@@ -57,10 +59,13 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 	var m HookMessage
 	if err := dec.Decode(&m); err != nil {
 		http.Error(w, "invalid request body", 400)
+		h.logger.Error("invalid request body", "err", err)
 		return
 	}
 
 	// {Version:4 GroupKey:{}/{}:{zone="tent"} Status:firing Receiver:iotcontroller GroupLabels:map[zone:tent] CommonLabels:map[cluster:k severity:critical zone:tent] CommonAnnotations:map[] ExternalURL:http://alertmanager.metric.svc.cluster.znet/alertmanager Alerts:[{Labels:map[alertname:highTemp cluster:k severity:critical zone:tent] Annotations:map[description:Temperature outside nominal range at tent (current value: 29.6) summary:High Tent Temperature] StartsAt:2023-09-14T15:10:16.419Z EndsAt:0001-01-01T00:00:00Z} {Labels:map[alertname:lowHumidity cluster:k severity:critical zone:tent] Annotations:map[description:Humidity outside nominal range at  (current value: 39.2) summary:Low Tent Humidity] StartsAt:2023-09-14T21:32:16.419Z EndsAt:0001-01-01T00:00:00Z}]}
+
+	h.logger.Debug("hook", "msg", fmt.Sprintf("%+v", m))
 
 	labels := make(map[string]string)
 	for k, v := range m.GroupLabels {
@@ -71,20 +76,33 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 		labels[k] = v
 	}
 
+	for k, v := range labels {
+		span.SetAttributes(
+			attribute.String(k, v),
+		)
+	}
+
+	span.SetAttributes(
+		attribute.Int("alerts", len(m.Alerts)),
+	)
+
 	for _, alert := range m.Alerts {
 		var name string
 		var zone string
 
-		for _, v := range alert.Labels {
-			switch v.Key {
+		for k, v := range alert.Labels {
+			span.SetAttributes(attribute.String("k", v))
+			switch k {
 			case zoneLabel:
-				zone = v.Value
+				zone = v
 			case alertnameLabel:
-				name = v.Value
+				name = v
 			}
 		}
 
 		if name == "" || zone == "" {
+			span.SetAttributes(attribute.Bool("skipped", true))
+
 			continue
 		}
 
@@ -96,9 +114,11 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 			Zone:   zone,
 		}
 
-		for _, v := range alert.Labels {
-			if v.Key == alertnameLabel {
-				in.Labels[v.Key] = v.Value
+		hookreceiverReceivedTotal.WithLabelValues(name, zone).Inc()
+
+		for k, v := range alert.Labels {
+			if k == alertnameLabel {
+				in.Labels[k] = v
 			}
 		}
 
@@ -136,7 +156,7 @@ type Label struct {
 
 // Alert is a single alert.
 type Alert struct {
-	Labels      []Label           `json:"labels"`
+	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
 	StartsAt    string            `json:"startsAt,omitempty"`
 	EndsAt      string            `json:"EndsAt,omitempty"`

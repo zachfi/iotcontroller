@@ -39,8 +39,6 @@ spec:
                 items:
                   type: string
                 type: array
-              name:
-                type: string
             type: object
           status:
             description: ZoneStatus defines the observed state of Zone

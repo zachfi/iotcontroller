@@ -11,6 +11,8 @@ import (
 	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"google.golang.org/grpc"
 
 	"github.com/zachfi/iotcontroller/modules/client"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
@@ -46,12 +48,12 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(Server, a.initServer, modules.UserInvisibleModule)
 
 	mm.RegisterModule(Client, a.initClient)
-	mm.RegisterModule(Conditioner, a.initConditioner)
+	mm.RegisterModule(MQTTClient, a.initMqttClient)
+
 	mm.RegisterModule(Conditioner, a.initConditioner)
 	mm.RegisterModule(Controller, a.initController)
 	mm.RegisterModule(Harvester, a.initHarvester)
 	mm.RegisterModule(HookReceiver, a.initHookReceiver)
-	mm.RegisterModule(MQTTClient, a.initMqttClient)
 	mm.RegisterModule(Telemetry, a.initTelemetry)
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
 
@@ -59,27 +61,31 @@ func (a *App) setupModuleManager() error {
 
 	// mm.RegisterModule(Lights, a.initLights)
 	// mm.RegisterModule(Timer, a.initTimer)
-	// mm.RegisterModule(Inventory, a.initInventory)
-	// mm.RegisterModule(InventoryClient, a.initInventoryClient)
 
 	deps := map[string][]string{
 		// Server:       nil,
 
-		Client:       {Server},
+		Client:     {Server},
+		MQTTClient: {Server},
+
 		Conditioner:  {Server, MQTTClient, Client, Controller},
-		Controller:   {Server},
+		Controller:   {Server, MQTTClient},
 		Harvester:    {Server, MQTTClient, Client, Telemetry},
 		HookReceiver: {Server, Client, Conditioner},
-		MQTTClient:   {Server},
-		Telemetry:    {Server, Controller},
+		Telemetry:    {Server, Controller, Client},
 		ZoneKeeper:   {Server, MQTTClient, Controller},
 
-		// Inventory: {Server},
 		// Lights:          {Server},
-		// InventoryClient: {Server},
 		// Timer:      {Server},
 
-		All: {Controller, Harvester, HookReceiver, ZoneKeeper},
+		All: {
+			Conditioner,
+			Controller,
+			Harvester,
+			HookReceiver,
+			Telemetry,
+			ZoneKeeper,
+		},
 	}
 
 	for mod, targets := range deps {
@@ -142,7 +148,7 @@ func (a *App) initMqttClient() (services.Service, error) {
 }
 
 func (a *App) initController() (services.Service, error) {
-	c, err := controller.New(a.cfg.Controller, a.logger)
+	c, err := controller.New(a.cfg.Controller, a.logger, a.mqttclient)
 	if err != nil {
 		return nil, err
 	}
@@ -151,20 +157,8 @@ func (a *App) initController() (services.Service, error) {
 	return c, nil
 }
 
-// func (a *All) initInventory() (services.Service, error) {
-// 	i, err := inventory.NewLDAPServer(z.cfg.Inventory, z.logger)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// 	inventory.RegisterInventoryServer(z.Server.GRPC, i)
-//
-// 	z.inventory = i
-// 	return i, nil
-// }
-
 func (a *App) initTelemetry() (services.Service, error) {
-	t, err := telemetry.New(a.cfg.Telemetry, a.logger, a.controller.Client())
+	t, err := telemetry.New(a.cfg.Telemetry, a.logger, a.controller.Client(), a.client.Conn())
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +175,7 @@ func (a *App) initZoneKeeper() (services.Service, error) {
 		return nil, err
 	}
 
-	iotv1.RegisterZoneServiceServer(a.Server.GRPC, z)
+	iotv1.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
 
 	a.zonekeeper = z
 	return z, nil
@@ -209,42 +203,20 @@ func (a *App) initConditioner() (services.Service, error) {
 	return c, nil
 }
 
-// func (a *App) initLights() (services.Service, error) {
-// 	mqttClient, err := iot.NewMQTTClient(a.cfg.IOT.MQTT, a.logger)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// 	s, err := lights.New(z.cfg.Lights, z.logger)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// 	scheduler, err := lights.StaticColorTempSchedule(z.cfg.Lights.TimeZone)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// 	zigbee, err := lights.NewZigbeeLight(a.cfg.Lights, mqttClient, a.inventoryClient, a.logger)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// 	s.AddHandler(zigbee)
-// 	s.SetColorTempScheduler(scheduler)
-//
-// 	lights.RegisterLightsServer(a.Server.GRPC, s)
-// 	a.lights = s
-//
-// 	return s, nil
-// }
-
 func (a *App) initServer() (services.Service, error) {
 	a.cfg.Server.MetricsNamespace = metricsNamespace
 	a.cfg.Server.ExcludeRequestInLog = false
 	a.cfg.Server.RegisterInstrumentation = true
 	a.cfg.Server.DisableRequestSuccessLog = false
 	// a.cfg.Server.Log = a.logger
+
+	a.cfg.Server.GRPCStreamMiddleware = []grpc.StreamServerInterceptor{
+		otelgrpc.StreamServerInterceptor(),
+	}
+
+	a.cfg.Server.GRPCMiddleware = []grpc.UnaryServerInterceptor{
+		otelgrpc.UnaryServerInterceptor(),
+	}
 
 	server, err := server.New(a.cfg.Server)
 	if err != nil {

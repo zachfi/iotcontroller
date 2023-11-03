@@ -70,7 +70,17 @@ func main() {
 	}
 
 	level := new(slog.LevelVar)
-	level.Set(slog.LevelInfo)
+
+	switch cfg.LogLevel.String() {
+	case "debug":
+		level.Set(slog.LevelDebug)
+	case "info":
+		level.Set(slog.LevelInfo)
+	case "warn":
+		level.Set(slog.LevelWarn)
+	case "error":
+		level.Set(slog.LevelError)
+	}
 
 	loggerOpts := &slog.HandlerOptions{Level: level}
 	handler := slog.NewTextHandler(os.Stdout, loggerOpts)

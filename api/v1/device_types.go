@@ -22,9 +22,7 @@ import (
 
 // DeviceSpec defines the desired state of Device in the Kubernetes API.
 type DeviceSpec struct {
-	Name            string `json:"friendly_name,omitempty"`
 	Description     string `json:"description,omitempty"`
-	Zone            string `json:"zone,omitempty"`
 	Type            string `json:"type,omitempty"`
 	DateCode        string `json:"date_code,omitempty"`
 	Model           string `json:"model,omitempty"`

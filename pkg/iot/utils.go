@@ -1,13 +1,15 @@
 package iot
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -55,10 +57,12 @@ func ParseTopicPath(topic string) (TopicPath, error) {
 		}(parts)
 
 		// Determine if we have a discovery_prefix to set.
-		if nodeIndex == 1 {
+
+		switch nodeIndex {
+		case 1:
 			tp.Component = parts[0]
 			tp.NodeID = parts[nodeIndex]
-		} else if nodeIndex == 2 {
+		case 2:
 			tp.DiscoveryPrefix = parts[0]
 			tp.Component = parts[1]
 			tp.NodeID = parts[nodeIndex]
@@ -83,22 +87,27 @@ func ParseTopicPath(topic string) (TopicPath, error) {
 
 // ReadZigbeeMessage implements the payload unmarshaling for zigbee2mqtt
 // https://www.zigbee2mqtt.io/information/mqtt_topics_and_message_structure.html
-func ReadZigbeeMessage(objectID string, payload []byte, endpoint ...string) (interface{}, error) {
-	e := strings.Join(endpoint, "/")
+func ReadZigbeeMessage(ctx context.Context, tracer trace.Tracer, dis *iotv1proto.DeviceDiscovery) (interface{}, error) {
+	_, span := tracer.Start(ctx, "util.ReadZigbeeMessage")
+	defer span.End()
 
-	switch objectID {
+	e := strings.Join(dis.Endpoints, "/")
+
+	span.SetAttributes(attribute.String("endpoint", e))
+
+	switch dis.ObjectId {
 	case "bridge":
 		// topic: zigbee2mqtt/bridge/log
 		switch e {
 		case "log":
 			m := ZigbeeBridgeLog{}
-			err := json.Unmarshal(payload, &m)
+			err := json.Unmarshal(dis.Message, &m)
 			if err != nil {
 				return nil, err
 			}
 			return m, nil
 		case "state":
-			m := ZigbeeBridgeState(string(payload))
+			m := ZigbeeBridgeState(string(dis.Message))
 			if m != "" {
 				return m, nil
 			}
@@ -107,7 +116,7 @@ func ReadZigbeeMessage(objectID string, payload []byte, endpoint ...string) (int
 			return nil, nil
 		case "devices":
 			m := ZigbeeMessageBridgeDevices{}
-			err := json.Unmarshal(payload, &m)
+			err := json.Unmarshal(dis.Message, &m)
 			if err != nil {
 				return nil, err
 			}
@@ -119,9 +128,9 @@ func ReadZigbeeMessage(objectID string, payload []byte, endpoint ...string) (int
 		}
 		return nil, fmt.Errorf("unhandled bridge endpoint: %s", e)
 	default:
-		if len(endpoint) == 0 {
+		if len(dis.Endpoints) == 0 {
 			m := ZigbeeMessage{}
-			err := json.Unmarshal(payload, &m)
+			err := json.Unmarshal(dis.Message, &m)
 			if err != nil {
 				return nil, err
 			}
@@ -133,25 +142,19 @@ func ReadZigbeeMessage(objectID string, payload []byte, endpoint ...string) (int
 }
 
 func ReadMessage(objectID string, payload []byte, endpoint ...string) (interface{}, error) {
-	log.WithFields(log.Fields{
-		"objectID": objectID,
-		"endpoint": endpoint,
-		"payload":  string(payload),
-	}).Trace("ReadMessage()")
-
 	switch objectID {
 	case "wifi":
 		m := WifiMessage{}
 		err := json.Unmarshal(payload, &m)
 		if err != nil {
-			log.Error(err)
+			return nil, err
 		}
 		return m, nil
 	case "air":
 		m := AirMessage{}
 		err := json.Unmarshal(payload, &m)
 		if err != nil {
-			log.Error(err)
+			return nil, err
 		}
 		return m, nil
 	case "water":
@@ -163,14 +166,15 @@ func ReadMessage(objectID string, payload []byte, endpoint ...string) (interface
 		return m, nil
 	case "led":
 		if len(endpoint) > 0 {
-			if endpoint[0] == "config" {
+			switch endpoint[0] {
+			case "config":
 				m := LEDConfig{}
 				err := json.Unmarshal(payload, &m)
 				if err != nil {
 					return nil, err
 				}
 				return m, nil
-			} else if endpoint[0] == "color" {
+			case "color":
 				m := LEDColor{}
 				err := json.Unmarshal(payload, &m)
 				if err != nil {
@@ -178,6 +182,7 @@ func ReadMessage(objectID string, payload []byte, endpoint ...string) (interface
 				}
 				return m, nil
 			}
+
 			return nil, fmt.Errorf("unhandled led endpoint: %s : %+v", endpoint, string(payload))
 		}
 	}
@@ -202,6 +207,13 @@ func ZigbeeDeviceType(z ZigbeeBridgeDevice) iotv1proto.DeviceType {
 			if strings.HasPrefix(z.ModelID, "LC") {
 				return iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT
 			}
+		}
+
+		switch z.Definition.Description {
+		case "Hue dimmer switch":
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
+		case "Hue Tap dial switch":
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
 		}
 
 	case "Xiaomi":
@@ -231,6 +243,34 @@ func ZigbeeDeviceType(z ZigbeeBridgeDevice) iotv1proto.DeviceType {
 		if len(match) == 1 {
 			return iotv1proto.DeviceType_DEVICE_TYPE_RELAY
 		}
+
+		buttonRegex := regexp.MustCompile(`^SNZB-[0-9]{2}.*$`)
+		match = buttonRegex.FindAllString(z.Definition.Model, -1)
+		if len(match) == 1 {
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
+		}
+
+	case "Third Reality":
+		// Same as the Third Reality below, but on the model, not the description
+		switch z.Definition.Model {
+		case "3RTHS24BZ":
+			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
+		case "3RSB22BZ":
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
+		}
+		switch z.Definition.Description {
+		case "Temperature and humidity sensor":
+			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
+		case "Smart button":
+			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
+		}
+
+	case "TuYa":
+		switch z.Definition.Model {
+		case "TS0601_air_quality_sensor":
+			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
+		}
+
 	}
 
 	return iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED

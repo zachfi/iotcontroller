@@ -7,7 +7,10 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 
@@ -17,6 +20,17 @@ import (
 )
 
 const module = "harvester"
+
+var (
+	harvesterMessageTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "iot_harvester_message_total",
+		Help: "The the total number of messages processed by the harvester",
+	}, []string{})
+	harvesterMessageErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "iot_harvester_message_error",
+		Help: "The the total number of messages failed to process by the harvester",
+	}, []string{})
+)
 
 type Harvester struct {
 	services.Service
@@ -59,15 +73,21 @@ func (h *Harvester) starting(ctx context.Context) error {
 
 func (h *Harvester) running(ctx context.Context) error {
 	var onMessageReceived mqtt.MessageHandler = func(_ mqtt.Client, msg mqtt.Message) {
-		_, span := h.tracer.Start(
-			context.Background(),
+		var err error
+		messageCtx, span := h.tracer.Start(
+			ctx,
 			"Harvester.messageReceived",
 			trace.WithSpanKind(trace.SpanKindClient),
 		)
-		defer span.End()
 
-		topicPath, err := iot.ParseTopicPath(msg.Topic())
+		defer func() { handleErr(span, err) }()
+
+		harvesterMessageTotal.WithLabelValues().Inc()
+
+		var topicPath iot.TopicPath
+		topicPath, err = iot.ParseTopicPath(msg.Topic())
 		if err != nil {
+			harvesterMessageErrors.WithLabelValues().Inc()
 			h.logger.Error("err", errors.Wrap(err, "failed to parse topic path"))
 			return
 		}
@@ -76,9 +96,14 @@ func (h *Harvester) running(ctx context.Context) error {
 			DeviceDiscovery: iot.ParseDiscoveryMessage(topicPath, msg),
 		}
 
-		if err := h.stream.Send(req); err != nil {
+		_, streamSpan := h.tracer.Start(messageCtx, "stream.Send", trace.WithSpanKind(trace.SpanKindClient))
+		err = h.stream.Send(req)
+		if err != nil {
+			harvesterMessageErrors.WithLabelValues().Inc()
 			h.logger.Error("failed to send on stream", "err", err.Error())
 		}
+		handleErr(streamSpan, err)
+		handleErr(span, err)
 	}
 
 	go func() {
@@ -96,8 +121,14 @@ func (h *Harvester) running(ctx context.Context) error {
 
 func (h *Harvester) stopping(_ error) error {
 	_, err := h.stream.CloseAndRecv()
+	return err
+}
+
+func handleErr(span trace.Span, err error) {
 	if err != nil {
-		return err
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Ok, "ok")
 	}
-	return nil
+	span.End()
 }
