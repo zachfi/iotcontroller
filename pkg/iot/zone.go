@@ -180,25 +180,25 @@ func (z *Zone) DecrementBrightness(ctx context.Context) error {
 	return nil
 }
 
-func (z *Zone) Off(ctx context.Context) error {
-	return z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_OFF)
+func (z *Zone) Off(ctx context.Context) {
+	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_OFF)
 }
 
-func (z *Zone) On(ctx context.Context) error {
-	return z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
+func (z *Zone) On(ctx context.Context) {
+	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
 }
 
-func (z *Zone) SetColor(ctx context.Context, color string) error {
+func (z *Zone) SetColor(ctx context.Context, color string) {
 	z.color = color
-	return z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_COLOR)
+	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_COLOR)
 }
 
-func (z *Zone) RandomColor(ctx context.Context, colors []string) error {
+func (z *Zone) RandomColor(ctx context.Context, colors []string) {
 	z.colorPool = colors
-	return z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR)
+	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR)
 }
 
-func (z *Zone) SetState(ctx context.Context, state iotv1proto.ZoneState) error {
+func (z *Zone) SetState(ctx context.Context, state iotv1proto.ZoneState) {
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
@@ -206,8 +206,6 @@ func (z *Zone) SetState(ctx context.Context, state iotv1proto.ZoneState) error {
 	defer z.mtx.Unlock()
 
 	z.state = state
-
-	return z.Flush(ctx)
 }
 
 func (z *Zone) HasDevice(device string) bool {

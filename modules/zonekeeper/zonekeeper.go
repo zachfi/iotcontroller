@@ -87,6 +87,8 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 		return nil, errHandler(span, fmt.Errorf("failed to get zone %q: %w", req.Name, err))
 	}
 
+	zone.SetState(ctx, req.State)
+
 	err = z.Flush(ctx, zone)
 	if err != nil {
 		return nil, errHandler(span, err)
@@ -189,7 +191,7 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 		var err error
 
 		_, statusUpdateSpan := z.tracer.Start(ctx, "iot.Zone/Status/Update", trace.WithAttributes(attributes...))
-		defer errHandler(statusUpdateSpan, err)
+		defer func() { _ = errHandler(statusUpdateSpan, err) }()
 
 		// Update the API status for this zone
 		var zone *apiv1.Zone
