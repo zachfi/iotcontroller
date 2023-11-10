@@ -129,30 +129,42 @@ func (z *Zone) SetDevice(device *iotv1proto.Device, handler Handler) error {
 func (z *Zone) SetBrightnessMap(m map[iotv1proto.Brightness]uint8) {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
+
 	z.brightnessMap = m
 }
 
 func (z *Zone) SetColorTemperatureMap(m map[iotv1proto.ColorTemperature]int32) {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
+
 	z.colorTempMap = m
 }
 
 func (z *Zone) Name() string {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
 	return z.name
 }
 
-func (z *Zone) SetColorTemperature(ctx context.Context, colorTemp iotv1proto.ColorTemperature) error {
+func (z *Zone) SetColorTemperature(ctx context.Context, colorTemp iotv1proto.ColorTemperature) {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
 	z.colorTemp = z.colorTempMap[colorTemp]
-	return nil
 }
 
-func (z *Zone) SetBrightness(ctx context.Context, brightness iotv1proto.Brightness) error {
+func (z *Zone) SetBrightness(ctx context.Context, brightness iotv1proto.Brightness) {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
 	z.brightness = z.brightnessMap[brightness]
-	return nil
 }
 
-func (z *Zone) IncrementBrightness(ctx context.Context) error {
+func (z *Zone) IncrementBrightness(ctx context.Context) {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
 	var currentBri iotv1proto.Brightness
 	for k, v := range z.brightnessMap {
 		if v == z.brightness {
@@ -163,10 +175,12 @@ func (z *Zone) IncrementBrightness(ctx context.Context) error {
 	if currentBri > 0 {
 		z.brightness = z.brightnessMap[currentBri-1]
 	}
-	return nil
 }
 
-func (z *Zone) DecrementBrightness(ctx context.Context) error {
+func (z *Zone) DecrementBrightness(ctx context.Context) {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
 	var currentBri iotv1proto.Brightness
 	for k, v := range z.brightnessMap {
 		if v == z.brightness {
@@ -177,7 +191,6 @@ func (z *Zone) DecrementBrightness(ctx context.Context) error {
 	if currentBri < 5 {
 		z.brightness = z.brightnessMap[currentBri+1]
 	}
-	return nil
 }
 
 func (z *Zone) Off(ctx context.Context) {
@@ -185,6 +198,23 @@ func (z *Zone) Off(ctx context.Context) {
 }
 
 func (z *Zone) On(ctx context.Context) {
+	onStates := []iotv1proto.ZoneState{
+		iotv1proto.ZoneState_ZONE_STATE_COLOR,
+		iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION,
+		iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION,
+		iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION,
+		iotv1proto.ZoneState_ZONE_STATE_ON,
+		iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
+	}
+
+	state := z.State()
+
+	for _, s := range onStates {
+		if s == state {
+			return
+		}
+	}
+
 	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
 }
 
