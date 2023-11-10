@@ -82,15 +82,9 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 		attribute.String("state", req.State.String()),
 	)
 
-	// TODO: Clean this up.
 	zone, err := z.GetZone(req.Name)
 	if err != nil {
 		return nil, errHandler(span, fmt.Errorf("failed to get zone %q: %w", req.Name, err))
-	}
-
-	err = zone.SetState(ctx, req.State)
-	if err != nil {
-		return nil, errHandler(span, err)
 	}
 
 	err = z.Flush(ctx, zone)
@@ -105,10 +99,9 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 // The action speciefies the a button press and a room to give enough context
 // for how to change the behavior of the lights in response to the action.
 func (z *ZoneKeeper) ActionHandler(ctx context.Context, action *iotv1proto.ActionHandlerRequest) (*iotv1proto.ActionHandlerResponse, error) {
-	var (
-		err  error
-		resp *iotv1proto.ActionHandlerResponse
-	)
+	var err error
+
+	resp := &iotv1proto.ActionHandlerResponse{}
 
 	_, span := z.tracer.Start(
 		ctx,
@@ -175,8 +168,6 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, action *iotv1proto.Actio
 
 // Flush handles pushing the current state out to each of the hnadlers.
 func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
-	var err error
-
 	attributes := []attribute.KeyValue{
 		attribute.String("zone", iotZone.Name()),
 	}
@@ -190,23 +181,28 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 	// state := z.zones[name].State()
 	// z.mtx.Unlock()
 
-	// wg := sync.WaitGroup{}
+	wg := sync.WaitGroup{}
 
-	var zone *apiv1.Zone
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		var err error
 
-	zone, err = z.getOrCreateAPIZone(ctx, name)
-	if err != nil {
-		return errHandler(span, err)
-	}
+		_, statusUpdateSpan := z.tracer.Start(ctx, "iot.Zone/Status/Update", trace.WithAttributes(attributes...))
+		defer errHandler(statusUpdateSpan, err)
 
-	zone.Status.State = state.String()
+		// Update the API status for this zone
+		var zone *apiv1.Zone
+		zone, err = z.getOrCreateAPIZone(ctx, name)
+		if err != nil {
+			return
+		}
+		zone.Status.State = state.String()
 
-	_, statusUpdateSpan := z.tracer.Start(ctx, "iot.Zone/Status/Update", trace.WithAttributes(attributes...))
-	if err = z.kubeclient.Status().Update(ctx, zone); err != nil {
-		return errHandler(statusUpdateSpan, err)
-	}
-
-	_ = errHandler(statusUpdateSpan, nil)
+		if err = z.kubeclient.Status().Update(ctx, zone); err != nil {
+			return
+		}
+	}(ctx)
 
 	switch state {
 	case iotv1proto.ZoneState_ZONE_STATE_ON:
@@ -215,6 +211,7 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 		return iotZone.Off(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_OFFTIMER:
 	case iotv1proto.ZoneState_ZONE_STATE_COLOR:
+		// TODO:
 		// for _, h := range z.handlers {
 		// 	err := h.SetColor(ctx, z.name, z.color)
 		// 	if err != nil {
@@ -222,6 +219,7 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 		// 	}
 		// }
 	case iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR:
+		// TODO:
 		// for _, h := range z.handlers {
 		// 	err := h.RandomColor(ctx, z.name, z.colorPool)
 		// 	if err != nil {
@@ -229,19 +227,22 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 		// 	}
 		// }
 	case iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION:
+		// TODO:
 		// z.color = nightVisionColor
 		// return z.handleColor(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION:
+		// TODO:
 		// z.colorTemp = eveningTemp
 		// return z.handleColorTemperature(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION:
+		// TODO:
 		// z.colorTemp = morningTemp
 		// return z.handleColorTemperature(ctx)
 	default:
 		z.logger.Warn("unknown zone state", "state", state.String())
 	}
 
-	// wg.Wait()
+	wg.Wait()
 
 	return nil
 }

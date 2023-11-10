@@ -417,7 +417,7 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, req *telemetryv1prot
 			if m.Action != nil {
 				_, actionSpan := l.tracer.Start(ctx, "iot.ZigbeeMessage/ActionHandler")
 
-				req := &iotv1proto.ActionHandlerRequest{
+				actionReq := &iotv1proto.ActionHandlerRequest{
 					Event:  *m.Action,
 					Device: device.Name,
 					Zone:   zone,
@@ -429,7 +429,7 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, req *telemetryv1prot
 					attribute.String("zone", zone),
 				)
 
-				_, err := l.zonekeeperClient.ActionHandler(ctx, req)
+				_, err := l.zonekeeperClient.ActionHandler(ctx, actionReq)
 				if err != nil {
 					_ = l.errHandler(actionSpan, err, "action failed")
 					l.logger.Error("action failed", "err", err.Error())
