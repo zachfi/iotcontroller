@@ -132,9 +132,9 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, action *iotv1proto.Actio
 		currentState := zone.State()
 		switch currentState {
 		case iotv1proto.ZoneState_ZONE_STATE_ON:
-			zone.On(ctx)
-		case iotv1proto.ZoneState_ZONE_STATE_OFF:
 			zone.Off(ctx)
+		case iotv1proto.ZoneState_ZONE_STATE_OFF:
+			zone.On(ctx)
 		}
 	case "on", "double", "tap", "slide", "on_press":
 		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_FULL)
