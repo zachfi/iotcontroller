@@ -123,49 +123,42 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, action *iotv1proto.Actio
 		return resp, fmt.Errorf("failed to get zone %q for action %q: %w", action.Zone, action.Event, err)
 	}
 
+	// setStateReq := &iotv1proto.SetStateRequest{
+	// }
+
 	switch action.Event {
 	case "single", "button_1_press":
-		switch zone.State() {
+		// Toggle from current state
+		currentState := zone.State()
+		switch currentState {
 		case iotv1proto.ZoneState_ZONE_STATE_ON:
-			return resp, errHandler(span, zone.Off(ctx))
+			zone.On(ctx)
 		case iotv1proto.ZoneState_ZONE_STATE_OFF:
-			return resp, errHandler(span, zone.On(ctx))
+			zone.Off(ctx)
 		}
-	case "on", "double", "tap", "rotate_right", "slide", "on_press":
-		err := zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_FULL)
-		if err != nil {
-			return resp, errHandler(span, err)
-		}
-		return resp, errHandler(span, zone.On(ctx))
+	case "on", "double", "tap", "slide", "on_press":
+		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_FULL)
+		zone.On(ctx)
 	case "off", "triple", "off_press":
-		return resp, errHandler(span, zone.Off(ctx))
-	// case "quadruple", "flip90", "flip180", "fall", "button_3_press":
-	// 	return zone.RandomColor(ctx, z.cfg.PartyColors)
-	case "hold", "rotate_left", "button_2_press":
-		err := zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_DIM)
-		if err != nil {
-			return resp, errHandler(span, err)
-		}
-		return resp, errHandler(span, zone.On(ctx))
-	case "up_press", "dial_rotate_right_slow", "dial_rotate_right_fast", "dial_rotate_right_step", "brightness_step_up":
-		err := zone.IncrementBrightness(ctx)
-		if err != nil {
-			return resp, errHandler(span, err)
-		}
-		return resp, errHandler(span, zone.On(ctx))
-	case "down_press", "dial_rotate_left_slow", "dial_rotate_left_fast", "dial_rotate_left_step", "brightness_step_down":
-		err := zone.DecrementBrightness(ctx)
-		if err != nil {
-			return resp, errHandler(span, err)
-		}
-		return resp, errHandler(span, zone.On(ctx))
+		zone.Off(ctx)
+		// case "quadruple", "flip90", "flip180", "fall", "button_3_press":
+		// 	return zone.RandomColor(ctx, z.cfg.PartyColors)
+	case "hold", "button_2_press":
+		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_DIM)
+		zone.On(ctx)
+	case "up_press", "rotate_right", "dial_rotate_right_slow", "dial_rotate_right_fast", "dial_rotate_right_step", "brightness_step_up":
+		zone.IncrementBrightness(ctx)
+		zone.On(ctx)
+	case "down_press", "rotate_left", "dial_rotate_left_slow", "dial_rotate_left_fast", "dial_rotate_left_step", "brightness_step_down":
+		zone.DecrementBrightness(ctx)
+		zone.On(ctx)
 	case "wakeup", "press", "release", "off_hold", "off_hold_release", "on_press_release": // do nothing
 		return resp, nil
 	default:
 		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", action.Event, action.Device, action.Zone))
 	}
 
-	return resp, nil
+	return resp, errHandler(span, z.Flush(ctx, zone))
 }
 
 // Flush handles pushing the current state out to each of the hnadlers.
@@ -178,10 +171,6 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 	defer span.End()
 
 	name, state := iotZone.Name(), iotZone.State()
-
-	// z.mtx.Lock()
-	// state := z.zones[name].State()
-	// z.mtx.Unlock()
 
 	wg := sync.WaitGroup{}
 
@@ -206,42 +195,10 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 		}
 	}(ctx)
 
-	switch state {
-	case iotv1proto.ZoneState_ZONE_STATE_ON:
-		return iotZone.On(ctx)
-	case iotv1proto.ZoneState_ZONE_STATE_OFF:
-		return iotZone.Off(ctx)
-	case iotv1proto.ZoneState_ZONE_STATE_OFFTIMER:
-	case iotv1proto.ZoneState_ZONE_STATE_COLOR:
-		// TODO:
-		// for _, h := range z.handlers {
-		// 	err := h.SetColor(ctx, z.name, z.color)
-		// 	if err != nil {
-		// 		return fmt.Errorf("%s color: %w", z.name, ErrHandlerFailed)
-		// 	}
-		// }
-	case iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR:
-		// TODO:
-		// for _, h := range z.handlers {
-		// 	err := h.RandomColor(ctx, z.name, z.colorPool)
-		// 	if err != nil {
-		// 		return fmt.Errorf("%s random color: %w", z.name, ErrHandlerFailed)
-		// 	}
-		// }
-	case iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION:
-		// TODO:
-		// z.color = nightVisionColor
-		// return z.handleColor(ctx)
-	case iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION:
-		// TODO:
-		// z.colorTemp = eveningTemp
-		// return z.handleColorTemperature(ctx)
-	case iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION:
-		// TODO:
-		// z.colorTemp = morningTemp
-		// return z.handleColorTemperature(ctx)
-	default:
-		z.logger.Warn("unknown zone state", "state", state.String())
+	iotZone.SetState(ctx, state)
+	err := iotZone.Flush(ctx)
+	if err != nil {
+		return err
 	}
 
 	wg.Wait()
