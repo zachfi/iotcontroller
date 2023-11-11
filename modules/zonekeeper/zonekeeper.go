@@ -170,7 +170,7 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.Flush", trace.WithAttributes(attributes...))
 	defer span.End()
 
-	name, state := iotZone.Name(), iotZone.State()
+	name, state, brightness := iotZone.Name(), iotZone.State(), iotZone.Brightness()
 
 	wg := sync.WaitGroup{}
 
@@ -189,6 +189,7 @@ func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
 			return
 		}
 		zone.Status.State = state.String()
+		zone.Status.Brightness = iotv1proto.Brightness_name[int32(brightness)]
 
 		if err = z.kubeclient.Status().Update(ctx, zone); err != nil {
 			return

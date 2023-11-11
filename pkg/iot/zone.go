@@ -54,10 +54,10 @@ type Zone struct {
 
 	name string
 
-	brightness uint8
+	brightness iotv1proto.Brightness
 	colorPool  []string
 	color      string
-	colorTemp  int32
+	colorTemp  iotv1proto.ColorTemperature
 	state      iotv1proto.ZoneState
 
 	devices map[*iotv1proto.Device]Handler
@@ -70,6 +70,12 @@ func (z *Zone) State() iotv1proto.ZoneState {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 	return z.state
+}
+
+func (z *Zone) Brightness() iotv1proto.Brightness {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+	return iotv1proto.Brightness(z.brightness)
 }
 
 func NewZone(name string, logger *slog.Logger) (*Zone, error) {
@@ -151,29 +157,33 @@ func (z *Zone) SetColorTemperature(ctx context.Context, colorTemp iotv1proto.Col
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
-	z.colorTemp = z.colorTempMap[colorTemp]
+	z.colorTemp = colorTemp
 }
 
 func (z *Zone) SetBrightness(ctx context.Context, brightness iotv1proto.Brightness) {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
-	z.brightness = z.brightnessMap[brightness]
+	z.brightness = brightness
 }
 
 func (z *Zone) IncrementBrightness(ctx context.Context) {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
-	var currentBri iotv1proto.Brightness
-	for k, v := range z.brightnessMap {
-		if v == z.brightness {
-			currentBri = k
+	if b, ok := z.brightnessMap[z.brightness]; ok {
+		switch b {
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_VERYLOW):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOW
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOW):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOWPLUS
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOWPLUS):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIM
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIM):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIMPLUS
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIMPLUS):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_FULL
 		}
-	}
-
-	if currentBri > 0 {
-		z.brightness = z.brightnessMap[currentBri-1]
 	}
 }
 
@@ -181,15 +191,19 @@ func (z *Zone) DecrementBrightness(ctx context.Context) {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
-	var currentBri iotv1proto.Brightness
-	for k, v := range z.brightnessMap {
-		if v == z.brightness {
-			currentBri = k
+	if b, ok := z.brightnessMap[z.brightness]; ok {
+		switch b {
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_FULL):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIMPLUS
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIMPLUS):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIM
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIM):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOWPLUS
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOWPLUS):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOW
+		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOW):
+			z.brightness = iotv1proto.Brightness_BRIGHTNESS_VERYLOW
 		}
-	}
-
-	if currentBri < 5 {
-		z.brightness = z.brightnessMap[currentBri+1]
 	}
 }
 
@@ -278,10 +292,10 @@ func (z *Zone) Flush(ctx context.Context) error {
 		z.color = nightVisionColor
 		return z.handleColor(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION:
-		z.colorTemp = z.colorTempMap[iotv1proto.ColorTemperature_COLOR_TEMPERATURE_EVENING]
+		z.colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_EVENING
 		return z.handleColorTemperature(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION:
-		z.colorTemp = z.colorTempMap[iotv1proto.ColorTemperature_COLOR_TEMPERATURE_MORNING]
+		z.colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_MORNING
 		return z.handleColorTemperature(ctx)
 	}
 
@@ -298,7 +312,6 @@ func (z *Zone) handleOn(ctx context.Context) error {
 	var err error
 	var errs []error
 	for device, h := range z.devices {
-
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
@@ -337,7 +350,6 @@ func (z *Zone) handleOff(ctx context.Context) error {
 	var err error
 	var errs []error
 	for device, h := range z.devices {
-
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
@@ -366,14 +378,13 @@ func (z *Zone) handleColorTemperature(ctx context.Context) error {
 	var err error
 	var errs []error
 	for device, h := range z.devices {
-
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
 		default:
 			continue
 		}
 
-		err = h.SetColorTemp(ctx, device, z.colorTemp)
+		err = h.SetColorTemp(ctx, device, defaultColorTemperatureMap[z.colorTemp])
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -401,7 +412,7 @@ func (z *Zone) handleBrightness(ctx context.Context) error {
 			continue
 		}
 
-		err = h.SetBrightness(ctx, device, z.brightness)
+		err = h.SetBrightness(ctx, device, defaultBrightnessMap[z.brightness])
 		if err != nil {
 			errs = append(errs, err)
 		}
