@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -16,6 +15,8 @@ import (
 	iot "github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
+
+const defaultTransitionTime = 0.8
 
 var (
 	_ iot.Handler = ZigbeeHandler{}
@@ -30,8 +31,6 @@ type ZigbeeHandler struct {
 	tracer trace.Tracer
 }
 
-const defaultTransitionTime = 0.5
-
 func New(mqttClient mqtt.Client, logger *slog.Logger, tracer trace.Tracer) (*ZigbeeHandler, error) {
 	if mqttClient == nil {
 		return nil, fmt.Errorf("mqttClient cannot be nil")
@@ -44,179 +43,119 @@ func New(mqttClient mqtt.Client, logger *slog.Logger, tracer trace.Tracer) (*Zig
 	}, nil
 }
 
-func (l ZigbeeHandler) On(ctx context.Context, device *iotv1proto.Device) error {
-	_, span := l.tracer.Start(ctx, "ZigbeeHandler/On", trace.WithAttributes(
+func (h ZigbeeHandler) On(ctx context.Context, device *iotv1proto.Device) error {
+	_, span := h.tracer.Start(ctx, "ZigbeeHandler/On", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
 	))
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
-	message := map[string]interface{}{
-		"state":      "ON",
-		"transition": defaultTransitionTime,
-	}
+	msg := newMessage(device)
+	msg.withOn()
 
-	m, err := json.Marshal(message)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
-	}
-
-	l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t := l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t.WaitTimeout(defaultConfirmTimout)
-	return t.Error()
+	return h.send(ctx, span, msg)
 }
 
-func (l ZigbeeHandler) Off(ctx context.Context, device *iotv1proto.Device) error {
-	_, span := l.tracer.Start(ctx, "ZigbeeHandler/Off", trace.WithAttributes(
+func (h ZigbeeHandler) Off(ctx context.Context, device *iotv1proto.Device) error {
+	_, span := h.tracer.Start(ctx, "ZigbeeHandler/Off", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
 	))
 	defer span.End()
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
-	message := map[string]interface{}{
-		"state":      "OFF",
-		"transition": defaultTransitionTime,
-	}
+	msg := newMessage(device)
+	msg.withOff()
 
-	m, err := json.Marshal(message)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
-	}
-
-	l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t := l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t.WaitTimeout(defaultConfirmTimout)
-	return t.Error()
+	return h.send(ctx, span, msg)
 }
 
-func (l ZigbeeHandler) Alert(ctx context.Context, device *iotv1proto.Device) error {
-	_, span := l.tracer.Start(ctx, "ZigbeeHandler/Alert", trace.WithAttributes(
+func (h ZigbeeHandler) Alert(ctx context.Context, device *iotv1proto.Device) error {
+	_, span := h.tracer.Start(ctx, "ZigbeeHandler/Alert", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
 	))
 	defer span.End()
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
-	message := map[string]interface{}{
-		"effect":     "blink",
-		"transition": 0.1,
-	}
+	msg := newMessage(device)
+	msg.withBlink()
 
-	m, err := json.Marshal(message)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
-	}
-
-	l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t := l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t.WaitTimeout(defaultConfirmTimout)
-	return t.Error()
+	return h.send(ctx, span, msg)
 }
 
-func (l ZigbeeHandler) SetBrightness(ctx context.Context, device *iotv1proto.Device, brightness uint8) error {
-	_, span := l.tracer.Start(ctx, "ZigbeeHandler/SetBrightness", trace.WithAttributes(
+func (h ZigbeeHandler) SetBrightness(ctx context.Context, device *iotv1proto.Device, brightness uint8) error {
+	_, span := h.tracer.Start(ctx, "ZigbeeHandler/SetBrightness", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
+		attribute.Int("brightness", int(brightness)),
 	))
 	defer span.End()
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
-	message := map[string]interface{}{
-		"brightness": brightness,
-		"transition": defaultTransitionTime,
-	}
-	m, err := json.Marshal(message)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
-	}
+	msg := newMessage(device)
+	msg.withBrightness(brightness)
 
-	l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t := l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t.WaitTimeout(defaultConfirmTimout)
-	return t.Error()
+	return h.send(ctx, span, msg)
 }
 
-func (l ZigbeeHandler) SetColor(ctx context.Context, device *iotv1proto.Device, hex string) error {
-	_, span := l.tracer.Start(ctx, "ZigbeeHandler/SetColor", trace.WithAttributes(
+func (h ZigbeeHandler) SetColor(ctx context.Context, device *iotv1proto.Device, hex string) error {
+	_, span := h.tracer.Start(ctx, "ZigbeeHandler/SetColor", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
+		attribute.String("hex", hex),
 	))
 	defer span.End()
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
-	message := map[string]interface{}{
-		"transition": defaultTransitionTime,
-		"color": map[string]string{
-			"hex": hex,
-		},
-	}
+	msg := newMessage(device)
+	msg.withColor(hex)
 
-	m, err := json.Marshal(message)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
-	}
-
-	l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t := l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t.WaitTimeout(defaultConfirmTimout)
-	return t.Error()
+	return h.send(ctx, span, msg)
 }
 
-func (l ZigbeeHandler) RandomColor(ctx context.Context, device *iotv1proto.Device, hex []string) error {
-	_, span := l.tracer.Start(ctx, "ZigbeeHandler/RandomColor", trace.WithAttributes(
+func (h ZigbeeHandler) RandomColor(ctx context.Context, device *iotv1proto.Device, hex []string) error {
+	_, span := h.tracer.Start(ctx, "ZigbeeHandler/RandomColor", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
+		attribute.StringSlice("hex", hex),
 	))
 	defer span.End()
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
-	message := map[string]interface{}{
-		"transition": defaultTransitionTime,
-		"color": map[string]string{
-			"hex": hex[rand.Intn(len(hex))],
-		},
-	}
+	msg := newMessage(device)
+	msg.withRandomColor(hex)
 
-	m, err := json.Marshal(message)
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
-	}
-
-	l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t := l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t.WaitTimeout(defaultConfirmTimout)
-	return t.Error()
+	return h.send(ctx, span, msg)
 }
 
-func (l ZigbeeHandler) SetColorTemp(ctx context.Context, device *iotv1proto.Device, temp int32) error {
-	_, span := l.tracer.Start(ctx, "ZigbeeHandler/SetColorTemp", trace.WithAttributes(
+func (h ZigbeeHandler) SetColorTemp(ctx context.Context, device *iotv1proto.Device, temp int32) error {
+	_, span := h.tracer.Start(ctx, "ZigbeeHandler/SetColorTemp", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
+		attribute.Int("tempo", int(temp)),
 	))
 	defer span.End()
 
-	topic := fmt.Sprintf("zigbee2mqtt/%s/set", device.Name)
-	message := map[string]interface{}{
-		"transition": defaultTransitionTime,
-		"color_temp": temp,
-	}
+	msg := newMessage(device)
+	msg.withColorTemp(temp)
 
-	m, err := json.Marshal(message)
+	return h.send(ctx, span, msg)
+}
+
+func (h ZigbeeHandler) send(ctx context.Context, span trace.Span, msg *message) error {
+	m, err := json.Marshal(msg.msg)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
-	l.mqttClient.Publish(topic, byte(0), false, string(m))
-	t := l.mqttClient.Publish(topic, byte(0), false, string(m))
+	t := h.mqttClient.Publish(msg.topic, byte(0), false, string(m))
 	t.WaitTimeout(defaultConfirmTimout)
-	return t.Error()
+	return errHandler(span, t.Error())
+}
+
+func errHandler(span trace.Span, err error) error {
+	defer span.End()
+
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Ok, "ok")
+	}
+	return err
 }
