@@ -74,7 +74,6 @@ func ParseTopicPath(topic string) (TopicPath, error) {
 			next++
 			tp.Endpoints = parts[next:]
 		}
-
 	} else {
 		// else a node ID is not matched in the topic path.
 		tp.Component = parts[0]
@@ -88,7 +87,7 @@ func ParseTopicPath(topic string) (TopicPath, error) {
 // ReadZigbeeMessage implements the payload unmarshaling for zigbee2mqtt
 // https://www.zigbee2mqtt.io/information/mqtt_topics_and_message_structure.html
 func ReadZigbeeMessage(ctx context.Context, tracer trace.Tracer, dis *iotv1proto.DeviceDiscovery) (interface{}, error) {
-	_, span := tracer.Start(ctx, "util.ReadZigbeeMessage")
+	_, span := tracer.Start(ctx, "iot.ReadZigbeeMessage")
 	defer span.End()
 
 	e := strings.Join(dis.Endpoints, "/")

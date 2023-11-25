@@ -89,6 +89,15 @@ func TestParseTopicPath(t *testing.T) {
 		},
 
 		{
+			Topic: "zigbee2mqtt/0x00124b00257c5f24/set",
+			Should: TopicPath{
+				Component: "zigbee2mqtt",
+				ObjectID:  "0x00124b00257c5f24",
+				Endpoints: []string{"set"},
+			},
+		},
+
+		{
 			Topic: "ispindel/brewHydroWhite/RSSI",
 			Should: TopicPath{
 				Component: "ispindel",
