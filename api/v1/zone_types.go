@@ -23,6 +23,7 @@ import (
 // ZoneSpec defines the desired state of Zone
 type ZoneSpec struct {
 	Devices []string `json:"devices,omitempty"`
+	Colors  []string `json:"colors,omitempty"`
 }
 
 // ZoneStatus defines the observed state of Zone
