@@ -66,18 +66,6 @@ type Zone struct {
 	brightnessMap map[iotv1proto.Brightness]uint8
 }
 
-func (z *Zone) State() iotv1proto.ZoneState {
-	z.mtx.Lock()
-	defer z.mtx.Unlock()
-	return z.state
-}
-
-func (z *Zone) Brightness() iotv1proto.Brightness {
-	z.mtx.Lock()
-	defer z.mtx.Unlock()
-	return iotv1proto.Brightness(z.brightness)
-}
-
 func NewZone(name string, logger *slog.Logger) (*Zone, error) {
 	if name == "" {
 		return nil, fmt.Errorf("zone name required")
@@ -94,6 +82,27 @@ func NewZone(name string, logger *slog.Logger) (*Zone, error) {
 	}
 
 	return z, nil
+}
+
+func (z *Zone) State() iotv1proto.ZoneState {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	return z.state
+}
+
+func (z *Zone) Brightness() iotv1proto.Brightness {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	return z.brightness
+}
+
+func (z *Zone) ColorTemperature() iotv1proto.ColorTemperature {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	return z.colorTemp
 }
 
 func (z *Zone) SetDevice(device *iotv1proto.Device, handler Handler) error {
@@ -146,6 +155,18 @@ func (z *Zone) SetColorTemperatureMap(m map[iotv1proto.ColorTemperature]int32) {
 	z.colorTempMap = m
 }
 
+func (z *Zone) SetColorPool(ctx context.Context, c []string) {
+	_, span := z.tracer.Start(ctx, "ZoneKeeper.apiStatusUpdate", trace.WithAttributes(
+		attribute.StringSlice("colorPool", c),
+	))
+	defer span.End()
+
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	z.colorPool = c
+}
+
 func (z *Zone) Name() string {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
@@ -168,43 +189,59 @@ func (z *Zone) SetBrightness(ctx context.Context, brightness iotv1proto.Brightne
 }
 
 func (z *Zone) IncrementBrightness(ctx context.Context) {
+	_, span := z.tracer.Start(ctx, "Zone.IncrementBrightness")
+	defer span.End()
+
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
-	if b, ok := z.brightnessMap[z.brightness]; ok {
-		switch b {
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_VERYLOW):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOW
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOW):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOWPLUS
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOWPLUS):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIM
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIM):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIMPLUS
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIMPLUS):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_FULL
-		}
+	span.SetAttributes(attribute.String("before", z.brightness.String()))
+
+	switch z.brightness {
+	case iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_FULL
+
+	case iotv1proto.Brightness_BRIGHTNESS_VERYLOW:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOW
+	case iotv1proto.Brightness_BRIGHTNESS_LOW:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOWPLUS
+	case iotv1proto.Brightness_BRIGHTNESS_LOWPLUS:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIM
+	case iotv1proto.Brightness_BRIGHTNESS_DIM:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIMPLUS
+	case iotv1proto.Brightness_BRIGHTNESS_DIMPLUS:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_FULL
 	}
+
+	span.SetAttributes(attribute.String("after", z.brightness.String()))
 }
 
 func (z *Zone) DecrementBrightness(ctx context.Context) {
+	_, span := z.tracer.Start(ctx, "Zone.DecrementBrightness")
+	defer span.End()
+
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
-	if b, ok := z.brightnessMap[z.brightness]; ok {
-		switch b {
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_FULL):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIMPLUS
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIMPLUS):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIM
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_DIM):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOWPLUS
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOWPLUS):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOW
-		case uint8(iotv1proto.Brightness_BRIGHTNESS_LOW):
-			z.brightness = iotv1proto.Brightness_BRIGHTNESS_VERYLOW
-		}
+	span.SetAttributes(attribute.String("before", z.brightness.String()))
+
+	switch z.brightness {
+	case iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_FULL
+
+	case iotv1proto.Brightness_BRIGHTNESS_FULL:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIMPLUS
+	case iotv1proto.Brightness_BRIGHTNESS_DIMPLUS:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_DIM
+	case iotv1proto.Brightness_BRIGHTNESS_DIM:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOWPLUS
+	case iotv1proto.Brightness_BRIGHTNESS_LOWPLUS:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_LOW
+	case iotv1proto.Brightness_BRIGHTNESS_LOW:
+		z.brightness = iotv1proto.Brightness_BRIGHTNESS_VERYLOW
 	}
+
+	span.SetAttributes(attribute.String("after", z.brightness.String()))
 }
 
 func (z *Zone) Off(ctx context.Context) {
@@ -232,20 +269,7 @@ func (z *Zone) On(ctx context.Context) {
 	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
 }
 
-func (z *Zone) SetColor(ctx context.Context, color string) {
-	z.color = color
-	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_COLOR)
-}
-
-func (z *Zone) RandomColor(ctx context.Context, colors []string) {
-	z.colorPool = colors
-	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR)
-}
-
 func (z *Zone) SetState(ctx context.Context, state iotv1proto.ZoneState) {
-	span := trace.SpanFromContext(ctx)
-	defer span.End()
-
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
@@ -279,24 +303,69 @@ func (z *Zone) Flush(ctx context.Context) error {
 		attribute.String("state", z.state.String()),
 	)
 
+	var (
+		err  error
+		errs []error
+	)
+
 	switch z.state {
+	case iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED:
+		return fmt.Errorf("unable to flush UNSPECIFIED zone state")
 	case iotv1proto.ZoneState_ZONE_STATE_ON:
-		return z.handleOn(ctx)
+		err = z.handleOn(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	case iotv1proto.ZoneState_ZONE_STATE_OFF:
-		return z.handleOff(ctx)
+		err = z.handleOff(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	case iotv1proto.ZoneState_ZONE_STATE_COLOR:
-		return z.handleColor(ctx)
+		err = z.handleColor(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	case iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR:
-		return z.handleRandomColor(ctx)
+		err = z.handleRandomColor(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	case iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION:
 		z.color = nightVisionColor
-		return z.handleColor(ctx)
+		err = z.handleColor(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	case iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION:
 		z.colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_EVENING
-		return z.handleColorTemperature(ctx)
 	case iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION:
 		z.colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_MORNING
-		return z.handleColorTemperature(ctx)
+	}
+
+	switch z.state {
+	case iotv1proto.ZoneState_ZONE_STATE_OFF:
+	default:
+		err = z.handleBrightness(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Skip setting the white color-temp when in a color state.
+	switch z.state {
+	case iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR:
+	case iotv1proto.ZoneState_ZONE_STATE_COLOR:
+	case iotv1proto.ZoneState_ZONE_STATE_OFF:
+	default:
+		err = z.handleColorTemperature(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
 	return nil
@@ -309,8 +378,12 @@ func (z *Zone) handleOn(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleOn")
 	defer span.End()
 
-	var err error
-	var errs []error
+	var (
+		err         error
+		errs        []error
+		deviceNames []string
+	)
+
 	for device, h := range z.devices {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
@@ -320,21 +393,18 @@ func (z *Zone) handleOn(ctx context.Context) error {
 			continue
 		}
 
+		deviceNames = append(deviceNames, device.Name)
+
 		err = h.On(ctx, device)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	err = z.handleBrightness(ctx)
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = z.handleColorTemperature(ctx)
-	if err != nil {
-		errs = append(errs, err)
-	}
+	span.SetAttributes(
+		attribute.StringSlice("deviceNames", deviceNames),
+		attribute.Int("totalDevices", len(z.devices)),
+	)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -347,8 +417,12 @@ func (z *Zone) handleOff(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleOff")
 	defer span.End()
 
-	var err error
-	var errs []error
+	var (
+		err         error
+		errs        []error
+		deviceNames []string
+	)
+
 	for device, h := range z.devices {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
@@ -358,11 +432,18 @@ func (z *Zone) handleOff(ctx context.Context) error {
 			continue
 		}
 
+		deviceNames = append(deviceNames, device.Name)
+
 		err = h.Off(ctx, device)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.StringSlice("deviceNames", deviceNames),
+		attribute.Int("totalDevices", len(z.devices)),
+	)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -375,8 +456,12 @@ func (z *Zone) handleColorTemperature(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleColorTemperature")
 	defer span.End()
 
-	var err error
-	var errs []error
+	var (
+		err         error
+		errs        []error
+		deviceNames []string
+	)
+
 	for device, h := range z.devices {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
@@ -384,11 +469,18 @@ func (z *Zone) handleColorTemperature(ctx context.Context) error {
 			continue
 		}
 
+		deviceNames = append(deviceNames, device.Name)
+
 		err = h.SetColorTemp(ctx, device, defaultColorTemperatureMap[z.colorTemp])
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.StringSlice("deviceNames", deviceNames),
+		attribute.Int("totalDevices", len(z.devices)),
+	)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -401,8 +493,12 @@ func (z *Zone) handleBrightness(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleBrightness")
 	defer span.End()
 
-	var err error
-	var errs []error
+	var (
+		err         error
+		errs        []error
+		deviceNames []string
+	)
+
 	for device, h := range z.devices {
 
 		switch device.Type {
@@ -412,11 +508,18 @@ func (z *Zone) handleBrightness(ctx context.Context) error {
 			continue
 		}
 
+		deviceNames = append(deviceNames, device.Name)
+
 		err = h.SetBrightness(ctx, device, defaultBrightnessMap[z.brightness])
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.StringSlice("deviceNames", deviceNames),
+		attribute.Int("totalDevices", len(z.devices)),
+	)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -429,8 +532,12 @@ func (z *Zone) handleColor(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleColor")
 	defer span.End()
 
-	var err error
-	var errs []error
+	var (
+		err         error
+		errs        []error
+		deviceNames []string
+	)
+
 	for device, h := range z.devices {
 
 		switch device.Type {
@@ -439,11 +546,18 @@ func (z *Zone) handleColor(ctx context.Context) error {
 			continue
 		}
 
+		deviceNames = append(deviceNames, device.Name)
+
 		err = h.SetColor(ctx, device, z.color)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.StringSlice("deviceNames", deviceNames),
+		attribute.Int("totalDevices", len(z.devices)),
+	)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -456,8 +570,12 @@ func (z *Zone) handleRandomColor(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleRandomColor")
 	defer span.End()
 
-	var err error
-	var errs []error
+	var (
+		err         error
+		errs        []error
+		deviceNames []string
+	)
+
 	for device, h := range z.devices {
 
 		switch device.Type {
@@ -466,11 +584,18 @@ func (z *Zone) handleRandomColor(ctx context.Context) error {
 			continue
 		}
 
+		deviceNames = append(deviceNames, device.Name)
+
 		err = h.RandomColor(ctx, device, z.colorPool)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.StringSlice("deviceNames", deviceNames),
+		attribute.Int("totalDevices", len(z.devices)),
+	)
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
