@@ -110,7 +110,10 @@ func (c *Controller) starting(ctx context.Context) error {
 }
 
 func (c *Controller) Client() client.Client {
-	return c.mgr.GetClient()
+	if c.mgr != nil {
+		return c.mgr.GetClient()
+	}
+	return nil
 }
 
 func (c *Controller) running(ctx context.Context) error {
