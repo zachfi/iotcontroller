@@ -50,7 +50,7 @@ func (m *MQTTClient) Client() mqtt.Client {
 
 func (m *MQTTClient) starting(ctx context.Context) error {
 	token := m.client.Connect()
-	<-token.Done()
+	token.Wait()
 
 	err := token.Error()
 	if err != nil {
