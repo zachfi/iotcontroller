@@ -309,8 +309,9 @@ github.com/uber/jaeger-client-go/utils
 ## explicit
 github.com/uber/jaeger-lib/metrics
 github.com/uber/jaeger-lib/metrics/prometheus
-# github.com/zachfi/zkit v0.1.1-0.20231125174539-ec1214b7a676
+# github.com/zachfi/zkit v0.1.1-0.20231126224249-a1c7b36a51a6
 ## explicit; go 1.21
+github.com/zachfi/zkit/pkg/boundedwaitgroup
 github.com/zachfi/zkit/pkg/tracing
 github.com/zachfi/zkit/pkg/util
 # github.com/zachfi/znet v0.32.16

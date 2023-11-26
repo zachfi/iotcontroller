@@ -14,7 +14,7 @@ require (
 	github.com/prometheus/client_golang v1.15.1
 	github.com/prometheus/common v0.44.0
 	github.com/stretchr/testify v1.8.1
-	github.com/zachfi/zkit v0.1.1-0.20231125174539-ec1214b7a676
+	github.com/zachfi/zkit v0.1.1-0.20231126224249-a1c7b36a51a6
 	github.com/zachfi/znet v0.32.16
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.28.0
 	go.opentelemetry.io/otel v1.12.0
