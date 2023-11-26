@@ -92,7 +92,10 @@ func ReadZigbeeMessage(ctx context.Context, tracer trace.Tracer, dis *iotv1proto
 
 	e := strings.Join(dis.Endpoints, "/")
 
-	span.SetAttributes(attribute.String("endpoint", e))
+	span.SetAttributes(
+		attribute.String("endpoint", e),
+		attribute.String("object_id", dis.ObjectId),
+	)
 
 	switch dis.ObjectId {
 	case "bridge":

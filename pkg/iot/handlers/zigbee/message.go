@@ -29,52 +29,65 @@ func newMessage(device *iotv1proto.Device) *message {
 	return m
 }
 
-func (m *message) withBrightness(brightness uint8) {
+func (m *message) withBrightness(brightness uint8) *message {
 	m.Lock()
 	defer m.Unlock()
 	m.msg["brightness"] = brightness
+
+	return m
 }
 
-func (m *message) withTransition(t float64) {
+func (m *message) withTransition(t float64) *message {
 	m.Lock()
 	defer m.Unlock()
 
 	m.msg["transition"] = t
+
+	return m
 }
 
-func (m *message) withColorTemp(temp int32) {
+func (m *message) withColorTemp(temp int32) *message {
 	m.Lock()
 	defer m.Unlock()
 	m.msg["color_temp"] = temp
+
+	return m
 }
 
-func (m *message) withColor(hex string) {
-	m.Lock()
-	defer m.Unlock()
-	m.msg["color"] = map[string]string{
-		"hex": hex,
-	}
-}
-
-func (m *message) withRandomColor(hex []string) {
+func (m *message) withColor(hex string) *message {
 	m.Lock()
 	defer m.Unlock()
 
-	m.withColor(hex[rand.Intn(len(hex))])
+	return m.withInternalColor(hex)
 }
 
-func (m *message) withOn() {
+// Must be called under lock
+func (m *message) withInternalColor(hex string) *message {
+	m.msg["color"] = map[string]string{"hex": hex}
+	return m
+}
+
+func (m *message) withRandomColor(hex []string) *message {
+	m.Lock()
+	defer m.Unlock()
+
+	return m.withInternalColor(hex[rand.Intn(len(hex))])
+}
+
+func (m *message) withOn() *message {
 	m.Lock()
 	defer m.Unlock()
 
 	m.msg["state"] = "ON"
+	return m
 }
 
-func (m *message) withOff() {
+func (m *message) withOff() *message {
 	m.Lock()
 	defer m.Unlock()
 
 	m.msg["state"] = "OFF"
+	return m
 }
 
 func (m *message) withBlink() {

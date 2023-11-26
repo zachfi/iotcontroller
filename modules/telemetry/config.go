@@ -1,14 +1,20 @@
 package telemetry
 
-import "flag"
+import (
+	"flag"
 
-type Config struct{}
+	"github.com/zachfi/zkit/pkg/util"
+)
+
+type Config struct {
+	ReportConcurrency uint
+}
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
-	// f.StringVar(
-	// 	&cfg.ServerAddress,
-	// 	util.PrefixConfig(prefix, "server-address"),
-	// 	":9090",
-	// 	"The address of the server to connect to",
-	// )
+	f.UintVar(
+		&cfg.ReportConcurrency,
+		util.PrefixConfig(prefix, "server-address"),
+		10,
+		"The address of the server to connect to",
+	)
 }

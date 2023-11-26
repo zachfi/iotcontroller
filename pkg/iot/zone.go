@@ -39,11 +39,11 @@ var (
 
 var defaultBrightnessMap = map[iotv1proto.Brightness]uint8{
 	iotv1proto.Brightness_BRIGHTNESS_FULL:    254,
-	iotv1proto.Brightness_BRIGHTNESS_DIMPLUS: 120,
-	iotv1proto.Brightness_BRIGHTNESS_DIM:     100,
+	iotv1proto.Brightness_BRIGHTNESS_DIMPLUS: 125,
+	iotv1proto.Brightness_BRIGHTNESS_DIM:     110,
 	iotv1proto.Brightness_BRIGHTNESS_LOWPLUS: 95,
 	iotv1proto.Brightness_BRIGHTNESS_LOW:     90,
-	iotv1proto.Brightness_BRIGHTNESS_VERYLOW: 80,
+	iotv1proto.Brightness_BRIGHTNESS_VERYLOW: 70,
 }
 var defaultScheduleDuration = time.Minute * 10
 
@@ -105,33 +105,31 @@ func (z *Zone) ColorTemperature() iotv1proto.ColorTemperature {
 	return z.colorTemp
 }
 
-func (z *Zone) SetDevice(device *iotv1proto.Device, handler Handler) error {
+func (z *Zone) SetDevice(ctx context.Context, device *iotv1proto.Device, handler Handler) error {
 	if handler == nil {
 		return fmt.Errorf("unable to set nil handler on device: %q", device.Name)
 	}
 
+	if device == nil || device.Name == "" || device.Type == iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED {
+		return ErrInvalidDevice
+	}
+
+	_, span := z.tracer.Start(ctx, "Zone.SetDevice", trace.WithAttributes(
+		attribute.String("device", device.Name),
+	))
+	defer span.End()
+
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
-
-	if device == nil {
-		return ErrInvalidDevice
-	}
-
-	if device.Name == "" {
-		return ErrInvalidDevice
-	}
-
-	if device.Type == iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED {
-		return ErrInvalidDevice
-	}
 
 	if z.devices == nil {
 		z.devices = make(map[*iotv1proto.Device]Handler)
 	}
 
-	for k := range z.devices {
-		if strings.EqualFold(k.Name, device.Name) {
-			k.Type = device.Type
+	for d := range z.devices {
+		if strings.EqualFold(d.Name, device.Name) {
+			d.Type = device.Type
+			z.devices[d] = handler
 			return nil
 		}
 	}
@@ -301,6 +299,9 @@ func (z *Zone) Flush(ctx context.Context) error {
 	span.SetAttributes(
 		attribute.String("name", z.name),
 		attribute.String("state", z.state.String()),
+		attribute.String("brightness", z.brightness.String()),
+		attribute.String("color_temp", z.colorTemp.String()),
+		attribute.Int("device_count", len(z.devices)),
 	)
 
 	var (
@@ -577,7 +578,6 @@ func (z *Zone) handleRandomColor(ctx context.Context) error {
 	)
 
 	for device, h := range z.devices {
-
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
 		default:

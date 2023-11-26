@@ -103,10 +103,7 @@ func (h ZigbeeHandler) SetColor(ctx context.Context, device *iotv1proto.Device, 
 	))
 	defer span.End()
 
-	msg := newMessage(device)
-	msg.withColor(hex)
-
-	return h.send(ctx, span, msg)
+	return h.send(ctx, span, newMessage(device).withColor(hex))
 }
 
 func (h ZigbeeHandler) RandomColor(ctx context.Context, device *iotv1proto.Device, hex []string) error {
