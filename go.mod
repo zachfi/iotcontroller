@@ -3,7 +3,6 @@ module github.com/zachfi/iotcontroller
 go 1.21
 
 require (
-	github.com/davecgh/go-spew v1.1.1
 	github.com/eclipse/paho.mqtt.golang v1.4.2
 	github.com/go-kit/log v0.2.1
 	github.com/gorilla/mux v1.8.0
@@ -15,7 +14,7 @@ require (
 	github.com/prometheus/client_golang v1.15.1
 	github.com/prometheus/common v0.44.0
 	github.com/stretchr/testify v1.8.1
-	github.com/zachfi/zkit v0.1.1-0.20231103135530-91e89c2f96ce
+	github.com/zachfi/zkit v0.1.1-0.20231125174539-ec1214b7a676
 	github.com/zachfi/znet v0.32.16
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.28.0
 	go.opentelemetry.io/otel v1.12.0
@@ -44,6 +43,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.8.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
