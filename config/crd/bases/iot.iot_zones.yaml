@@ -35,6 +35,10 @@ spec:
           spec:
             description: ZoneSpec defines the desired state of Zone
             properties:
+              colors:
+                items:
+                  type: string
+                type: array
               devices:
                 items:
                   type: string
