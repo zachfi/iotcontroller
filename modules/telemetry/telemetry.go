@@ -25,8 +25,9 @@ import (
 
 	"github.com/zachfi/zkit/pkg/tracing"
 
+	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
+
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
-	"github.com/zachfi/iotcontroller/pkg/boundedwaitgroup"
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
