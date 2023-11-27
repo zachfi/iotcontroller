@@ -442,35 +442,66 @@ func (l *Telemetry) executeForReport(ctx context.Context, req *telemetryv1proto.
 		if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
 			span.SetAttributes(
 				attribute.String("zone", zone),
-				attribute.String("m", fmt.Sprintf("%+v", m)),
-			)
-
-			// TODO: an empty string seems to prevent messages from reaching the devices correctly, or at least promply.
-			if m.Action == nil {
-				return
-			}
-
-			action := *m.Action
-
-			actionReq := &iotv1proto.ActionHandlerRequest{
-				Event:  action,
-				Device: device.Name,
-				Zone:   zone,
-			}
-
-			span.SetAttributes(
-				attribute.String("action", action),
 				attribute.String("device", device.Name),
 			)
 
-			_, err := l.zonekeeperClient.ActionHandler(ctx, actionReq)
-			if err != nil {
-				_ = tracing.ErrHandler(span, err, "action handler failed", l.logger)
+			wg := sync.WaitGroup{}
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				l.selfAnnounce(ctx, device.Name, zone)
+			}()
+
+			if m.Action != nil {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					l.action(ctx, *m.Action, device.Name, zone)
+				}()
 			}
+
+			wg.Wait()
 		}
 	default:
 		l.logger.Error("unhandled iot message type", "type", fmt.Sprintf("%T", msg))
 	}
+}
+
+func (l *Telemetry) selfAnnounce(ctx context.Context, device, zone string) {
+	var err error
+
+	ctx, span := l.tracer.Start(ctx, "selfAnnounce", trace.WithAttributes(
+		attribute.String("device", device),
+		attribute.String("zone", zone),
+	))
+	defer func() { _ = tracing.ErrHandler(span, err, "self announce", l.logger) }()
+
+	_, err = l.zonekeeperClient.SelfAnnounce(ctx,
+		&iotv1proto.SelfAnnounceRequest{
+			Device: device,
+			Zone:   zone,
+		},
+	)
+}
+
+func (l *Telemetry) action(ctx context.Context, action, device, zone string) {
+	var err error
+
+	ctx, span := l.tracer.Start(ctx, "action", trace.WithAttributes(
+		attribute.String("action", action),
+		attribute.String("device", device),
+		attribute.String("zone", zone),
+	))
+	defer func() { _ = tracing.ErrHandler(span, err, "action", l.logger) }()
+
+	_, err = l.zonekeeperClient.ActionHandler(ctx,
+		&iotv1proto.ActionHandlerRequest{
+			Event:  action,
+			Device: device,
+			Zone:   zone,
+		},
+	)
 }
 
 func (l *Telemetry) handleZigbeeDevices(ctx context.Context, m iot.ZigbeeMessageBridgeDevices) error {

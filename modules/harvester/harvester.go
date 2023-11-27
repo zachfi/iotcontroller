@@ -10,9 +10,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+
+	"github.com/zachfi/zkit/pkg/tracing"
 
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/pkg/iot"
@@ -71,16 +72,15 @@ func (h *Harvester) starting(ctx context.Context) error {
 	return nil
 }
 
-func (h *Harvester) running(ctx context.Context) error {
-	var onMessageReceived mqtt.MessageHandler = func(_ mqtt.Client, msg mqtt.Message) {
+func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
+	return func(_ mqtt.Client, msg mqtt.Message) {
 		var err error
-		messageCtx, span := h.tracer.Start(
-			ctx,
-			"Harvester.messageReceived",
+		_, span := h.tracer.Start(
+			context.Background(),
+			"Harvester.messageFunc",
 			trace.WithSpanKind(trace.SpanKindClient),
 		)
-
-		defer func() { handleErr(span, err) }()
+		defer func() { _ = tracing.ErrHandler(span, err, "harvester mqtt message failed", h.logger) }()
 
 		harvesterMessageTotal.WithLabelValues().Inc()
 
@@ -96,15 +96,16 @@ func (h *Harvester) running(ctx context.Context) error {
 			DeviceDiscovery: iot.ParseDiscoveryMessage(topicPath, msg),
 		}
 
-		_, streamSpan := h.tracer.Start(messageCtx, "stream.Send", trace.WithSpanKind(trace.SpanKindClient))
 		err = h.stream.Send(req)
 		if err != nil {
 			harvesterMessageErrors.WithLabelValues().Inc()
 			h.logger.Error("failed to send on stream", "err", err.Error())
 		}
-		handleErr(streamSpan, err)
-		handleErr(span, err)
 	}
+}
+
+func (h *Harvester) running(ctx context.Context) error {
+	var onMessageReceived mqtt.MessageHandler = h.messageFunc(ctx)
 
 	go func() {
 		token := h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
@@ -122,13 +123,4 @@ func (h *Harvester) running(ctx context.Context) error {
 func (h *Harvester) stopping(_ error) error {
 	_, err := h.stream.CloseAndRecv()
 	return err
-}
-
-func handleErr(span trace.Span, err error) {
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-	} else {
-		span.SetStatus(codes.Ok, "ok")
-	}
-	span.End()
 }
