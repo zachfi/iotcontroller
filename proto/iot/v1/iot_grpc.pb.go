@@ -193,6 +193,7 @@ type ZoneKeeperServiceClient interface {
 	SetState(ctx context.Context, in *SetStateRequest, opts ...grpc.CallOption) (*SetStateResponse, error)
 	GetDeviceZone(ctx context.Context, in *GetDeviceZoneRequest, opts ...grpc.CallOption) (*GetDeviceZoneResponse, error)
 	ActionHandler(ctx context.Context, in *ActionHandlerRequest, opts ...grpc.CallOption) (*ActionHandlerResponse, error)
+	SelfAnnounce(ctx context.Context, in *SelfAnnounceRequest, opts ...grpc.CallOption) (*SelfAnnounceResponse, error)
 }
 
 type zoneKeeperServiceClient struct {
@@ -230,6 +231,15 @@ func (c *zoneKeeperServiceClient) ActionHandler(ctx context.Context, in *ActionH
 	return out, nil
 }
 
+func (c *zoneKeeperServiceClient) SelfAnnounce(ctx context.Context, in *SelfAnnounceRequest, opts ...grpc.CallOption) (*SelfAnnounceResponse, error) {
+	out := new(SelfAnnounceResponse)
+	err := c.cc.Invoke(ctx, "/iot.v1.ZoneKeeperService/SelfAnnounce", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ZoneKeeperServiceServer is the server API for ZoneKeeperService service.
 // All implementations should embed UnimplementedZoneKeeperServiceServer
 // for forward compatibility
@@ -237,6 +247,7 @@ type ZoneKeeperServiceServer interface {
 	SetState(context.Context, *SetStateRequest) (*SetStateResponse, error)
 	GetDeviceZone(context.Context, *GetDeviceZoneRequest) (*GetDeviceZoneResponse, error)
 	ActionHandler(context.Context, *ActionHandlerRequest) (*ActionHandlerResponse, error)
+	SelfAnnounce(context.Context, *SelfAnnounceRequest) (*SelfAnnounceResponse, error)
 }
 
 // UnimplementedZoneKeeperServiceServer should be embedded to have forward compatible implementations.
@@ -251,6 +262,9 @@ func (UnimplementedZoneKeeperServiceServer) GetDeviceZone(context.Context, *GetD
 }
 func (UnimplementedZoneKeeperServiceServer) ActionHandler(context.Context, *ActionHandlerRequest) (*ActionHandlerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ActionHandler not implemented")
+}
+func (UnimplementedZoneKeeperServiceServer) SelfAnnounce(context.Context, *SelfAnnounceRequest) (*SelfAnnounceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SelfAnnounce not implemented")
 }
 
 // UnsafeZoneKeeperServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -318,6 +332,24 @@ func _ZoneKeeperService_ActionHandler_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ZoneKeeperService_SelfAnnounce_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SelfAnnounceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZoneKeeperServiceServer).SelfAnnounce(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/iot.v1.ZoneKeeperService/SelfAnnounce",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZoneKeeperServiceServer).SelfAnnounce(ctx, req.(*SelfAnnounceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ZoneKeeperService_ServiceDesc is the grpc.ServiceDesc for ZoneKeeperService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -336,6 +368,10 @@ var ZoneKeeperService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ActionHandler",
 			Handler:    _ZoneKeeperService_ActionHandler_Handler,
+		},
+		{
+			MethodName: "SelfAnnounce",
+			Handler:    _ZoneKeeperService_SelfAnnounce_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
