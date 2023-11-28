@@ -17,6 +17,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/zachfi/zkit/pkg/tracing"
+
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/pkg/iot"
@@ -30,6 +32,10 @@ const (
 	namespace = "iot"
 )
 
+var unlimited = func(_ string) bool {
+	return true
+}
+
 type ZoneKeeper struct {
 	services.Service
 	mtx sync.Mutex
@@ -41,7 +47,8 @@ type ZoneKeeper struct {
 	mqttclient *mqttclient.MQTTClient
 	kubeclient client.Client
 
-	handlers map[controllerHandler]iot.Handler
+	handlers   map[controllerHandler]iot.Handler
+	announceer map[string]time.Time
 
 	// TODO: a color temperature scheduler might adjsut the temperature of the
 	// lights depending on a schedule.  Could this be a kubernetes object that we
@@ -66,6 +73,7 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kub
 		mqttclient: mqttclient,
 		kubeclient: kubeclient,
 		zones:      make(map[string]*iot.Zone),
+		announceer: make(map[string]time.Time),
 	}
 
 	z.Service = services.NewBasicService(z.starting, z.running, z.stopping)
@@ -74,62 +82,109 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kub
 }
 
 func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateRequest) (*iotv1proto.SetStateResponse, error) {
-	var err error
-
-	_, span := z.tracer.Start(ctx, "ZoneKeeper.SetState", trace.WithSpanKind(trace.SpanKindServer))
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("name", req.Name),
-		attribute.String("state", req.State.String()),
+	var (
+		err  error
+		zone *iot.Zone
+		resp = &iotv1proto.SetStateResponse{}
 	)
 
-	zone, err := z.GetZone(ctx, req.Name)
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.SetState",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("name", req.Name),
+			attribute.String("state", req.State.String()),
+		),
+	)
+	defer func() { _ = tracing.ErrHandler(span, err, "self announce", z.logger) }()
+
+	zone, err = z.GetZone(ctx, req.Name)
 	if err != nil {
-		return nil, errHandler(span, fmt.Errorf("failed to get zone %q: %w", req.Name, err))
+		return resp, err
 	}
 
 	zone.SetState(ctx, req.State)
 
-	err = z.Flush(ctx, zone)
-	if err != nil {
-		return nil, errHandler(span, err)
-	}
+	wg := sync.WaitGroup{}
 
-	return &iotv1proto.SetStateResponse{}, errHandler(span, err)
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		z.apiStatusUpdate(ctx, zone)
+	}(ctx)
+
+	err = zone.Flush(ctx, unlimited)
+	wg.Wait()
+	return resp, err
 }
 
-// ActionHandler is called when an action is requested against a light group.
-// The action speciefies the a button press and a room to give enough context
-// for how to change the behavior of the lights in response to the action.
-func (z *ZoneKeeper) ActionHandler(ctx context.Context, action *iotv1proto.ActionHandlerRequest) (*iotv1proto.ActionHandlerResponse, error) {
-	var err error
+func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnounceRequest) (*iotv1proto.SelfAnnounceResponse, error) {
+	var (
+		err     error
+		zone    *iot.Zone
+		resp    = &iotv1proto.SelfAnnounceResponse{}
+		limiter iot.FlushLimiter
+	)
 
-	resp := &iotv1proto.ActionHandlerResponse{}
+	_, span := z.tracer.Start(ctx, "ZoneKeeper.SelfAnnounce",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("device", req.Device),
+			attribute.String("zone", req.Zone),
+		),
+	)
+	defer func() { _ = tracing.ErrHandler(span, err, "self announce", z.logger) }()
+
+	z.mtx.Lock()
+	if v, ok := z.announceer[req.Device]; ok {
+		if time.Since(v) < 10*time.Second {
+			span.SetAttributes(
+				attribute.String("skipped", "too recent"),
+			)
+			defer z.mtx.Unlock()
+			return resp, nil
+		}
+	}
+
+	z.announceer[req.Device] = time.Now()
+	z.mtx.Unlock()
+
+	limiter = func(d string) bool {
+		return d == req.Device
+	}
+
+	zone, err = z.GetZone(ctx, req.Zone)
+	return resp, zone.Flush(ctx, limiter)
+}
+
+// ActionHandler is called when an action is requested against a zone. The
+// action is the event, like a button press.
+func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHandlerRequest) (*iotv1proto.ActionHandlerResponse, error) {
+	var (
+		err  error
+		resp = &iotv1proto.ActionHandlerResponse{}
+	)
 
 	_, span := z.tracer.Start(ctx, "ZoneKeeper.ActionHandler", trace.WithSpanKind(trace.SpanKindServer))
 	defer func() { _ = errHandler(span, err) }()
 
 	span.SetAttributes(
-		attribute.String("event", action.Event),
-		attribute.String("device", action.Device),
-		attribute.String("zone", action.Zone),
+		attribute.String("event", req.Event),
+		attribute.String("device", req.Device),
+		attribute.String("zone", req.Zone),
 	)
 
-	zone, err := z.GetZone(ctx, action.Zone)
-	if err != nil {
-		return resp, fmt.Errorf("failed to get zone %q for action %q: %w", action.Zone, action.Event, err)
+	if req.Event == "" {
+		return resp, nil
 	}
 
-	// setStateReq := &iotv1proto.SetStateRequest{
-	// }
+	zone, err := z.GetZone(ctx, req.Zone)
+	if err != nil {
+		return resp, fmt.Errorf("failed to get zone %q for action %q: %w", req.Zone, req.Event, err)
+	}
 
 	// TODO: move the strings here to constants
 
-	switch action.Event {
-	// case "":
-	// TODO: An empty event introduces a circular loop, but would be nice to enforce devices that come online after the zone has been flushed, and so we should flush again, but not too often.
-	// TODO: This may not be the cause of the loop.  But does seem to prevent messages reaching the devices correctly.
+	switch req.Event {
 	case "single", "button_1_press":
 		// Toggle from current state
 		currentState := zone.State()
@@ -164,47 +219,10 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, action *iotv1proto.Actio
 	case "wakeup", "press", "release", "off_hold", "off_hold_release", "on_press_release", "up_press_release", "down_press_release": // do nothing
 		return resp, nil
 	default:
-		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", action.Event, action.Device, action.Zone))
+		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", req.Event, req.Device, req.Zone))
 	}
 
-	return resp, errHandler(span, z.Flush(ctx, zone))
-}
-
-// Flush handles pushing the current state out to each of the hnadlers.
-func (z *ZoneKeeper) Flush(ctx context.Context, iotZone *iot.Zone) error {
-	var err error
-
-	attributes := []attribute.KeyValue{
-		attribute.String("zone", iotZone.Name()),
-		attribute.String("state", iotZone.State().String()),
-		attribute.String("brightness", iotZone.Brightness().String()),
-		attribute.String("color_temp", iotZone.ColorTemperature().String()),
-	}
-
-	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.Flush", trace.WithAttributes(attributes...))
-	defer func() { _ = errHandler(span, err) }()
-
-	if iotZone.State() == iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
-		err = fmt.Errorf("unable to flush UNSPECIFIED zone state")
-		return err
-	}
-
-	wg := sync.WaitGroup{}
-
-	wg.Add(1)
-	go func(ctx context.Context) {
-		defer wg.Done()
-		z.apiStatusUpdate(ctx, iotZone)
-	}(ctx)
-
-	err = iotZone.Flush(ctx)
-	if err != nil {
-		return err
-	}
-
-	wg.Wait()
-
-	return nil
+	return resp, errHandler(span, zone.Flush(ctx, unlimited))
 }
 
 func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
