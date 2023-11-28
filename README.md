@@ -21,10 +21,11 @@ C4Context
     System(alertmanager, "alertmanager", "Alertmanager")
     System(kubernetes, "kubernetes", "Kubernetes")
     System(mqtt, "MQTT", "MQTT")
+    System(zigbee, "Zigbee", "The 802.15.4 network")
+    System(zigbee2mqtt, "Zigbee2Mqtt", "The node app")
 
     Rel(alertmanager, moduleHookReceiver, "Receives webhooks about alerts")
     Rel(kubernetes, moduleController, "Manages kubernetes objects")
-    BiRel(mqtt, mqttClient, "Manages kubernetes objects")
 
     UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 
