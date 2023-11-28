@@ -19,8 +19,12 @@ C4Context
     }
 
     System(alertmanager, "alertmanager", "Alertmanager")
+    System(kubernetes, "kubernetes", "Kubernetes")
+    System(mqtt, "MQTT", "MQTT")
 
     Rel(alertmanager, moduleHookReceiver, "Receives webhooks about alerts")
+    Rel(kubernetes, moduleController, "Manages kubernetes objects")
+    BiRel(mqtt, mqttClient, "Manages kubernetes objects")
 
     UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 
