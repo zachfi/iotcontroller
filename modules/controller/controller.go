@@ -2,16 +2,23 @@ package controller
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	iotv1 "github.com/zachfi/iotcontroller/api/v1"
+	"github.com/zachfi/iotcontroller/controllers"
+	"github.com/zachfi/iotcontroller/modules/mqttclient"
 )
 
 type Controller struct {
@@ -19,27 +26,31 @@ type Controller struct {
 
 	cfg *Config
 
-	logger log.Logger
+	logger *slog.Logger
 	tracer trace.Tracer
 
-	mgr manager.Manager
+	mgr        manager.Manager
+	mqttclient *mqttclient.MQTTClient
 }
 
-var scheme = runtime.NewScheme()
+var scheme = runtime.NewScheme() // setupLog = ctrl.Log.WithName("setup")
 
-func New(cfg Config, logger log.Logger) (*Controller, error) {
+func init() {
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	utilruntime.Must(iotv1.AddToScheme(scheme))
+	//+kubebuilder:scaffold:scheme
+}
+
+func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*Controller, error) {
 	c := &Controller{
 		cfg:    &cfg,
-		logger: log.With(logger, "module", "controller"),
+		logger: logger.With("module", "controller"),
 		tracer: otel.Tracer("controller"),
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
 
-	return c, nil
-}
-
-func (c *Controller) starting(ctx context.Context) error {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		MetricsBindAddress:     c.cfg.MetricsAddr,
@@ -47,6 +58,7 @@ func (c *Controller) starting(ctx context.Context) error {
 		HealthProbeBindAddress: c.cfg.ProbeAddr,
 		LeaderElection:         c.cfg.EnableLeaderElection,
 		LeaderElectionID:       "cefdf353.iot",
+		Namespace:              cfg.Namespace,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -60,11 +72,47 @@ func (c *Controller) starting(ctx context.Context) error {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		return errors.Wrap(err, "unable to start manager")
+		return nil, errors.Wrap(err, "unable to start manager")
 	}
 
 	c.mgr = mgr
+	c.mqttclient = mqttclient
 
+	return c, nil
+}
+
+func (c *Controller) starting(ctx context.Context) error {
+	var err error
+
+	deviceController := &controllers.DeviceReconciler{
+		Client: c.mgr.GetClient(),
+		Scheme: c.mgr.GetScheme(),
+	}
+	deviceController.SetLogger(slog.With(c.logger, "reconciler", "device"))
+	deviceController.SetTracer(c.tracer)
+
+	if err = deviceController.SetupWithManager(c.mgr); err != nil {
+		return errors.Wrap(err, "unable to create Device controller")
+	}
+
+	zoneController := &controllers.ZoneReconciler{
+		Client: c.mgr.GetClient(),
+		Scheme: c.mgr.GetScheme(),
+	}
+	zoneController.SetLogger(slog.With(c.logger, "reconciler", "zone"))
+	zoneController.SetTracer(c.tracer)
+
+	if err = zoneController.SetupWithManager(c.mgr); err != nil {
+		return errors.Wrap(err, "unable to create Zone controller")
+	}
+
+	return nil
+}
+
+func (c *Controller) Client() client.Client {
+	if c.mgr != nil {
+		return c.mgr.GetClient()
+	}
 	return nil
 }
 

@@ -2,14 +2,15 @@ package mqttclient
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-kit/log"
 	"github.com/grafana/dskit/services"
-	"github.com/zachfi/iotcontroller/pkg/iot"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/zachfi/iotcontroller/pkg/iot"
 )
 
 var module = "mqttclient"
@@ -21,30 +22,48 @@ type MQTTClient struct {
 
 	client mqtt.Client
 
-	logger log.Logger
+	logger *slog.Logger
 	tracer trace.Tracer
 }
 
-func New(cfg Config, logger log.Logger) (*MQTTClient, error) {
+func New(cfg Config, logger *slog.Logger) (*MQTTClient, error) {
 	m := &MQTTClient{
 		cfg:    &cfg,
-		logger: log.With(logger, "module", module),
+		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 	}
 
+	client, err := iot.NewMQTTClient(m.cfg.MQTT, m.logger)
+	if err != nil {
+		return nil, err
+	}
+
+	m.client = client
 	m.Service = services.NewBasicService(m.starting, m.running, m.stopping)
 
 	return m, nil
 }
 
+func (m *MQTTClient) Client() mqtt.Client {
+	return m.client
+}
+
 func (m *MQTTClient) starting(ctx context.Context) error {
+	token := m.client.Connect()
+	token.Wait()
+
+	err := token.Error()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (m *MQTTClient) running(ctx context.Context) error {
 	t := time.NewTicker(10 * time.Second)
 
-	var client mqtt.Client
+	client := m.client
 	var err error
 
 	for {
@@ -66,6 +85,8 @@ func (m *MQTTClient) running(ctx context.Context) error {
 }
 
 func (m *MQTTClient) stopping(_ error) error {
-	m.client.Disconnect(1000)
+	if m.client != nil {
+		m.client.Disconnect(100)
+	}
 	return nil
 }

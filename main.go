@@ -1,6 +1,5 @@
 /*
 Copyright 2022.
-
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -17,37 +16,21 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
-	"github.com/go-logr/logr"
+
 	"github.com/grafana/dskit/flagext"
-	"github.com/pkg/errors"
-	"github.com/zachfi/iotcontroller/cmd/app"
-	"google.golang.org/grpc"
+	"github.com/zachfi/zkit/pkg/tracing"
 	"gopkg.in/yaml.v2"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"github.com/zachfi/iotcontroller/cmd/app"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -79,118 +62,53 @@ func versionString() string {
 	})
 }
 
-var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
-)
-
-func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	//+kubebuilder:scaffold:scheme
-}
-
 func main() {
-	logger := log.NewLogfmtLogger(os.Stdout)
-
 	cfg, err := loadConfig()
 	if err != nil {
-		_ = level.Error(logger).Log("msg", "failed to load config file", "err", err)
+		slog.Error("failed to load config", "err", err)
 		os.Exit(1)
 	}
 
-	var otelEndpoint string
-	var orgID string
-	flag.StringVar(&otelEndpoint, "otel-endpoint", "", "The URL to use when sending traces")
-	flag.StringVar(&orgID, "org-id", "", "The X-Scope-OrgID header to set when sending traces")
+	level := new(slog.LevelVar)
 
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
-
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
-
-	if otelEndpoint != "" {
-		shutdownTracer, err := installOpenTelemetryTracer(otelEndpoint, orgID, setupLog)
-		if err != nil {
-			setupLog.Error(err, "error initializing tracer")
-			os.Exit(1)
-		}
-		defer shutdownTracer()
+	switch cfg.LogLevel.String() {
+	case "debug":
+		level.Set(slog.LevelDebug)
+	case "info":
+		level.Set(slog.LevelInfo)
+	case "warn":
+		level.Set(slog.LevelWarn)
+	case "error":
+		level.Set(slog.LevelError)
 	}
 
-	a, err := app.New(*cfg)
+	loggerOpts := &slog.HandlerOptions{Level: level}
+	handler := slog.NewTextHandler(os.Stdout, loggerOpts)
+
+	logger := slog.New(handler)
+
+	shutdownTracer, err := tracing.InstallOpenTelemetryTracer(
+		&cfg.Tracing,
+		logger,
+		"iotcontroller",
+		versionString(),
+	)
 	if err != nil {
-		_ = level.Error(logger).Log("msg", "failed to create App", "err", err)
+		slog.Error("failed initializing tracer", "err", err)
+		os.Exit(1)
+	}
+	defer shutdownTracer()
+
+	a, err := app.New(*cfg, logger)
+	if err != nil {
+		slog.Error("msg", "failed to create app", "err", err)
 		os.Exit(1)
 	}
 
 	if err := a.Run(); err != nil {
-		_ = level.Error(logger).Log("msg", "error running App", "err", err)
+		slog.Error("msg", "failed to run App", "err", err)
 		os.Exit(1)
 	}
-}
-
-func installOpenTelemetryTracer(endpoint string, orgID string, log logr.Logger) (func(), error) {
-	if endpoint == "" {
-		return func() {}, nil
-	}
-
-	log.Info("initialising OpenTelemetry tracer", "endpoint", endpoint)
-
-	ctx := context.Background()
-
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceNameKey.String("nodemanager"),
-			semconv.ServiceVersionKey.String(versionString()),
-		),
-		resource.WithHost(),
-	)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize trace resuorce")
-	}
-
-	conn, err := grpc.DialContext(ctx, endpoint, grpc.WithInsecure())
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to dial otel grpc")
-	}
-
-	options := []otlptracegrpc.Option{otlptracegrpc.WithGRPCConn(conn)}
-	if orgID != "" {
-		options = append(options,
-			otlptracegrpc.WithHeaders(map[string]string{"X-Scope-OrgID": orgID}))
-	}
-
-	traceExporter, err := otlptracegrpc.New(ctx, options...)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to creat trace exporter")
-	}
-
-	bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
-	tracerProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-		sdktrace.WithResource(res),
-		sdktrace.WithSpanProcessor(bsp),
-	)
-
-	otel.SetTracerProvider(tracerProvider)
-
-	// set global propagator to tracecontext (the default is no-op).
-	otel.SetTextMapPropagator(propagation.TraceContext{})
-
-	shutdown := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := tracerProvider.Shutdown(ctx); err != nil {
-			log.Error(err, "OpenTelemetry trace provider failed to shutdown")
-			os.Exit(1)
-		}
-	}
-
-	return shutdown, nil
 }
 
 func loadConfig() (*app.Config, error) {

@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package iot.v1;
+
+message UpdateDeviceResponse {}
+message AlertResponse {}
+
+// <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
+message DeviceDiscovery {
+  string discovery_prefix = 1;
+  string component = 2;
+  string node_id = 3;
+  string object_id = 4;
+  repeated string endpoints = 5;
+  bytes message = 6;
+}
+
+message AlertRequest {
+  string group = 1;
+  string status = 2;
+  string name = 3;
+  string zone = 4;
+  map<string, string> labels = 5;
+}
+
+message UpdateDeviceRequest {
+  string device = 1;
+}
+
+service IOTService {
+  rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
+}
+
+service AlertReceiverService {
+  rpc Alert(AlertRequest) returns (AlertResponse);
+}
+
+enum ColorTemperature {
+  COLOR_TEMPERATURE_UNSPECIFIED = 0;
+  COLOR_TEMPERATURE_FIRSTLIGHT = 1;
+  COLOR_TEMPERATURE_MORNING = 2;
+  COLOR_TEMPERATURE_DAY = 3;
+  COLOR_TEMPERATURE_LATEAFTERNOON = 4;
+  COLOR_TEMPERATURE_EVENING = 5;
+}
+
+enum Brightness {
+  BRIGHTNESS_UNSPECIFIED = 0;
+  BRIGHTNESS_FULL = 1;
+  BRIGHTNESS_DIM = 2;
+  BRIGHTNESS_LOW = 3;
+  BRIGHTNESS_DIMPLUS = 4;
+  BRIGHTNESS_LOWPLUS = 5;
+  BRIGHTNESS_VERYLOW = 6;
+}
+
+enum ZoneState {
+  ZONE_STATE_UNSPECIFIED = 0;
+  ZONE_STATE_ON = 1;
+  ZONE_STATE_OFF = 2;
+  ZONE_STATE_OFFTIMER = 3;
+  ZONE_STATE_COLOR = 4;
+  ZONE_STATE_RANDOMCOLOR = 5;
+  /* DIM = 5; */
+
+  ////
+  ZONE_STATE_NIGHTVISION = 6;
+  ZONE_STATE_EVENINGVISION = 7;
+  ZONE_STATE_MORNINGVISION = 8;
+}
+
+message SetStateResponse {}
+
+message SetStateRequest {
+  string name = 1;
+  ZoneState state = 2;
+}
+
+message GetDeviceZoneRequest {
+  string device = 1;
+}
+
+message GetDeviceZoneResponse {
+  string zone = 1;
+}
+
+message ActionHandlerRequest {
+  string event = 1;
+  string device = 2;
+  string zone = 3;
+}
+
+message ActionHandlerResponse {}
+
+message SelfAnnounceRequest {
+  string device = 1;
+  string zone = 2;
+}
+
+message SelfAnnounceResponse {}
+
+service ZoneKeeperService {
+  rpc SetState(SetStateRequest) returns (SetStateResponse);
+  rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
+  rpc ActionHandler(ActionHandlerRequest) returns (ActionHandlerResponse);
+  rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
+}
+
+message Device {
+  string name = 1;
+  DeviceType type = 2;
+}
+
+enum DeviceType {
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  DEVICE_TYPE_COORDINATOR = 1;
+  DEVICE_TYPE_BASIC_LIGHT = 2;
+  DEVICE_TYPE_COLOR_LIGHT = 3;
+  DEVICE_TYPE_RELAY = 4;
+  DEVICE_TYPE_LEAK = 5;
+  DEVICE_TYPE_BUTTON = 6;
+  DEVICE_TYPE_MOISTURE = 7;
+  DEVICE_TYPE_TEMPERATURE = 8;
+  DEVICE_TYPE_MOTION = 9;
+  DEVICE_TYPE_ISPINDEL = 10;
+}
