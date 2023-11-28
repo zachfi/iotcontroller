@@ -7,7 +7,7 @@ IOTController is Kubernetes controller for IOT devices.
 ```mermaid
 C4Context
     title System diagram for IOTController
-    Enterprise_Boundary(b0, "iotcontroller") {
+    System_Boundary(iotcontroller, "iotcontroller") {
         System_Ext(moduleConditioner, "zone conditioner", "Uses rules for controlling zones based on conditions")
         System_Ext(moduleMqttclient, "mqtt client", "Used to read reports from devices and send commands")
         System_Ext(moduleController, "kubernetes controller", "reconciles and manages custom resources")
@@ -18,8 +18,6 @@ C4Context
         System(moduleHookReceiver, "hook receiver", "Receives alertmanager webooks and updates conditioner")
         System(moduleZoneKeeper", "zone keeper", "Used to manage the zones and their state")
 
-        Rel(moduleZoneKeeper, moduleMqttclient, "Uses client")
-        Rel(moduleZoneKeeper, moduleController, "Uses client")
     }
 
     System(alertmanager, "alertmanager", "Alertmanager")
