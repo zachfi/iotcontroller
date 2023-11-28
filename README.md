@@ -26,6 +26,8 @@ C4Context
 
     Rel(alertmanager, moduleHookReceiver, "Receives webhooks about alerts")
     Rel(kubernetes, moduleController, "Manages kubernetes objects")
+    BiRel(zigbee2mqtt, zigbee, "Interfaces with zigbee network")
+    BiRel(zigbee2mqtt, mqtt, "Interfaces with zigbee network")
 
     UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 
