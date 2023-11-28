@@ -5,6 +5,19 @@ IOTController is Kubernetes controller for IOT devices.
 ## Description
 
 ```mermaid
+C4Context
+    title System diagram for IOTController
+    Enterprise_Boundary(b0, "iotcontroller") {
+
+        System("client")
+        System("conditioner")
+        System("controller")
+        System("harvester")
+        System("mqttclient")
+        System("telemetry")
+        System("zone-keeper")
+        System("hook-receiver")
+
 
     C4Context
       title System Context diagram for Internet Banking System
