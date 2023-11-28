@@ -8,19 +8,18 @@ IOTController is Kubernetes controller for IOT devices.
 C4Context
     title System diagram for IOTController
     Enterprise_Boundary(b0, "iotcontroller") {
-        System(moduleClient, "grpc client", "Allows inter-module communication")
-        System(moduleConditioner, "zone conditioner", "Uses rules for controlling zones based on conditions")
-        System(moduleController, "kubernetes controller", "reconciles and manages custom resources")
-        System(moduleHarvester, "reads messages from mqtt and reports to telemetry")
-        System(moduleMqttclient, "mqtt client", "Used to read reports from devices and send commands")
-        System(moduleTelemetry, "iot telemetry", "Used to create metrics and respond to device events")
-        System(moduleZoneKeeper", "zone keeper", "Used to manage the zones and their state")
-        System(moduleHookReceiver, "hook receiver", "Receives alertmanager webooks and updates conditioner")
+        System_Ext(moduleConditioner, "zone conditioner", "Uses rules for controlling zones based on conditions")
+        System_Ext(moduleMqttclient, "mqtt client", "Used to read reports from devices and send commands")
+        System_Ext(moduleController, "kubernetes controller", "reconciles and manages custom resources")
 
+        System(moduleClient, "grpc client", "Allows inter-module communication")
+        System(moduleHarvester, "reads messages from mqtt and reports to telemetry")
+        System(moduleTelemetry, "iot telemetry", "Used to create metrics and respond to device events")
+        System(moduleHookReceiver, "hook receiver", "Receives alertmanager webooks and updates conditioner")
         System(moduleZoneKeeper", "zone keeper", "Used to manage the zones and their state")
+
         Rel(moduleZoneKeeper, moduleMqttclient, "Uses client")
         Rel(moduleZoneKeeper, moduleController, "Uses client")
-
     }
 
     System(alertmanager, "alertmanager", "Alertmanager")
