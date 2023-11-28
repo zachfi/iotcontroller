@@ -18,38 +18,11 @@ C4Context
         System(moduleHookReceiver, "hook receiver", "Receives alertmanager webooks and updates conditioner")
     }
 
-        System(alertmanager, "alertmanager", "Alertmanager")
+    System(alertmanager, "alertmanager", "Alertmanager")
 
-    Enterprise_Boundary(b1, "Kubernetes") {
-      SystemDb_Ext(SystemE, "Mainframe Banking System", "Stores all of the core banking information about customers, accounts, transactions, etc.")
+    Rel(alertmanager, moduleHookReceiver, "Receives webhooks about alerts")
 
-      System_Boundary(b2, "BankBoundary2") {
-        System(SystemA, "Banking System A")
-        System(SystemB, "Banking System B", "A system of the bank, with personal bank accounts. next line.")
-      }
-
-      System_Ext(SystemC, "E-mail system", "The internal Microsoft Exchange e-mail system.")
-      SystemDb(SystemD, "Banking System D Database", "A system of the bank, with personal bank accounts.")
-
-      Boundary(b3, "BankBoundary3", "boundary") {
-        SystemQueue(SystemF, "Banking System F Queue", "A system of the bank.")
-        SystemQueue_Ext(SystemG, "Banking System G Queue", "A system of the bank, with personal bank accounts.")
-      }
-    }
-
-      Boundary(b4, "MQTT", "boundary") {
-        SystemQueue(SystemF, "Banking System F Queue", "A system of the bank.")
-        SystemQueue_Ext(SystemG, "Banking System G Queue", "A system of the bank, with personal bank accounts.")
-      }
-
-
-    System_Boundary(b2, "ZigBee2MQTT") {
-    }
-  }
-
-  Rel(Alertmanager, moduleHookReceiver, "Receives webhooks about alerts")
-
-  UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 
 
 ```
