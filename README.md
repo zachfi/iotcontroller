@@ -9,19 +9,9 @@ C4Context
     title System diagram for IOTController
     Enterprise_Boundary(b0, "iotcontroller") {
 
-        System("client")
-        System("conditioner")
-        System("controller")
-        System("harvester")
-        System("mqttclient")
-        System("telemetry")
-        System("zone-keeper")
-        System("hook-receiver")
+        System("client", "grpc client", "Allows inter-module communication")
 
 
-    C4Context
-      title System Context diagram for Internet Banking System
-      Enterprise_Boundary(b0, "BankBoundary0") {
         Person(customerA, "Banking Customer A", "A customer of the bank, with personal bank accounts.")
         Person(customerB, "Banking Customer B")
         Person_Ext(customerC, "Banking Customer C", "desc")
