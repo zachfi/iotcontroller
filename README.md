@@ -16,6 +16,11 @@ C4Context
         System(moduleTelemetry, "iot telemetry", "Used to create metrics and respond to device events")
         System(moduleZoneKeeper", "zone keeper", "Used to manage the zones and their state")
         System(moduleHookReceiver, "hook receiver", "Receives alertmanager webooks and updates conditioner")
+
+        System(moduleZoneKeeper", "zone keeper", "Used to manage the zones and their state")
+        Rel(moduleZoneKeeper, moduleMqttclient, "Uses client")
+        Rel(moduleZoneKeeper, moduleController, "Uses client")
+
     }
 
     System(alertmanager, "alertmanager", "Alertmanager")
