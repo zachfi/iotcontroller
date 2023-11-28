@@ -46,7 +46,7 @@ func TestNewZone(t *testing.T) {
 		z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_COLOR)
 		z.IncrementBrightness(ctx)
 		z.DecrementBrightness(ctx)
-		err = z.Flush(ctx)
+		err = z.Flush(ctx, nil)
 		require.NoError(t, err)
 
 		for _, d := range tc.devices {

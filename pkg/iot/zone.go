@@ -287,8 +287,10 @@ func (z *Zone) HasDevice(device string) bool {
 	return false
 }
 
+type FlushLimiter func(name string) bool
+
 // Flush handles pushing the current state out to each of the hnadlers.
-func (z *Zone) Flush(ctx context.Context) error {
+func (z *Zone) Flush(ctx context.Context, limiter FlushLimiter) error {
 	if z.name == "" {
 		return fmt.Errorf("unable to handle unnamed zone: %+v", z)
 	}
@@ -311,30 +313,32 @@ func (z *Zone) Flush(ctx context.Context) error {
 
 	switch z.state {
 	case iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED:
-		return fmt.Errorf("unable to flush UNSPECIFIED zone state")
+		// Raise the state off the ground
+		z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_OFF)
+		return nil
 	case iotv1proto.ZoneState_ZONE_STATE_ON:
-		err = z.handleOn(ctx)
+		err = z.handleOn(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	case iotv1proto.ZoneState_ZONE_STATE_OFF:
-		err = z.handleOff(ctx)
+		err = z.handleOff(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	case iotv1proto.ZoneState_ZONE_STATE_COLOR:
-		err = z.handleColor(ctx)
+		err = z.handleColor(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	case iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR:
-		err = z.handleRandomColor(ctx)
+		err = z.handleRandomColor(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)
 		}
 	case iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION:
 		z.color = nightVisionColor
-		err = z.handleColor(ctx)
+		err = z.handleColor(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -347,7 +351,7 @@ func (z *Zone) Flush(ctx context.Context) error {
 	switch z.state {
 	case iotv1proto.ZoneState_ZONE_STATE_OFF:
 	default:
-		err = z.handleBrightness(ctx)
+		err = z.handleBrightness(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -359,7 +363,7 @@ func (z *Zone) Flush(ctx context.Context) error {
 	case iotv1proto.ZoneState_ZONE_STATE_COLOR:
 	case iotv1proto.ZoneState_ZONE_STATE_OFF:
 	default:
-		err = z.handleColorTemperature(ctx)
+		err = z.handleColorTemperature(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -375,7 +379,7 @@ func (z *Zone) Flush(ctx context.Context) error {
 // handleOn takes care of the behavior when the light is set to On.  This
 // includes brightness and color temperature.  The color hue of the light is
 // handled by ZoneState_COLOR.
-func (z *Zone) handleOn(ctx context.Context) error {
+func (z *Zone) handleOn(ctx context.Context, limiter FlushLimiter) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleOn")
 	defer span.End()
 
@@ -394,6 +398,9 @@ func (z *Zone) handleOn(ctx context.Context) error {
 			continue
 		}
 
+		if limiter != nil && !limiter(device.Name) {
+			continue
+		}
 		deviceNames = append(deviceNames, device.Name)
 
 		err = h.On(ctx, device)
@@ -414,7 +421,7 @@ func (z *Zone) handleOn(ctx context.Context) error {
 	return nil
 }
 
-func (z *Zone) handleOff(ctx context.Context) error {
+func (z *Zone) handleOff(ctx context.Context, limiter FlushLimiter) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleOff")
 	defer span.End()
 
@@ -433,6 +440,9 @@ func (z *Zone) handleOff(ctx context.Context) error {
 			continue
 		}
 
+		if limiter != nil && !limiter(device.Name) {
+			continue
+		}
 		deviceNames = append(deviceNames, device.Name)
 
 		err = h.Off(ctx, device)
@@ -453,7 +463,7 @@ func (z *Zone) handleOff(ctx context.Context) error {
 	return nil
 }
 
-func (z *Zone) handleColorTemperature(ctx context.Context) error {
+func (z *Zone) handleColorTemperature(ctx context.Context, limiter FlushLimiter) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleColorTemperature")
 	defer span.End()
 
@@ -470,6 +480,9 @@ func (z *Zone) handleColorTemperature(ctx context.Context) error {
 			continue
 		}
 
+		if limiter != nil && !limiter(device.Name) {
+			continue
+		}
 		deviceNames = append(deviceNames, device.Name)
 
 		err = h.SetColorTemp(ctx, device, defaultColorTemperatureMap[z.colorTemp])
@@ -490,7 +503,7 @@ func (z *Zone) handleColorTemperature(ctx context.Context) error {
 	return nil
 }
 
-func (z *Zone) handleBrightness(ctx context.Context) error {
+func (z *Zone) handleBrightness(ctx context.Context, limiter FlushLimiter) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleBrightness")
 	defer span.End()
 
@@ -509,6 +522,9 @@ func (z *Zone) handleBrightness(ctx context.Context) error {
 			continue
 		}
 
+		if limiter != nil && !limiter(device.Name) {
+			continue
+		}
 		deviceNames = append(deviceNames, device.Name)
 
 		err = h.SetBrightness(ctx, device, defaultBrightnessMap[z.brightness])
@@ -529,7 +545,7 @@ func (z *Zone) handleBrightness(ctx context.Context) error {
 	return nil
 }
 
-func (z *Zone) handleColor(ctx context.Context) error {
+func (z *Zone) handleColor(ctx context.Context, limiter FlushLimiter) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleColor")
 	defer span.End()
 
@@ -544,6 +560,10 @@ func (z *Zone) handleColor(ctx context.Context) error {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
 		default:
+			continue
+		}
+
+		if limiter != nil && !limiter(device.Name) {
 			continue
 		}
 
@@ -567,7 +587,7 @@ func (z *Zone) handleColor(ctx context.Context) error {
 	return nil
 }
 
-func (z *Zone) handleRandomColor(ctx context.Context) error {
+func (z *Zone) handleRandomColor(ctx context.Context, limiter FlushLimiter) error {
 	ctx, span := z.tracer.Start(ctx, "Zone.handleRandomColor")
 	defer span.End()
 
@@ -581,6 +601,10 @@ func (z *Zone) handleRandomColor(ctx context.Context) error {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
 		default:
+			continue
+		}
+
+		if limiter != nil && !limiter(device.Name) {
 			continue
 		}
 
