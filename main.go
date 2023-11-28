@@ -16,13 +16,11 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -65,8 +63,6 @@ func versionString() string {
 }
 
 func main() {
-	logger := log.NewLogfmtLogger(os.Stdout)
-
 	cfg, err := loadConfig()
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
