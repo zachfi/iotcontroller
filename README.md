@@ -8,15 +8,20 @@ IOTController is Kubernetes controller for IOT devices.
 C4Context
     title System diagram for IOTController
     Enterprise_Boundary(b0, "iotcontroller") {
+        System(moduleClient, "grpc client", "Allows inter-module communication")
+        System(moduleConditioner, "zone conditioner", "Uses rules for controlling zones based on conditions")
+        System(moduleController, "kubernetes controller", "reconciles and manages custom resources")
+        System(moduleHarvester, "reads messages from mqtt and reports to telemetry")
+        System(moduleMqttclient, "mqtt client", "Used to read reports from devices and send commands")
+        System(moduleTelemetry, "iot telemetry", "Used to create metrics and respond to device events")
+        System(moduleZoneKeeper", "zone keeper", "Used to manage the zones and their state")
+        System(moduleHookReceiver, "hook receiver", "Receives alertmanager webooks and updates conditioner")
+    }
 
-        System("client", "grpc client", "Allows inter-module communication")
+        System(alertmanager, "alertmanager", "Alertmanager")
 
-
-        Person(customerA, "Banking Customer A", "A customer of the bank, with personal bank accounts.")
-        Person(customerB, "Banking Customer B")
-        Person_Ext(customerC, "Banking Customer C", "desc")
-
-        Person(customerD, "Banking Customer D", "A customer of the bank, <br/> with personal bank accounts.")
+    Enterprise_Boundary(b1, "Kubernetes") {
+      SystemDb_Ext(SystemE, "Mainframe Banking System", "Stores all of the core banking information about customers, accounts, transactions, etc.")
 
       System_Boundary(b2, "BankBoundary2") {
         System(SystemA, "Banking System A")
@@ -26,37 +31,25 @@ C4Context
       System_Ext(SystemC, "E-mail system", "The internal Microsoft Exchange e-mail system.")
       SystemDb(SystemD, "Banking System D Database", "A system of the bank, with personal bank accounts.")
 
-        Enterprise_Boundary(b1, "BankBoundary") {
+      Boundary(b3, "BankBoundary3", "boundary") {
+        SystemQueue(SystemF, "Banking System F Queue", "A system of the bank.")
+        SystemQueue_Ext(SystemG, "Banking System G Queue", "A system of the bank, with personal bank accounts.")
+      }
+    }
 
-          SystemDb_Ext(SystemE, "Mainframe Banking System", "Stores all of the core banking information about customers, accounts, transactions, etc.")
-
-          System_Boundary(b2, "BankBoundary2") {
-            System(SystemA, "Banking System A")
-            System(SystemB, "Banking System B", "A system of the bank, with personal bank accounts. next line.")
-          }
-
-          System_Ext(SystemC, "E-mail system", "The internal Microsoft Exchange e-mail system.")
-          SystemDb(SystemD, "Banking System D Database", "A system of the bank, with personal bank accounts.")
-
-          Boundary(b3, "BankBoundary3", "boundary") {
-            SystemQueue(SystemF, "Banking System F Queue", "A system of the bank.")
-            SystemQueue_Ext(SystemG, "Banking System G Queue", "A system of the bank, with personal bank accounts.")
-          }
-        }
+      Boundary(b4, "MQTT", "boundary") {
+        SystemQueue(SystemF, "Banking System F Queue", "A system of the bank.")
+        SystemQueue_Ext(SystemG, "Banking System G Queue", "A system of the bank, with personal bank accounts.")
       }
 
-      BiRel(customerA, SystemAA, "Uses")
-      BiRel(SystemAA, SystemE, "Uses")
-      Rel(SystemAA, SystemC, "Sends e-mails", "SMTP")
-      Rel(SystemC, customerA, "Sends e-mails to")
 
-      UpdateElementStyle(customerA, $fontColor="red", $bgColor="grey", $borderColor="red")
-      UpdateRelStyle(customerA, SystemAA, $textColor="blue", $lineColor="blue", $offsetX="5")
-      UpdateRelStyle(SystemAA, SystemE, $textColor="blue", $lineColor="blue", $offsetY="-10")
-      UpdateRelStyle(SystemAA, SystemC, $textColor="blue", $lineColor="blue", $offsetY="-40", $offsetX="-50")
-      UpdateRelStyle(SystemC, customerA, $textColor="red", $lineColor="red", $offsetX="-50", $offsetY="20")
+    System_Boundary(b2, "ZigBee2MQTT") {
+    }
+  }
 
-      UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+  Rel(Alertmanager, moduleHookReceiver, "Receives webhooks about alerts")
+
+  UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 
 
 ```
