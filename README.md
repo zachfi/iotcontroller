@@ -18,7 +18,13 @@ C4Context
 
         Person(customerD, "Banking Customer D", "A customer of the bank, <br/> with personal bank accounts.")
 
-        System(SystemAA, "Internet Banking System", "Allows customers to view information about their bank accounts, and make payments.")
+      System_Boundary(b2, "BankBoundary2") {
+        System(SystemA, "Banking System A")
+        System(SystemB, "Banking System B", "A system of the bank, with personal bank accounts. next line.")
+      }
+
+      System_Ext(SystemC, "E-mail system", "The internal Microsoft Exchange e-mail system.")
+      SystemDb(SystemD, "Banking System D Database", "A system of the bank, with personal bank accounts.")
 
         Enterprise_Boundary(b1, "BankBoundary") {
 
