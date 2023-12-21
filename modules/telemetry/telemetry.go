@@ -310,6 +310,7 @@ func (l *Telemetry) handleIspindelReport(ctx context.Context, req *telemetryv1pr
 		attribute.String("z", z),
 		attribute.String("d", d),
 		attribute.String("m", string(m)),
+		attribute.String("e", req.DeviceDiscovery.Endpoints[0]),
 	)
 
 	switch req.DeviceDiscovery.Endpoints[0] {

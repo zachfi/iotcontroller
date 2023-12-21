@@ -91,7 +91,6 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 		var zone string
 
 		for k, v := range alert.Labels {
-			span.SetAttributes(attribute.String("k", v))
 			switch k {
 			case zoneLabel:
 				zone = v

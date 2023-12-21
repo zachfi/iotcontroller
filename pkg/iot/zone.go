@@ -35,17 +35,24 @@ var (
 		iotv1proto.ColorTemperature_COLOR_TEMPERATURE_LATEAFTERNOON: tempDay,
 		iotv1proto.ColorTemperature_COLOR_TEMPERATURE_EVENING:       tempEvening,
 	}
+	defaultBrightnessMap = map[iotv1proto.Brightness]uint8{
+		iotv1proto.Brightness_BRIGHTNESS_FULL:    254,
+		iotv1proto.Brightness_BRIGHTNESS_DIMPLUS: 125,
+		iotv1proto.Brightness_BRIGHTNESS_DIM:     110,
+		iotv1proto.Brightness_BRIGHTNESS_LOWPLUS: 95,
+		iotv1proto.Brightness_BRIGHTNESS_LOW:     90,
+		iotv1proto.Brightness_BRIGHTNESS_VERYLOW: 70,
+	}
+	defaultScheduleDuration = time.Minute * 10
+	defaultOnStates         = []iotv1proto.ZoneState{
+		iotv1proto.ZoneState_ZONE_STATE_COLOR,
+		iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION,
+		iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION,
+		iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION,
+		iotv1proto.ZoneState_ZONE_STATE_ON,
+		iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
+	}
 )
-
-var defaultBrightnessMap = map[iotv1proto.Brightness]uint8{
-	iotv1proto.Brightness_BRIGHTNESS_FULL:    254,
-	iotv1proto.Brightness_BRIGHTNESS_DIMPLUS: 125,
-	iotv1proto.Brightness_BRIGHTNESS_DIM:     110,
-	iotv1proto.Brightness_BRIGHTNESS_LOWPLUS: 95,
-	iotv1proto.Brightness_BRIGHTNESS_LOW:     90,
-	iotv1proto.Brightness_BRIGHTNESS_VERYLOW: 70,
-}
-var defaultScheduleDuration = time.Minute * 10
 
 type Zone struct {
 	mtx    sync.Mutex
@@ -154,7 +161,7 @@ func (z *Zone) SetColorTemperatureMap(m map[iotv1proto.ColorTemperature]int32) {
 }
 
 func (z *Zone) SetColorPool(ctx context.Context, c []string) {
-	_, span := z.tracer.Start(ctx, "ZoneKeeper.apiStatusUpdate", trace.WithAttributes(
+	_, span := z.tracer.Start(ctx, "Zone.SetColorPool", trace.WithAttributes(
 		attribute.StringSlice("colorPool", c),
 	))
 	defer span.End()
@@ -173,6 +180,9 @@ func (z *Zone) Name() string {
 }
 
 func (z *Zone) SetColorTemperature(ctx context.Context, colorTemp iotv1proto.ColorTemperature) {
+	_, span := z.tracer.Start(ctx, "Zone.SetColorTemperature")
+	defer span.End()
+
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
@@ -180,6 +190,9 @@ func (z *Zone) SetColorTemperature(ctx context.Context, colorTemp iotv1proto.Col
 }
 
 func (z *Zone) SetBrightness(ctx context.Context, brightness iotv1proto.Brightness) {
+	_, span := z.tracer.Start(ctx, "Zone.SetBrightness")
+	defer span.End()
+
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
@@ -247,18 +260,9 @@ func (z *Zone) Off(ctx context.Context) {
 }
 
 func (z *Zone) On(ctx context.Context) {
-	onStates := []iotv1proto.ZoneState{
-		iotv1proto.ZoneState_ZONE_STATE_COLOR,
-		iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION,
-		iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION,
-		iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION,
-		iotv1proto.ZoneState_ZONE_STATE_ON,
-		iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
-	}
-
 	state := z.State()
 
-	for _, s := range onStates {
+	for _, s := range defaultOnStates {
 		if s == state {
 			return
 		}
@@ -268,6 +272,9 @@ func (z *Zone) On(ctx context.Context) {
 }
 
 func (z *Zone) SetState(ctx context.Context, state iotv1proto.ZoneState) {
+	_, span := z.tracer.Start(ctx, "Zone.SetState")
+	defer span.End()
+
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 
@@ -287,9 +294,10 @@ func (z *Zone) HasDevice(device string) bool {
 	return false
 }
 
+// FlushLimiter is used to determine if a device should be included in the flush.  A true value indicates inclusivity.
 type FlushLimiter func(name string) bool
 
-// Flush handles pushing the current state out to each of the hnadlers.
+// Flush handles pushing the current state out to each of the handlers.
 func (z *Zone) Flush(ctx context.Context, limiter FlushLimiter) error {
 	if z.name == "" {
 		return fmt.Errorf("unable to handle unnamed zone: %+v", z)
