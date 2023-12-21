@@ -77,16 +77,12 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 	for _, cond := range list.Items {
 		span.SetAttributes(attribute.String("condition", cond.Name))
 		if !cond.Spec.Enabled {
-			span.SetAttributes(attribute.Bool("enabled", false))
 			continue
 		}
-		span.SetAttributes(attribute.Bool("enabled", true))
 
 		if cond.Spec.Alertname != req.Name {
-			span.SetAttributes(attribute.Bool("matched", false))
 			continue
 		}
-		span.SetAttributes(attribute.Bool("matched", true))
 
 		for _, rem := range cond.Spec.Remediations {
 			var state string

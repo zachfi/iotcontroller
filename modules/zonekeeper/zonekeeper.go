@@ -210,10 +210,10 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 	case "hold", "button_2_press":
 		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_DIM)
 		zone.On(ctx)
-	case "up_press", "rotate_right", "dial_rotate_right_slow", "dial_rotate_right_fast", "dial_rotate_right_step", "brightness_step_up":
+	case UpPress, RotateRight, DialRotateRightSlow, DialRotateRightFast, DialRotateRightStep, BrightnessStepUp:
 		zone.IncrementBrightness(ctx)
 		zone.On(ctx)
-	case "down_press", "rotate_left", "dial_rotate_left_slow", "dial_rotate_left_fast", "dial_rotate_left_step", "brightness_step_down":
+	case DownPress, RotateLeft, DialRotateLeftSlow, DialRotateLeftFast, DialRotateLeftStep, BrightnessStepDown:
 		zone.DecrementBrightness(ctx)
 		zone.On(ctx)
 	case "wakeup", "press", "release", "off_hold", "off_hold_release", "on_press_release", "up_press_release", "down_press_release": // do nothing
@@ -224,6 +224,24 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 
 	return resp, errHandler(span, zone.Flush(ctx, unlimited))
 }
+
+const (
+	// Incprement Brightness
+	UpPress             = "up_press"
+	RotateRight         = "rotate_right"
+	DialRotateRightSlow = "dial_rotate_right_slow"
+	DialRotateRightFast = "dial_rotate_right_fast"
+	DialRotateRightStep = "dial_rotate_right_step"
+	BrightnessStepUp    = "brightness_step_up"
+
+	// Decrement Brightness
+	DownPress          = "down_press"
+	RotateLeft         = "rotate_left"
+	DialRotateLeftSlow = "dial_rotate_left_slow"
+	DialRotateLeftFast = "dial_rotate_left_fast"
+	DialRotateLeftStep = "dial_rotate_left_step"
+	BrightnessStepDown = "brightness_step_down"
+)
 
 func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 	var (
@@ -393,28 +411,26 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 			Type: iotv1proto.DeviceType(iotv1proto.DeviceType_value[d.Spec.Type]),
 		}
 
-		switch d.Spec.Type {
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT.String():
+		switch device.Type {
+		case iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_RELAY:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_RELAY.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_LEAK:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_LEAK.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_BUTTON:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BUTTON.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_MOISTURE:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOISTURE.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_MOTION:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOTION.String():
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL:
 			handler = z.handlers[controllerHandlerNoop]
 		default:
 			z.logger.Warn("using default handler", "device", d.Name, "type", d.Spec.Type)
@@ -427,6 +443,9 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 				errs = append(errs, err)
 			}
 		}
+
+		// TODO: remove/update a device when its zone changes
+
 	}
 
 	if len(errs) > 0 {
@@ -444,16 +463,21 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 
 // GetZoneName returns a a pointer to a string containing the name of the zone for a given device name, or nil if one was not found.
 func (z *ZoneKeeper) GetDeviceZone(ctx context.Context, req *iotv1proto.GetDeviceZoneRequest) (*iotv1proto.GetDeviceZoneResponse, error) {
+	_, span := z.tracer.Start(ctx, "ZoneKeeper/GetDeviceZone", trace.WithAttributes(
+		attribute.String("device", req.Device),
+	))
+
 	resp := &iotv1proto.GetDeviceZoneResponse{}
 
 	for name, zone := range z.zones {
 		if zone.HasDevice(req.Device) {
 			resp.Zone = name
-			return resp, nil
+			span.SetAttributes(attribute.String("found zone", name))
+			return resp, errHandler(span, nil)
 		}
 	}
 
-	return nil, fmt.Errorf("device not matched in any zone")
+	return resp, errHandler(span, fmt.Errorf("device not matched in any zone"))
 }
 
 func (z *ZoneKeeper) getOrCreateAPIZone(ctx context.Context, name string) (*apiv1.Zone, error) {
