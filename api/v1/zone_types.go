@@ -32,6 +32,8 @@ type ZoneStatus struct {
 	Brightness       string `json:"brightness,omitempty"`
 	Color            string `json:"color,omitempty"`
 	ColorTemperature string `json:"color_temperature,omitempty"`
+	TimeoutAfter     string `json:"timeout_after,omitempty"`
+	TimeoutState     string `json:"timeout_state,omitempty"`
 }
 
 //+kubebuilder:object:root=true
