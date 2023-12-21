@@ -32,7 +32,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
+	"github.com/zachfi/zkit/pkg/tracing"
 
 	iotv1 "github.com/zachfi/iotcontroller/api/v1"
 	iot "github.com/zachfi/iotcontroller/pkg/iot"
@@ -58,69 +60,32 @@ type ZoneReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ZoneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var err error
-	log := log.FromContext(ctx)
+	var (
+		err error
+		/* logger  = log.FromContext(ctx) */
+		zone *iotv1.Zone
+	)
 
 	attributes := []attribute.KeyValue{
-		attribute.String("req", req.Name),
+		attribute.String("name", req.Name),
 		attribute.String("namespace", req.Namespace),
 	}
 	ctx, span := r.tracer.Start(ctx, "Zone.Reconcile", trace.WithAttributes(attributes...))
-	defer func() { handleErr(span, err) }()
+	defer func() { _ = tracing.ErrHandler(span, err, "reconcile failed", r.logger) }()
 
-	zone := iotv1.Zone{}
-	_, getZoneSpan := r.tracer.Start(ctx, "GetZone")
-	if err = r.Get(ctx, req.NamespacedName, &zone); err != nil {
-		log.Error(err, "failed to get resource")
-		handleErr(getZoneSpan, err)
+	zone, err = r.getZone(ctx, req)
+	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	handleErr(getZoneSpan, err)
-	getZoneSpan.End()
-
-	deviceList := iotv1.DeviceList{}
-
-	// wg := sync.WaitGroup{}
-	// go func() {
-	// 	wg.Add(1)
-	// 	defer wg.Done()
-	//
-	// 	ctx, syncLabelSpan := r.tracer.Start(ctx, "Reconcile", trace.WithAttributes(attributes...))
-	// 	defer syncLabelSpan.End()
-	//
-	// 	device := iotv1.Device{}
-	// 	for _, id := range zone.Spec.Devices {
-	// 		nsn := types.NamespacedName{
-	// 			Namespace: zone.Namespace,
-	// 			Name:      id,
-	// 		}
-	//
-	// 		if err = r.Get(ctx, nsn, &device); err != nil {
-	// 		}
-	// 	}
-	// }()
 
 	span.SetAttributes(
 		attribute.Int("devices", len(zone.Spec.Devices)),
 	)
 
-	err = r.syncLabels(ctx, &zone)
-
-	selector := labels.SelectorFromSet(labels.Set{iot.DeviceZoneLabel: req.Name})
-	listOptions := &client.ListOptions{
-		LabelSelector: selector,
-	}
-	_, listSpan := r.tracer.Start(ctx, "ListDevices")
-	err = r.List(ctx, &deviceList, listOptions)
+	err = r.syncLabels(ctx, zone)
 	if err != nil {
-		listSpan.SetStatus(codes.Error, err.Error())
-		listSpan.End()
-		handleErr(listSpan, err)
-		return ctrl.Result{}, fmt.Errorf("failed to list zones: %w", err)
+		return ctrl.Result{}, err
 	}
-	handleErr(listSpan, nil)
-
-	// wg.Wait()
 
 	return ctrl.Result{}, nil
 }
@@ -144,56 +109,124 @@ func (r *ZoneReconciler) SetLogger(logger *slog.Logger) {
 	}
 }
 
-func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error {
-	var err error
-	var errs []error
-
-	ctx, span := r.tracer.Start(ctx, "syncLabels")
-	defer func() { handleErr(span, err) }()
-
-	span.SetAttributes(
-		attribute.Int("devices", len(zone.Spec.Devices)),
+func (r *ZoneReconciler) getZone(ctx context.Context, req ctrl.Request) (*iotv1.Zone, error) {
+	var (
+		err  error
+		zone = new(iotv1.Zone)
 	)
 
-	for _, d := range zone.Spec.Devices {
-		device := &iotv1.Device{}
-		nsn := types.NamespacedName{
-			Namespace: zone.Namespace,
-			Name:      strings.ToLower(d),
-		}
+	attributes := []attribute.KeyValue{
+		attribute.String("name", req.Name),
+		attribute.String("namespace", req.Namespace),
+	}
 
-		r.logger.Debug("get for zone", "zone", zone.Name, "device", d)
+	ctx, span := r.tracer.Start(ctx, "ZoneReconciler.getZone", trace.WithAttributes(attributes...))
+	defer func() { _ = tracing.ErrHandler(span, err, "reconcile failed", r.logger) }()
 
-		if err = r.Get(ctx, nsn, device); err != nil {
-			errs = append(errs, err)
+	if err = r.Get(ctx, req.NamespacedName, zone); err != nil {
+		return nil, err
+	}
+
+	return zone, nil
+}
+
+func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error {
+	var (
+		err     error
+		errs    []error
+		errChan = make(chan error, len(zone.Spec.Devices))
+		bg      = boundedwaitgroup.New(3)
+	)
+
+	ctx, span := r.tracer.Start(ctx, "ZoneReconciler.syncLabels")
+	defer func() { _ = tracing.ErrHandler(span, err, "sync labels failed", r.logger) }()
+
+	span.SetAttributes(
+		attribute.Int("device_count", len(zone.Spec.Devices)),
+		attribute.StringSlice("devices", zone.Spec.Devices),
+	)
+
+	// Get all the devices with this label to remove the label from those that
+	// are not listed in the zone spec.
+	deviceList := iotv1.DeviceList{}
+	selector := labels.SelectorFromSet(labels.Set{iot.DeviceZoneLabel: zone.Name})
+	listOptions := &client.ListOptions{
+		LabelSelector: selector,
+	}
+	err = r.List(ctx, &deviceList, listOptions)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	// Remove the non-included
+	for _, d := range deviceList.Items {
+		if hasName(d.Name, zone.Spec.Devices) {
 			continue
 		}
 
-		if device.Labels == nil {
-			device.Labels = make(map[string]string)
-		}
+		delete(d.Labels, iot.DeviceZoneLabel)
 
-		device.Labels[iot.DeviceZoneLabel] = zone.Name
-
-		if err = r.Update(ctx, device); err != nil {
-			errs = append(errs, err)
-			continue
+		if err = r.Update(ctx, &d); err != nil {
+			return fmt.Errorf("failed to delete device %q from zone %q: %w", d.Name, zone.Name, err)
 		}
 	}
 
+	// Add the included
+	for _, d := range zone.Spec.Devices {
+		bg.Add(1)
+		go func(name string) {
+			defer bg.Done()
+
+			device := &iotv1.Device{}
+			nsn := types.NamespacedName{
+				Namespace: zone.Namespace,
+				Name:      strings.ToLower(name),
+			}
+
+			if err = r.Get(ctx, nsn, device); err != nil {
+				errChan <- err
+				return
+			}
+
+			if device.Labels == nil {
+				device.Labels = make(map[string]string)
+			}
+
+			device.Labels[iot.DeviceZoneLabel] = zone.Name
+
+			if err = r.Update(ctx, device); err != nil {
+				errChan <- err
+				return
+			}
+		}(d)
+	}
+
+	bg.Add(1)
+	go func() {
+		defer bg.Done()
+	}()
+
+	bg.Wait()
+	close(errChan)
+
+	for e := range errChan {
+		errs = append(errs, e)
+	}
+
 	if len(errs) > 0 {
-		span.SetStatus(codes.Error, fmt.Sprintf("%s", errors.Join(errs...)))
-		return errors.Join(errs...)
+		err = errors.Join(errs...)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 
 	return nil
 }
 
-func handleErr(span trace.Span, err error) {
-	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-	} else {
-		span.SetStatus(codes.Ok, "ok")
+func hasName(s string, ss []string) bool {
+	for _, x := range ss {
+		if strings.EqualFold(x, s) {
+			return true
+		}
 	}
-	span.End()
+	return false
 }
