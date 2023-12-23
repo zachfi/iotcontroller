@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"github.com/grafana/dskit/services"
 	"go.opentelemetry.io/otel"
@@ -21,8 +22,7 @@ import (
 )
 
 const (
-	module    = "conditioner"
-	namespace = "iot"
+	module = "conditioner"
 )
 
 type Conditioner struct {
@@ -53,6 +53,55 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 	return c, nil
 }
 
+func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (*iotv1proto.EventResponse, error) {
+	attributes := []attribute.KeyValue{
+		attribute.String("name", req.Name),
+	}
+
+	for k, v := range req.Labels {
+		attributes = append(attributes, attribute.String(k, v))
+	}
+
+	ctx, span := c.tracer.Start(ctx, "Conditioner.Alert",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(attributes...),
+	)
+	defer span.End()
+
+	var (
+		list = &apiv1.ConditionList{}
+		errs []error
+	)
+
+	err := c.kubeClient.List(ctx, list, &client.ListOptions{})
+	if err != nil {
+		return &iotv1proto.EventResponse{}, fmt.Errorf("failed to list conditions: %w", err)
+	}
+
+	for _, cond := range list.Items {
+		span.SetAttributes(
+			attribute.String("condition", cond.Name),
+			attribute.Bool("enabled", cond.Spec.Enabled),
+		)
+		if !cond.Spec.Enabled {
+			continue
+		}
+
+		if cond.Spec.Eventname != req.Name {
+			continue
+		}
+
+		for _, match := range cond.Spec.Matches {
+			if !maps.Equal(req.Labels, match.Labels) {
+				break
+			}
+		}
+
+	}
+
+	return &iotv1proto.EventResponse{}, nil
+}
+
 func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (*iotv1proto.AlertResponse, error) {
 	ctx, span := c.tracer.Start(ctx, "Conditioner.Alert",
 		trace.WithSpanKind(trace.SpanKindServer),
@@ -66,8 +115,10 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 	)
 	defer span.End()
 
-	list := &apiv1.ConditionList{}
-	var errs []error
+	var (
+		list = &apiv1.ConditionList{}
+		errs []error
+	)
 
 	err := c.kubeClient.List(ctx, list, &client.ListOptions{})
 	if err != nil {
