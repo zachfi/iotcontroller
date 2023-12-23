@@ -21,6 +21,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
+	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
 	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
@@ -36,9 +37,8 @@ const (
 	HookReceiver string = "hook-receiver"
 	MQTTClient   string = "mqttclient"
 	Telemetry    string = "telemetry"
+	Weather      string = "weather"
 	ZoneKeeper   string = "zone-keeper"
-
-	// Weather string = "weather"
 
 	All string = "all"
 )
@@ -55,6 +55,7 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(Harvester, a.initHarvester)
 	mm.RegisterModule(HookReceiver, a.initHookReceiver)
 	mm.RegisterModule(Telemetry, a.initTelemetry)
+	mm.RegisterModule(Weather, a.initWeather)
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
 
 	mm.RegisterModule(All, nil)
@@ -167,6 +168,16 @@ func (a *App) initTelemetry() (services.Service, error) {
 
 	a.telemetry = t
 	return t, nil
+}
+
+func (a *App) initWeather() (services.Service, error) {
+	w, err := weather.New(a.cfg.Weather, a.logger, a.client.Conn())
+	if err != nil {
+		return nil, err
+	}
+
+	a.weather = w
+	return w, nil
 }
 
 func (a *App) initZoneKeeper() (services.Service, error) {
