@@ -3,7 +3,6 @@ syntax = "proto3";
 package iot.v1;
 
 message UpdateDeviceResponse {}
-message AlertResponse {}
 
 // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
 message DeviceDiscovery {
@@ -22,10 +21,17 @@ message AlertRequest {
   string zone = 4;
   map<string, string> labels = 5;
 }
+message AlertResponse {}
 
 message UpdateDeviceRequest {
   string device = 1;
 }
+
+message EventRequest {
+  string name = 1;
+  map<string, string> labels = 2;
+}
+message EventResponse {}
 
 service IOTService {
   rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
@@ -33,6 +39,7 @@ service IOTService {
 
 service AlertReceiverService {
   rpc Alert(AlertRequest) returns (AlertResponse);
+  rpc Event(EventRequest) returns (EventResponse);
 }
 
 enum ColorTemperature {
