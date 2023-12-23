@@ -40,8 +40,6 @@ const (
 )
 
 type Telemetry struct {
-	// UnimplementedTelemetryServer
-
 	services.Service
 	cfg *Config
 

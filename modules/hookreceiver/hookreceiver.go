@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	module         = "hookreceiver"
 	zoneLabel      = "zone"
 	alertnameLabel = "alertname"
 )
@@ -34,8 +35,8 @@ type HookReceiver struct {
 func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*HookReceiver, error) {
 	h := &HookReceiver{
 		cfg:                 &cfg,
-		logger:              logger.With("module", "hookreceiver"),
-		tracer:              otel.Tracer("hookreceiver"),
+		logger:              logger.With("module", module),
+		tracer:              otel.Tracer(module),
 		alertReceiverClient: iotv1proto.NewAlertReceiverServiceClient(conn),
 	}
 
