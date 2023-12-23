@@ -22,11 +22,17 @@ import (
 
 // ConditionSpec defines the desired state of Condition
 type ConditionSpec struct {
-	Name         string        `json:"name,omitempty"`
-	Enabled      bool          `json:"enabled,omitempty"`
-	Alertname    string        `json:"alertname,omitempty"`
-	Zone         string        `json:"zone,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Enabled   bool   `json:"enabled,omitempty"`
+	Alertname string `json:"alertname,omitempty"`
+	Eventname string `json:"eventname,omitempty"`
+
+	// TODO: move Zone into the labels for Matches.
+	Zone string `json:"zone,omitempty"`
+
+	// TODO: All Remediations are flushed when all matches are satisfied.
 	Remediations []Remediation `json:"remediations,omitempty"`
+	Matches      []Match       `json:"matches,omitempty"`
 }
 
 // ConditionStatus defines the observed state of Condition
@@ -57,6 +63,13 @@ type Remediation struct {
 	Zone          string `json:"zone,omitempty"`
 	ActiveState   string `json:"active_state,omitempty"`
 	InactiveState string `json:"inactive_state,omitempty"`
+	Timeout       string `json:"timeout,omitempty"`
+}
+
+type Match struct {
+	Alertname string            `json:"alertname,omitempty"`
+	Eventname string            `json:"eventname,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"`
 }
 
 func init() {

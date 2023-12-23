@@ -39,20 +39,40 @@ spec:
                 type: string
               enabled:
                 type: boolean
+              eventname:
+                type: string
+              matches:
+                items:
+                  properties:
+                    alertname:
+                      type: string
+                    eventname:
+                      type: string
+                    labels:
+                      additionalProperties:
+                        type: string
+                      type: object
+                  type: object
+                type: array
               name:
                 type: string
               remediations:
+                description: 'TODO: All Remediations are flushed when all matches
+                  are satisfied.'
                 items:
                   properties:
                     active_state:
                       type: string
                     inactive_state:
                       type: string
+                    timeout:
+                      type: string
                     zone:
                       type: string
                   type: object
                 type: array
               zone:
+                description: 'TODO: move Zone into the labels for Matches.'
                 type: string
             type: object
           status:
