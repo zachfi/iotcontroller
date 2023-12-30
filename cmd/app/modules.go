@@ -85,6 +85,7 @@ func (a *App) setupModuleManager() error {
 			Harvester,
 			HookReceiver,
 			Telemetry,
+			Weather,
 			ZoneKeeper,
 		},
 	}

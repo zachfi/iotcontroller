@@ -2,6 +2,7 @@ package weather
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -28,21 +29,28 @@ type Weather struct {
 
 	owmClient *http.Client
 
-	alertReceiverClient iotv1proto.AlertReceiverServiceClient
+	eventReceiverClient iotv1proto.EventReceiverServiceClient
 }
 
 func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*Weather, error) {
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("unable to create new %q with empty cfg.apikey", module)
+	}
+
+	if len(cfg.Locations) == 0 {
+		return nil, fmt.Errorf("unable to create new %q with empty cfg.locations", module)
+	}
+
 	w := &Weather{
 		cfg:                 &cfg,
 		logger:              logger.With("module", module),
 		tracer:              otel.Tracer(module),
-		alertReceiverClient: iotv1proto.NewAlertReceiverServiceClient(conn),
+		eventReceiverClient: iotv1proto.NewEventReceiverServiceClient(conn),
 
 		owmClient: &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
 
 	w.Service = services.NewIdleService(w.starting, w.stopping)
-	/* w.Service = services.NewBasicService(w.starting, w.running, w.stopping) */
 	return w, nil
 }
 
@@ -50,11 +58,6 @@ func (w *Weather) starting(ctx context.Context) error {
 	go w.run(ctx)
 	return nil
 }
-
-/* func (w *Weather) running(ctx context.Context) error { */
-/* 	<-ctx.Done() */
-/* 	return nil */
-/* } */
 
 func (w *Weather) stopping(_ error) error {
 	return nil
