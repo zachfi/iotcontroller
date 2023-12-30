@@ -9,6 +9,7 @@ import (
 	owm "github.com/briandowns/openweathermap"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -41,16 +42,21 @@ var (
 )
 
 func (w *Weather) Collect(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	ctx, span := w.tracer.Start(ctx, "Collect")
 	defer span.End()
 
+	bg := boundedwaitgroup.New(3)
+
 	for _, location := range w.cfg.Locations {
-		w.collectPollution(ctx, location)
-		w.collectOne(ctx, location)
+		w.logger.Debug("collecting weather metrics", "location", location.Name)
+		go func(loc Location) { bg.Add(1); defer bg.Done(); w.collectPollution(ctx, loc) }(location)
+		go func(loc Location) { bg.Add(1); defer bg.Done(); w.collectOne(ctx, loc) }(location)
 	}
+
+	bg.Wait()
 }
 
 func (w *Weather) collectPollution(ctx context.Context, location Location) {
