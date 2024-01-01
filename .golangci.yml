@@ -46,7 +46,7 @@ linters:
     - gofumpt
     # - goheader
     - goimports
-    - golint
+    # - golint
     # - gomnd
     # - gomoddirectives
     # - gomodguard
@@ -109,7 +109,7 @@ linters:
     - unparam
     - unused
     # - usestdlibvars
-    - varcheck
+    # - varcheck
     # - varnamelen
     # - wastedassign
     # - whitespace
