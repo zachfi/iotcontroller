@@ -3,6 +3,7 @@ package harvester
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
@@ -17,7 +18,8 @@ import (
 
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/pkg/iot"
-	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
 const module = "harvester"
@@ -40,8 +42,10 @@ type Harvester struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	telemetryClient telemetryv1.TelemetryServiceClient
-	stream          telemetryv1.TelemetryService_TelemetryReportIOTDeviceClient
+	telemetryClient telemetryv1proto.TelemetryServiceClient
+	routeClient     iotv1proto.RouteServiceClient
+	reportStream    telemetryv1proto.TelemetryService_TelemetryReportIOTDeviceClient
+	routeStream     iotv1proto.RouteService_RouteClient
 
 	mqttClient *mqttclient.MQTTClient
 }
@@ -52,7 +56,8 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 
-		telemetryClient: telemetryv1.NewTelemetryServiceClient(conn),
+		telemetryClient: telemetryv1proto.NewTelemetryServiceClient(conn),
+		routeClient:     iotv1proto.NewRouteServiceClient(conn),
 		mqttClient:      mqttClient,
 	}
 
@@ -62,17 +67,24 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 }
 
 func (h *Harvester) starting(ctx context.Context) error {
-	stream, err := h.telemetryClient.TelemetryReportIOTDevice(ctx)
+	reportStream, err := h.telemetryClient.TelemetryReportIOTDevice(ctx)
 	if err != nil {
 		return err
 	}
 
-	h.stream = stream
+	h.reportStream = reportStream
+
+	routeStream, err := h.routeClient.Route(ctx)
+	if err != nil {
+		return err
+	}
+
+	h.routeStream = routeStream
 
 	return nil
 }
 
-func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
+func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 	return func(_ mqtt.Client, msg mqtt.Message) {
 		var err error
 		_, span := h.tracer.Start(
@@ -92,20 +104,45 @@ func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
 			return
 		}
 
-		req := &telemetryv1.TelemetryReportIOTDeviceRequest{
-			DeviceDiscovery: iot.ParseDiscoveryMessage(topicPath, msg),
-		}
+		wg := sync.WaitGroup{}
 
-		err = h.stream.Send(req)
-		if err != nil {
-			harvesterMessageErrors.WithLabelValues().Inc()
-			h.logger.Error("failed to send on stream", "err", err.Error())
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			deviceReq := &telemetryv1proto.TelemetryReportIOTDeviceRequest{
+				DeviceDiscovery: iot.ParseDiscoveryMessage(topicPath, msg),
+			}
+
+			deviceErr := h.reportStream.Send(deviceReq)
+			if deviceErr != nil {
+				harvesterMessageErrors.WithLabelValues().Inc()
+				h.logger.Error("failed to send on reportStream", "err", deviceErr)
+			}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			routeReq := &iotv1proto.RouteRequest{
+				Path:    msg.Topic(),
+				Message: msg.Payload(),
+			}
+
+			routeErr := h.routeStream.Send(routeReq)
+			if routeErr != nil {
+				harvesterMessageErrors.WithLabelValues().Inc()
+				h.logger.Error("failed to send on routeStream", "err", routeErr)
+			}
+		}()
+
+		wg.Wait()
 	}
 }
 
 func (h *Harvester) running(ctx context.Context) error {
-	var onMessageReceived mqtt.MessageHandler = h.messageFunc(ctx)
+	onMessageReceived := h.messageFunc(ctx)
 
 	go func() {
 		token := h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
@@ -121,6 +158,6 @@ func (h *Harvester) running(ctx context.Context) error {
 }
 
 func (h *Harvester) stopping(_ error) error {
-	_, err := h.stream.CloseAndRecv()
+	_, err := h.reportStream.CloseAndRecv()
 	return err
 }

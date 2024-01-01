@@ -16,6 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/zachfi/zkit/pkg/tracing"
 
@@ -45,7 +46,7 @@ type ZoneKeeper struct {
 	tracer trace.Tracer
 
 	mqttclient *mqttclient.MQTTClient
-	kubeclient client.Client
+	kubeclient kubeclient.Client
 
 	handlers   map[controllerHandler]iot.Handler
 	announceer map[string]time.Time
@@ -65,7 +66,7 @@ const (
 	controllerHandlerNoop
 )
 
-func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kubeclient client.Client) (*ZoneKeeper, error) {
+func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kubeclient kubeclient.Client) (*ZoneKeeper, error) {
 	z := &ZoneKeeper{
 		cfg:        &cfg,
 		logger:     logger.With("module", module),
@@ -135,8 +136,8 @@ func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnou
 	defer func() { _ = tracing.ErrHandler(span, err, "self announce", z.logger) }()
 
 	z.mtx.Lock()
-	if v, ok := z.announceer[req.Device]; ok {
-		if time.Since(v) < 10*time.Second {
+	if v, ok := z.announceer[req.String()]; ok {
+		if time.Since(v) < 1*time.Second {
 			span.SetAttributes(
 				attribute.String("skipped", "too recent"),
 			)
@@ -145,7 +146,7 @@ func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnou
 		}
 	}
 
-	z.announceer[req.Device] = time.Now()
+	z.announceer[req.String()] = time.Now()
 	z.mtx.Unlock()
 
 	limiter = func(d string) bool {
@@ -249,7 +250,7 @@ func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 		zone *apiv1.Zone
 	)
 
-	_, span := z.tracer.Start(ctx, "ZoneKeeper.apiStatusUpdate")
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.apiStatusUpdate")
 	defer func() { _ = errHandler(span, err) }()
 
 	name, state, brightness, colorTemp := iotZone.Name(), iotZone.State(), iotZone.Brightness(), iotZone.ColorTemperature()

@@ -106,7 +106,7 @@ var (
 		Help: "wireless information",
 	}, []string{"device", "ssid", "bssid", "ip"})
 
-	workQueueLength = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	queueLength = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "iotcontroller_telemetry_queue_length",
 		Help: "The number of jobs in the work queue",
 	}, []string{})

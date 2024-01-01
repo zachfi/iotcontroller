@@ -4,7 +4,14 @@ package iot
 import "errors"
 
 const (
+	// CRD
 	DeviceZoneLabel = "iot/zone"
+
+	// Condition matching
+	AlertNameLabel = "alertname"
+	EventNameLabel = "eventname"
+	StatusLabel    = "status"
+	ZoneLabel      = "zone"
 )
 
 var (

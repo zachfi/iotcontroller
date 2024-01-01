@@ -102,123 +102,205 @@ var IOTService_ServiceDesc = grpc.ServiceDesc{
 	Metadata: "iot/v1/iot.proto",
 }
 
-// AlertReceiverServiceClient is the client API for AlertReceiverService service.
+// EventReceiverServiceClient is the client API for EventReceiverService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type AlertReceiverServiceClient interface {
-	Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error)
+type EventReceiverServiceClient interface {
 	Event(ctx context.Context, in *EventRequest, opts ...grpc.CallOption) (*EventResponse, error)
 }
 
-type alertReceiverServiceClient struct {
+type eventReceiverServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewAlertReceiverServiceClient(cc grpc.ClientConnInterface) AlertReceiverServiceClient {
-	return &alertReceiverServiceClient{cc}
+func NewEventReceiverServiceClient(cc grpc.ClientConnInterface) EventReceiverServiceClient {
+	return &eventReceiverServiceClient{cc}
 }
 
-func (c *alertReceiverServiceClient) Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error) {
-	out := new(AlertResponse)
-	err := c.cc.Invoke(ctx, "/iot.v1.AlertReceiverService/Alert", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *alertReceiverServiceClient) Event(ctx context.Context, in *EventRequest, opts ...grpc.CallOption) (*EventResponse, error) {
+func (c *eventReceiverServiceClient) Event(ctx context.Context, in *EventRequest, opts ...grpc.CallOption) (*EventResponse, error) {
 	out := new(EventResponse)
-	err := c.cc.Invoke(ctx, "/iot.v1.AlertReceiverService/Event", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/iot.v1.EventReceiverService/Event", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// AlertReceiverServiceServer is the server API for AlertReceiverService service.
-// All implementations should embed UnimplementedAlertReceiverServiceServer
+// EventReceiverServiceServer is the server API for EventReceiverService service.
+// All implementations should embed UnimplementedEventReceiverServiceServer
 // for forward compatibility
-type AlertReceiverServiceServer interface {
-	Alert(context.Context, *AlertRequest) (*AlertResponse, error)
+type EventReceiverServiceServer interface {
 	Event(context.Context, *EventRequest) (*EventResponse, error)
 }
 
-// UnimplementedAlertReceiverServiceServer should be embedded to have forward compatible implementations.
-type UnimplementedAlertReceiverServiceServer struct {
+// UnimplementedEventReceiverServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedEventReceiverServiceServer struct {
 }
 
-func (UnimplementedAlertReceiverServiceServer) Alert(context.Context, *AlertRequest) (*AlertResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Alert not implemented")
-}
-func (UnimplementedAlertReceiverServiceServer) Event(context.Context, *EventRequest) (*EventResponse, error) {
+func (UnimplementedEventReceiverServiceServer) Event(context.Context, *EventRequest) (*EventResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Event not implemented")
 }
 
-// UnsafeAlertReceiverServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to AlertReceiverServiceServer will
+// UnsafeEventReceiverServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to EventReceiverServiceServer will
 // result in compilation errors.
-type UnsafeAlertReceiverServiceServer interface {
-	mustEmbedUnimplementedAlertReceiverServiceServer()
+type UnsafeEventReceiverServiceServer interface {
+	mustEmbedUnimplementedEventReceiverServiceServer()
 }
 
-func RegisterAlertReceiverServiceServer(s grpc.ServiceRegistrar, srv AlertReceiverServiceServer) {
-	s.RegisterService(&AlertReceiverService_ServiceDesc, srv)
+func RegisterEventReceiverServiceServer(s grpc.ServiceRegistrar, srv EventReceiverServiceServer) {
+	s.RegisterService(&EventReceiverService_ServiceDesc, srv)
 }
 
-func _AlertReceiverService_Alert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AlertRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AlertReceiverServiceServer).Alert(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/iot.v1.AlertReceiverService/Alert",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AlertReceiverServiceServer).Alert(ctx, req.(*AlertRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AlertReceiverService_Event_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _EventReceiverService_Event_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EventRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AlertReceiverServiceServer).Event(ctx, in)
+		return srv.(EventReceiverServiceServer).Event(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/iot.v1.AlertReceiverService/Event",
+		FullMethod: "/iot.v1.EventReceiverService/Event",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AlertReceiverServiceServer).Event(ctx, req.(*EventRequest))
+		return srv.(EventReceiverServiceServer).Event(ctx, req.(*EventRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// AlertReceiverService_ServiceDesc is the grpc.ServiceDesc for AlertReceiverService service.
+// EventReceiverService_ServiceDesc is the grpc.ServiceDesc for EventReceiverService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var AlertReceiverService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "iot.v1.AlertReceiverService",
-	HandlerType: (*AlertReceiverServiceServer)(nil),
+var EventReceiverService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iot.v1.EventReceiverService",
+	HandlerType: (*EventReceiverServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Alert",
-			Handler:    _AlertReceiverService_Alert_Handler,
-		},
-		{
 			MethodName: "Event",
-			Handler:    _AlertReceiverService_Event_Handler,
+			Handler:    _EventReceiverService_Event_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
+	Metadata: "iot/v1/iot.proto",
+}
+
+// RouteServiceClient is the client API for RouteService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type RouteServiceClient interface {
+	Route(ctx context.Context, opts ...grpc.CallOption) (RouteService_RouteClient, error)
+}
+
+type routeServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewRouteServiceClient(cc grpc.ClientConnInterface) RouteServiceClient {
+	return &routeServiceClient{cc}
+}
+
+func (c *routeServiceClient) Route(ctx context.Context, opts ...grpc.CallOption) (RouteService_RouteClient, error) {
+	stream, err := c.cc.NewStream(ctx, &RouteService_ServiceDesc.Streams[0], "/iot.v1.RouteService/Route", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &routeServiceRouteClient{stream}
+	return x, nil
+}
+
+type RouteService_RouteClient interface {
+	Send(*RouteRequest) error
+	CloseAndRecv() (*RouteResponse, error)
+	grpc.ClientStream
+}
+
+type routeServiceRouteClient struct {
+	grpc.ClientStream
+}
+
+func (x *routeServiceRouteClient) Send(m *RouteRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *routeServiceRouteClient) CloseAndRecv() (*RouteResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(RouteResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// RouteServiceServer is the server API for RouteService service.
+// All implementations should embed UnimplementedRouteServiceServer
+// for forward compatibility
+type RouteServiceServer interface {
+	Route(RouteService_RouteServer) error
+}
+
+// UnimplementedRouteServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedRouteServiceServer struct {
+}
+
+func (UnimplementedRouteServiceServer) Route(RouteService_RouteServer) error {
+	return status.Errorf(codes.Unimplemented, "method Route not implemented")
+}
+
+// UnsafeRouteServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RouteServiceServer will
+// result in compilation errors.
+type UnsafeRouteServiceServer interface {
+	mustEmbedUnimplementedRouteServiceServer()
+}
+
+func RegisterRouteServiceServer(s grpc.ServiceRegistrar, srv RouteServiceServer) {
+	s.RegisterService(&RouteService_ServiceDesc, srv)
+}
+
+func _RouteService_Route_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RouteServiceServer).Route(&routeServiceRouteServer{stream})
+}
+
+type RouteService_RouteServer interface {
+	SendAndClose(*RouteResponse) error
+	Recv() (*RouteRequest, error)
+	grpc.ServerStream
+}
+
+type routeServiceRouteServer struct {
+	grpc.ServerStream
+}
+
+func (x *routeServiceRouteServer) SendAndClose(m *RouteResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *routeServiceRouteServer) Recv() (*RouteRequest, error) {
+	m := new(RouteRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// RouteService_ServiceDesc is the grpc.ServiceDesc for RouteService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var RouteService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iot.v1.RouteService",
+	HandlerType: (*RouteServiceServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Route",
+			Handler:       _RouteService_Route_Handler,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "iot/v1/iot.proto",
 }
 

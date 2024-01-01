@@ -275,6 +275,8 @@ func (z *Zone) SetState(ctx context.Context, state iotv1proto.ZoneState) {
 	_, span := z.tracer.Start(ctx, "Zone.SetState")
 	defer span.End()
 
+	span.SetAttributes(attribute.String("state", state.String()))
+
 	z.mtx.Lock()
 	defer z.mtx.Unlock()
 

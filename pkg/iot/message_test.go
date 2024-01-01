@@ -19,6 +19,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/stretchr/testify/require"
 
+	"github.com/zachfi/iotcontroller/pkg/iot/messages/zigbee2mqtt"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
@@ -83,13 +84,13 @@ func TestZigbeeBridgeLog_devices(t *testing.T) {
 
 		byteValue, err := io.ReadAll(jsonFile)
 		require.NoError(t, err)
-		obj := ZigbeeMessageBridgeDevices{}
+		obj := zigbee2mqtt.Devices{}
 		err = json.Unmarshal(byteValue, &obj)
 		require.NoError(t, err)
 		require.Greater(t, len(obj), 0)
 
 		for _, d := range obj {
-			x := ZigbeeDeviceType(d)
+			x := zigbee2mqtt.DeviceType(d)
 			require.Greater(t, x, iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED,
 				fmt.Sprintf("device: %+v", d),
 			)
@@ -101,7 +102,7 @@ func TestZigbeeBridgeLog_devices(t *testing.T) {
 func TestZigbeeBridgeLog(t *testing.T) {
 	cases := []struct {
 		Message []byte
-		Obj     ZigbeeBridgeLog
+		Obj     zigbee2mqtt.BridgeLog
 	}{
 		{
 			[]byte(`{
@@ -114,7 +115,7 @@ func TestZigbeeBridgeLog(t *testing.T) {
 					"vendor":"Philips"
 				},"type":"pairing"
 			}`),
-			ZigbeeBridgeLog{
+			zigbee2mqtt.BridgeLog{
 				Type:    "pairing",
 				Message: "interview_successful",
 				Meta: map[string]interface{}{
@@ -128,7 +129,7 @@ func TestZigbeeBridgeLog(t *testing.T) {
 		},
 		{
 			[]byte(`{"type":"device_announced","message":"announce","meta":{"friendly_name":"0x0017880104650857"}}`),
-			ZigbeeBridgeLog{
+			zigbee2mqtt.BridgeLog{
 				Type:    "device_announced",
 				Message: "announce",
 				Meta: map[string]interface{}{
@@ -168,9 +169,9 @@ func TestZigbeeBridgeLog(t *testing.T) {
 					],
 					"type":"devices"
 				}`),
-			ZigbeeBridgeLog{
+			zigbee2mqtt.BridgeLog{
 				Type: "devices",
-				Message: ZigbeeMessageBridgeDevices{
+				Message: zigbee2mqtt.Devices{
 					{
 						IeeeAddress:     "0x00124b0014d91d6b",
 						Type:            "Coordinator",
@@ -188,7 +189,7 @@ func TestZigbeeBridgeLog(t *testing.T) {
 						DateCode:        "20200327",
 						// LastSeen:         1612127953195,
 
-						Definition: ZigbeeBridgeDeviceDefinition{
+						Definition: zigbee2mqtt.Definition{
 							Model:       "9290022166",
 							Vendor:      "Philips",
 							Description: "Hue white and color ambiance E26/E27",
@@ -202,7 +203,7 @@ func TestZigbeeBridgeLog(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		obj := ZigbeeBridgeLog{}
+		obj := zigbee2mqtt.BridgeLog{}
 		err := json.Unmarshal(tc.Message, &obj)
 		require.NoError(t, err)
 		require.Equal(t, tc.Obj, obj)
