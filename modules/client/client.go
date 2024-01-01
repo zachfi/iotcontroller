@@ -49,7 +49,7 @@ func (c *Client) Conn() *grpc.ClientConn {
 	return c.conn
 }
 
-func (c *Client) starting(ctx context.Context) error {
+func (c *Client) starting(_ context.Context) error {
 	return nil
 }
 
@@ -62,10 +62,10 @@ func (c *Client) running(ctx context.Context) error {
 	return nil
 }
 
-func (t *Client) stopping(_ error) error {
+func (c *Client) stopping(_ error) error {
 	return nil
 }
 
-func (t *Client) run(ctx context.Context) error {
+func (c *Client) run(_ context.Context) error {
 	return nil
 }

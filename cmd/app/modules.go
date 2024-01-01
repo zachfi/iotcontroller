@@ -11,6 +11,8 @@ import (
 	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 
@@ -157,6 +159,18 @@ func (a *App) initController() (services.Service, error) {
 	a.controller = c
 
 	return c, nil
+}
+
+func (a *App) initRouter() (services.Service, error) {
+	r, err := router.New(a.cfg.Router, a.logger, a.controller.Client(), a.client.Conn())
+	if err != nil {
+		return nil, err
+	}
+
+	iotv1proto.RegisterRouteServiceServer(a.Server.GRPC, r)
+
+	a.router = r
+	return r, nil
 }
 
 func (a *App) initTelemetry() (services.Service, error) {

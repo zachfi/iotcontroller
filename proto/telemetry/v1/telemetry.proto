@@ -11,6 +11,5 @@ message TelemetryReportIOTDeviceRequest {
 message TelemetryReportIOTDeviceResponse {}
 
 service TelemetryService {
-  rpc TelemetryReportIOTDevice(stream TelemetryReportIOTDeviceRequest)
-      returns (TelemetryReportIOTDeviceResponse);
+  rpc TelemetryReportIOTDevice(stream TelemetryReportIOTDeviceRequest) returns (TelemetryReportIOTDeviceResponse);
 }

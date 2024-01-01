@@ -14,17 +14,12 @@ message DeviceDiscovery {
   bytes message = 6;
 }
 
-message AlertRequest {
-  string group = 1;
-  string status = 2;
-  string name = 3;
-  string zone = 4;
-  map<string, string> labels = 5;
-}
-message AlertResponse {}
-
 message UpdateDeviceRequest {
   string device = 1;
+}
+
+service IOTService {
+  rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
 }
 
 message EventRequest {
@@ -33,13 +28,18 @@ message EventRequest {
 }
 message EventResponse {}
 
-service IOTService {
-  rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
+service EventReceiverService {
+  rpc Event(EventRequest) returns (EventResponse);
 }
 
-service AlertReceiverService {
-  rpc Alert(AlertRequest) returns (AlertResponse);
-  rpc Event(EventRequest) returns (EventResponse);
+message RouteRequest {
+  string path = 1;
+  bytes message = 2;
+}
+message RouteResponse {}
+
+service RouteService {
+  rpc Route(stream RouteRequest) returns (RouteResponse);
 }
 
 enum ColorTemperature {
