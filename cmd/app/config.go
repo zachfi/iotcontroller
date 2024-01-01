@@ -19,13 +19,15 @@ import (
 	"github.com/zachfi/iotcontroller/modules/harvester"
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
+	"github.com/zachfi/iotcontroller/modules/router"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
 	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 )
 
 type Config struct {
-	Target string `yaml:"target"`
+	Target                 string `yaml:"target"`
+	EnableGoRuntimeMetrics bool   `yaml:"enable_go_runtime_metrics,omitempty"`
 
 	// Util
 	Tracing zkitTracing.Config `yaml:"tracing,omitempty"`
@@ -42,6 +44,7 @@ type Config struct {
 	Harvester    harvester.Config    `yaml:"harvester,omitempty"`
 	HookReceiver hookreceiver.Config `yaml:"hookreceiver,omitempty"`
 	MQTTClient   mqttclient.Config   `yaml:"mqttclient,omitempty"`
+	Router       router.Config       `yaml:"router,omitempty"`
 	Telemetry    telemetry.Config    `yaml:"telemetry,omitempty"`
 	Weather      weather.Config      `yaml:"weather,omitempty"`
 	ZoneKeeper   zonekeeper.Config   `yaml:"zonekeeper,omitempty"`
@@ -50,6 +53,7 @@ type Config struct {
 func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.Target = All
 	f.StringVar(&c.Target, "target", All, "target module")
+	f.BoolVar(&c.EnableGoRuntimeMetrics, "enable-go-runtime-metrics", false, "Set to true to enable all Go runtime metrics")
 
 	// Server
 	// c.Server.RegisterFlags(f)
@@ -65,6 +69,7 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.Controller.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "controller"), f)
 	c.Harvester.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "harvester"), f)
 	c.MQTTClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "mqttclient"), f)
+	c.Router.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "router"), f)
 	c.Telemetry.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "telemetry"), f)
 	c.Weather.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "weather"), f)
 	c.ZoneKeeper.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "zonekeeper"), f)
