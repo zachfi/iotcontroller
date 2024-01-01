@@ -22,11 +22,12 @@ import (
 	"github.com/zachfi/iotcontroller/modules/harvester"
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
+	"github.com/zachfi/iotcontroller/modules/router"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
 	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
-	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
-	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
 const (
@@ -38,6 +39,7 @@ const (
 	Harvester    string = "harvester"
 	HookReceiver string = "hook-receiver"
 	MQTTClient   string = "mqttclient"
+	Router       string = "router"
 	Telemetry    string = "telemetry"
 	Weather      string = "weather"
 	ZoneKeeper   string = "zone-keeper"
@@ -56,29 +58,30 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(Controller, a.initController)
 	mm.RegisterModule(Harvester, a.initHarvester)
 	mm.RegisterModule(HookReceiver, a.initHookReceiver)
+	mm.RegisterModule(Router, a.initRouter)
 	mm.RegisterModule(Telemetry, a.initTelemetry)
 	mm.RegisterModule(Weather, a.initWeather)
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
 
 	mm.RegisterModule(All, nil)
 
-	// mm.RegisterModule(Lights, a.initLights)
 	// mm.RegisterModule(Timer, a.initTimer)
 
 	deps := map[string][]string{
 		// Server:       nil,
 
-		Client:     {Server},
-		MQTTClient: {Server},
+		Client:     {Server},             // GRPC client
+		MQTTClient: {Server},             // MQTT client
+		Controller: {Server, MQTTClient}, // K8s client
 
 		Conditioner:  {Server, MQTTClient, Client, Controller},
-		Controller:   {Server, MQTTClient},
-		Harvester:    {Server, MQTTClient, Client, Telemetry},
+		Harvester:    {Server, MQTTClient, Client, Telemetry, Router},
 		HookReceiver: {Server, Client, Conditioner},
+		Router:       {Server, Client, Controller},
 		Telemetry:    {Server, Controller, Client},
+		Weather:      {Server, Client},
 		ZoneKeeper:   {Server, MQTTClient, Controller},
 
-		// Lights:          {Server},
 		// Timer:      {Server},
 
 		All: {
@@ -86,6 +89,7 @@ func (a *App) setupModuleManager() error {
 			Controller,
 			Harvester,
 			HookReceiver,
+			Router,
 			Telemetry,
 			Weather,
 			ZoneKeeper,
@@ -125,21 +129,21 @@ func (a *App) initClient() (services.Service, error) {
 	return c, nil
 }
 
-func (a *App) initTimer() (services.Service, error) {
-	// conn := comms.SlimRPCClient(z.cfg.RPC.ServerAddress, z.logger)
-	//
-	// t, err := timer.New(z.cfg.Timer, z.logger, conn)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "unable to init timer")
-	// }
-	//
-	// // astro.RegisterAstroServer(z.Server.GRPC, t.Astro)
-	// // named.RegisterNamedServer(z.Server.GRPC, t.Named)
-	//
-	// z.timer = t
-	// return t, nil
-	return nil, nil
-}
+/* func (a *App) initTimer() (services.Service, error) { */
+// conn := comms.SlimRPCClient(z.cfg.RPC.ServerAddress, z.logger)
+//
+// t, err := timer.New(z.cfg.Timer, z.logger, conn)
+// if err != nil {
+// 	return nil, errors.Wrap(err, "unable to init timer")
+// }
+//
+// // astro.RegisterAstroServer(z.Server.GRPC, t.Astro)
+// // named.RegisterNamedServer(z.Server.GRPC, t.Named)
+//
+// z.timer = t
+// return t, nil
+/* 	return nil, nil */
+/* } */
 
 func (a *App) initMqttClient() (services.Service, error) {
 	c, err := mqttclient.New(a.cfg.MQTTClient, a.logger)
@@ -179,7 +183,7 @@ func (a *App) initTelemetry() (services.Service, error) {
 		return nil, err
 	}
 
-	telemetryv1.RegisterTelemetryServiceServer(a.Server.GRPC, t)
+	telemetryv1proto.RegisterTelemetryServiceServer(a.Server.GRPC, t)
 
 	a.telemetry = t
 	return t, nil
@@ -201,7 +205,7 @@ func (a *App) initZoneKeeper() (services.Service, error) {
 		return nil, err
 	}
 
-	iotv1.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
+	iotv1proto.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
 
 	a.zonekeeper = z
 	return z, nil
@@ -223,7 +227,7 @@ func (a *App) initConditioner() (services.Service, error) {
 		return nil, errors.Wrap(err, "failed to create harvester")
 	}
 
-	iotv1.RegisterAlertReceiverServiceServer(a.Server.GRPC, c)
+	iotv1proto.RegisterEventReceiverServiceServer(a.Server.GRPC, c)
 
 	a.conditioner = c
 	return c, nil
@@ -243,6 +247,19 @@ func (a *App) initServer() (services.Service, error) {
 	a.cfg.Server.GRPCMiddleware = []grpc.UnaryServerInterceptor{
 		otelgrpc.UnaryServerInterceptor(),
 	}
+
+	/* prometheus.MustRegister(&a.cfg) */
+
+	if a.cfg.EnableGoRuntimeMetrics {
+		// unregister default Go collector
+		prometheus.Unregister(collectors.NewGoCollector())
+		// register Go collector with all available runtime metrics
+		prometheus.MustRegister(collectors.NewGoCollector(
+			collectors.WithGoCollectorRuntimeMetrics(collectors.MetricsAll),
+		))
+	}
+
+	/* DisableSignalHandling(&t.cfg.Server) */
 
 	server, err := server.New(a.cfg.Server)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/gorilla/mux"
+	"github.com/grafana/dskit/grpcutil"
 	"github.com/grafana/dskit/modules"
 	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/prometheus/common/version"
+	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/zachfi/iotcontroller/modules/client"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
@@ -25,6 +27,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/harvester"
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
+	"github.com/zachfi/iotcontroller/modules/router"
 	"github.com/zachfi/iotcontroller/modules/telemetry"
 	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
@@ -57,6 +60,7 @@ type App struct {
 	weather      *weather.Weather
 	zonekeeper   *zonekeeper.ZoneKeeper
 	hookreceiver *hookreceiver.HookReceiver
+	router       *router.Router
 
 	ModuleManager *modules.Manager
 	serviceMap    map[string]services.Service
@@ -96,13 +100,14 @@ func (a *App) Run() error {
 		return fmt.Errorf("failed to start service manager %w", err)
 	}
 
-	a.Server.HTTP.Path("/ready").Handler(a.readyHandler(sm))
-	a.Server.HTTP.Path("/status").Handler(a.statusHandler()).Methods("GET")
-	a.Server.HTTP.Path("/status/{endpoint}").Handler(a.statusHandler()).Methods("GET")
+	a.Server.HTTP.Path("/ready").Handler(a.readyHandler(sm)).Methods(http.MethodGet)
+	a.Server.HTTP.Path("/status").Handler(a.statusHandler()).Methods(http.MethodGet)
+	a.Server.HTTP.Path("/status/{endpoint}").Handler(a.statusHandler()).Methods(http.MethodGet)
+	grpc_health_v1.RegisterHealthServer(a.Server.GRPC, grpcutil.NewHealthCheck(sm))
 
 	// Listen for events from this manager, and log them.
-	healthy := func() { a.logger.Info("started") }
-	stopped := func() { a.logger.Info("stopped") }
+	healthy := func() { a.logger.Info("started", "app", appName) }
+	stopped := func() { a.logger.Info("stopped", "app", appName) }
 	serviceFailed := func(service services.Service) {
 		// if any service fails, stop everything
 		sm.StopAsync()
@@ -110,7 +115,7 @@ func (a *App) Run() error {
 		// let's find out which module failed
 		for m, s := range serviceMap {
 			if s == service {
-				if service.FailureCase() == modules.ErrStopProcess {
+				if errors.Is(service.FailureCase(), modules.ErrStopProcess) {
 					a.logger.Info("received stop signal via return error", "module", m, "err", service.FailureCase())
 				} else {
 					a.logger.Error("module failed", "module", m, "err", service.FailureCase())
