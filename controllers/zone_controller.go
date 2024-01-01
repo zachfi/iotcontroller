@@ -70,12 +70,19 @@ func (r *ZoneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		attribute.String("name", req.Name),
 		attribute.String("namespace", req.Namespace),
 	}
+
 	ctx, span := r.tracer.Start(ctx, "Zone.Reconcile", trace.WithAttributes(attributes...))
 	defer func() { _ = tracing.ErrHandler(span, err, "reconcile failed", r.logger) }()
 
+	if req.Name == "" {
+		err = fmt.Errorf("unable to retrieve zone with empty name")
+		return ctrl.Result{}, err
+	}
+
 	zone, err = r.getZone(ctx, req)
 	if err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		err = client.IgnoreNotFound(err)
+		return ctrl.Result{}, err
 	}
 
 	span.SetAttributes(
@@ -121,7 +128,7 @@ func (r *ZoneReconciler) getZone(ctx context.Context, req ctrl.Request) (*iotv1.
 	}
 
 	ctx, span := r.tracer.Start(ctx, "ZoneReconciler.getZone", trace.WithAttributes(attributes...))
-	defer func() { _ = tracing.ErrHandler(span, err, "reconcile failed", r.logger) }()
+	defer func() { _ = tracing.ErrHandler(span, err, "get zone failed", r.logger) }()
 
 	if err = r.Get(ctx, req.NamespacedName, zone); err != nil {
 		return nil, err
@@ -215,8 +222,10 @@ func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error
 
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
-		span.SetStatus(codes.Error, err.Error())
-		return err
+		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			return err
+		}
 	}
 
 	return nil
