@@ -16,10 +16,11 @@ import (
 	"google.golang.org/grpc"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/zachfi/iotcontroller/pkg/iot/messages/zigbee2mqtt"
-	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 	"github.com/zachfi/zkit/pkg/tracing"
+
+	"github.com/zachfi/iotcontroller/pkg/iot/messages/zigbee2mqtt"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 var module = "router"
@@ -147,7 +148,7 @@ func (r *Router) routeReceiver(ctx context.Context) {
 			go func() {
 				bg.Done()
 
-				ctx, span := r.tracer.Start(context.Background(), "Telemetry.ReportIOTDevice", trace.WithSpanKind(trace.SpanKindServer))
+				ctx, span := r.tracer.Start(context.Background(), "Router.routeReceiver", trace.WithSpanKind(trace.SpanKindServer))
 				err := r.Send(ctx, req.Path, req.Message)
 				tracing.ErrHandler(span, err, "route failed", r.logger)
 			}()
