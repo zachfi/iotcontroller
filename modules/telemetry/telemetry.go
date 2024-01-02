@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,9 +22,7 @@ import (
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 	"github.com/zachfi/zkit/pkg/tracing"
 
-	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/pkg/iot"
-	"github.com/zachfi/iotcontroller/pkg/iot/messages/zigbee2mqtt"
 	iotutil "github.com/zachfi/iotcontroller/pkg/iot/util"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
@@ -366,138 +363,9 @@ func (l *Telemetry) handleZigbeeReport(ctx context.Context, req *telemetryv1prot
 		iotutil.UpdateLastSeen(ctx, l.kubeclient, device)
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		l.executeForReport(ctx, req, device)
-	}()
-
 	wg.Wait()
 
 	return nil
-}
-
-func (l *Telemetry) executeForReport(ctx context.Context, req *telemetryv1proto.TelemetryReportIOTDeviceRequest, device *apiv1.Device) {
-	var err error
-
-	ctx, span := l.tracer.Start(ctx, "executeForReport")
-	defer func() { _ = tracing.ErrHandler(span, err, "read report", l.logger) }()
-
-	// Avoid recursively responding to /set calls that the action handler makes
-	if len(req.DeviceDiscovery.Endpoints) > 0 && req.DeviceDiscovery.Endpoints[0] == "set" {
-		span.AddEvent("skipped")
-		return
-	}
-
-	msg, err := iot.ReadZigbeeMessage(ctx, l.tracer, req.DeviceDiscovery)
-	if err != nil {
-		return
-	}
-
-	if msg == nil {
-		return
-	}
-
-	// TODO: Review the desire to avoid updating too quickly
-	// lf := time.Unix(int64(device.Status.LastFlushed), 0)
-	// if time.Since(lf) < 10*time.Second {
-	// 	return
-	// }
-
-	switch reflect.TypeOf(msg).String() {
-	case "zigbee2mqtt.BridgeState":
-		span.SetAttributes(attribute.String("message_type", "zigbee2mqtt.BridgeState"))
-		m := msg.(zigbee2mqtt.BridgeState)
-		switch m {
-		case zigbee2mqtt.Offline:
-			telemetryIOTBridgeState.WithLabelValues().Set(float64(0))
-		case zigbee2mqtt.Online:
-			telemetryIOTBridgeState.WithLabelValues().Set(float64(1))
-		}
-
-	/* case "iot.ZigbeeMessageBridgeDevices": */
-	/* 	span.SetAttributes(attribute.String("message_type", "iot.ZigbeeMessageBridgeDevices")) */
-	/* 	m := msg.(zigbee2mqtt.Devices) */
-	/* 	err = l.handleZigbeeDevices(ctx, m) */
-	/* 	_ = tracing.ErrHandler(span, err, "failed to handle zigbee devices", l.logger) */
-	/* 	return */
-	case "iot.ZigbeeBridgeInfo":
-		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeBridgeInfo"))
-		// zigbee2mqtt/bridge/info
-	case "iot.ZigbeeBridgeLog":
-		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeBridgeLog"))
-		// zigbee2mqtt/bridge/log
-	case "iot.ZigbeeMessage":
-		span.SetAttributes(attribute.String("message_type", "iot.ZigbeeMessage"))
-		m := msg.(iot.ZigbeeMessage)
-
-		l.updateZigbeeMessageMetrics(ctx, m, req.DeviceDiscovery.Component, device)
-
-		// If this device has been annotated by a zone, then we pass the action to
-		// the zone handler.
-		if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
-			span.SetAttributes(
-				attribute.String("zone", zone),
-				attribute.String("device", device.Name),
-			)
-
-			wg := sync.WaitGroup{}
-
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				l.selfAnnounce(ctx, device.Name, zone)
-			}()
-
-			if m.Action != nil {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					l.action(ctx, *m.Action, device.Name, zone)
-				}()
-			}
-
-			wg.Wait()
-		}
-	default:
-		l.logger.Error("unhandled iot message type", "type", fmt.Sprintf("%T", msg))
-	}
-}
-
-func (l *Telemetry) selfAnnounce(ctx context.Context, device, zone string) {
-	var err error
-
-	ctx, span := l.tracer.Start(ctx, "selfAnnounce", trace.WithAttributes(
-		attribute.String("device", device),
-		attribute.String("zone", zone),
-	))
-	defer func() { _ = tracing.ErrHandler(span, err, "self announce", l.logger) }()
-
-	_, err = l.zonekeeperClient.SelfAnnounce(ctx,
-		&iotv1proto.SelfAnnounceRequest{
-			Device: device,
-			Zone:   zone,
-		},
-	)
-}
-
-func (l *Telemetry) action(ctx context.Context, action, device, zone string) {
-	var err error
-
-	ctx, span := l.tracer.Start(ctx, "action", trace.WithAttributes(
-		attribute.String("action", action),
-		attribute.String("device", device),
-		attribute.String("zone", zone),
-	))
-	defer func() { _ = tracing.ErrHandler(span, err, "action", l.logger) }()
-
-	_, err = l.zonekeeperClient.ActionHandler(ctx,
-		&iotv1proto.ActionHandlerRequest{
-			Event:  action,
-			Device: device,
-			Zone:   zone,
-		},
-	)
 }
 
 // TODO: move to router
@@ -622,77 +490,4 @@ func (l *Telemetry) handleWifiReport(_ context.Context, request *telemetryv1prot
 	}
 
 	return nil
-}
-
-func (l *Telemetry) updateZigbeeMessageMetrics(_ context.Context, m iot.ZigbeeMessage, component string, device *apiv1.Device) {
-	var zone string
-
-	if v, ok := device.Labels[iot.DeviceZoneLabel]; ok {
-		zone = v
-	}
-
-	if m.Battery != nil {
-		telemetryIOTBatteryPercent.WithLabelValues(device.Name, component, zone).Set(*m.Battery)
-	}
-
-	if m.LinkQuality != nil {
-		telemetryIOTLinkQuality.WithLabelValues(device.Name, component, zone).Set(float64(*m.LinkQuality))
-	}
-
-	if m.Temperature != nil {
-		telemetryIOTTemperature.WithLabelValues(device.Name, component, zone).Set(*m.Temperature)
-	}
-
-	if m.Humidity != nil {
-		telemetryIOTHumidity.WithLabelValues(device.Name, component, zone).Set(*m.Humidity)
-	}
-
-	if m.Co2 != nil {
-		telemetryIOTCo2.WithLabelValues(device.Name, component, zone).Set(*m.Co2)
-	}
-
-	if m.Formaldehyde != nil {
-		telemetryIOTFormaldehyde.WithLabelValues(device.Name, component, zone).Set(*m.Formaldehyde)
-	}
-
-	if m.VOC != nil {
-		telemetryIOTVoc.WithLabelValues(device.Name, component, zone).Set(float64(*m.VOC))
-	}
-
-	if m.State != nil {
-		switch *m.State {
-		case "ON":
-			telemetryIOTState.WithLabelValues(device.Name, component, zone).Set(float64(1))
-		case "OFF":
-			telemetryIOTState.WithLabelValues(device.Name, component, zone).Set(float64(0))
-		}
-	}
-
-	if m.Illuminance != nil {
-		telemetryIOTIlluminance.WithLabelValues(device.Name, component, zone).Set(float64(*m.Illuminance))
-	}
-
-	if m.Occupancy != nil {
-		if *m.Occupancy {
-			telemetryIOTOccupancy.WithLabelValues(device.Name, component, zone).Set(float64(1))
-		} else {
-			telemetryIOTOccupancy.WithLabelValues(device.Name, component, zone).Set(float64(0))
-		}
-	}
-
-	if m.WaterLeak != nil {
-		if *m.WaterLeak {
-			telemetryIOTWaterLeak.WithLabelValues(device.Name, component, zone).Set(float64(1))
-		} else {
-			telemetryIOTWaterLeak.WithLabelValues(device.Name, component, zone).Set(float64(0))
-		}
-	}
-
-	if m.Tamper != nil {
-		if *m.Tamper {
-			telemetryIOTTamper.WithLabelValues(device.Name, component, zone).Set(float64(1))
-		} else {
-			telemetryIOTTamper.WithLabelValues(device.Name, component, zone).Set(float64(0))
-		}
-	}
 }
