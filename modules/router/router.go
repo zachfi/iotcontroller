@@ -87,6 +87,9 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 		deviceID string
 	)
 
+	ctx, span := r.tracer.Start(ctx, "Router.Send")
+	defer tracing.ErrHandler(span, err, "router send faield", r.logger)
+
 	switch {
 	case r.match(path, "zigbee2mqtt/([^/]+)", &deviceID):
 		if err = r.zigbee2Mqtt().DeviceRoute(ctx, payload, deviceID); err != nil {
@@ -99,7 +102,9 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 			return err
 		}
 	case r.match(path, "zigbee2mqtt/bridge/state"):
-		// TODO:
+		if err = r.zigbee2Mqtt().BridgeStateRoute(ctx, payload); err != nil {
+			return err
+		}
 	case r.match(path, "zigbee2mqtt/bridge/info"):
 	case r.match(path, "zigbee2mqtt/bridge/logging"):
 	case r.match(path, "zigbee2mqtt/bridge/extensions"):

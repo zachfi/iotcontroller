@@ -11,7 +11,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/zachfi/iotcontroller/pkg/iot/messages/zigbee2mqtt"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
@@ -102,34 +101,23 @@ func ReadZigbeeMessage(ctx context.Context, tracer trace.Tracer, dis *iotv1proto
 	case "bridge":
 		// topic: zigbee2mqtt/bridge/log
 		switch e {
-		case "log":
-			m := zigbee2mqtt.BridgeLog{}
-			err := json.Unmarshal(dis.Message, &m)
-			if err != nil {
-				return nil, err
-			}
-			return m, nil
-		case "state":
-			m := zigbee2mqtt.BridgeState(string(dis.Message))
-			if m != "" {
-				return m, nil
-			}
-		case "info", "groups", "extensions", "devices", "config", "logging":
+		case "info", "groups", "extensions", "devices", "config", "logging", "log", "state":
 			// devices moved to router
+			// state moved to router
 			return nil, nil
 		case "config/devices": // the publish channel to ask for devices
 			return nil, nil
 		}
 		return nil, fmt.Errorf("unhandled bridge endpoint: %s", e)
 	default:
-		if len(dis.Endpoints) == 0 {
-			m := ZigbeeMessage{}
-			err := json.Unmarshal(dis.Message, &m)
-			if err != nil {
-				return nil, err
-			}
-			return m, nil
-		}
+		/* if len(dis.Endpoints) == 0 { */
+		/* 	m := zigbee2mqtt.ZigbeeMessage{} */
+		/* 	err := json.Unmarshal(dis.Message, &m) */
+		/* 	if err != nil { */
+		/* 		return nil, err */
+		/* 	} */
+		/* 	return m, nil */
+		/* } */
 	}
 
 	return nil, nil

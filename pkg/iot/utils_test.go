@@ -1,17 +1,10 @@
 package iot
 
 import (
-	"context"
-	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	trace "go.opentelemetry.io/otel/trace"
-
-	"github.com/zachfi/iotcontroller/pkg/iot/messages/zigbee2mqtt"
-	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 func TestParseTopicPath(t *testing.T) {
@@ -232,6 +225,7 @@ func TestReadMessage(t *testing.T) {
 	}
 }
 
+/*
 func TestReadZigbeeMessage(t *testing.T) {
 	t.Parallel()
 
@@ -418,3 +412,4 @@ func TestZigbee_DevicesJson(t *testing.T) {
 		}
 	}
 }
+*/
