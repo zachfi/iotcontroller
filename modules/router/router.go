@@ -19,7 +19,8 @@ import (
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 	"github.com/zachfi/zkit/pkg/tracing"
 
-	"github.com/zachfi/iotcontroller/pkg/iot/messages/zigbee2mqtt"
+	"github.com/zachfi/iotcontroller/pkg/iot/routers/ispindel"
+	"github.com/zachfi/iotcontroller/pkg/iot/routers/zigbee2mqtt"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
@@ -29,6 +30,7 @@ type RouteTypes int
 
 const (
 	Zigbee2MQTT RouteTypes = iota
+	Ispindel
 )
 
 type Router struct {
@@ -73,6 +75,13 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, conn *gr
 
 	c.routers[Zigbee2MQTT] = z2m
 
+	isp, err := ispindel.New(logger, c.tracer, kubeclient, conn)
+	if err != nil {
+		return nil, err
+	}
+
+	c.routers[Ispindel] = isp
+
 	c.Service = services.NewIdleService(c.starting, c.stopping)
 	return c, nil
 }
@@ -91,6 +100,7 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 	defer tracing.ErrHandler(span, err, "router send faield", r.logger)
 
 	switch {
+	// Zigbee routes
 	case r.match(path, "zigbee2mqtt/([^/]+)", &deviceID):
 		if err = r.zigbee2Mqtt().DeviceRoute(ctx, payload, deviceID); err != nil {
 			return err
@@ -108,6 +118,28 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 	case r.match(path, "zigbee2mqtt/bridge/info"):
 	case r.match(path, "zigbee2mqtt/bridge/logging"):
 	case r.match(path, "zigbee2mqtt/bridge/extensions"):
+
+		// iSpindel
+	case r.match(path, "ispindel/([^/]+)/tilt", &deviceID):
+		r.ispindel().TiltRoute(ctx, payload, deviceID)
+	case r.match(path, "ispindel/([^/]+)/temperature", &deviceID):
+		r.ispindel().TemperatureRoute(ctx, payload, deviceID)
+	case r.match(path, "ispindel/([^/]+)/battery", &deviceID):
+		r.ispindel().BatteryRoute(ctx, payload, deviceID)
+	case r.match(path, "ispindel/([^/]+)/gravity", &deviceID):
+		r.ispindel().SpecificGravityRoute(ctx, payload, deviceID)
+	case r.match(path, "ispindel/([^/]+)/RSSI", &deviceID):
+		r.ispindel().RSSI(ctx, payload, deviceID)
+		// TODO:
+		/*
+			ispindel/brewHydroBlack/tilt 26.08455
+			ispindel/brewHydroBlack/temperature 9.6875
+			ispindel/brewHydroBlack/temp_units C
+			ispindel/brewHydroBlack/battery 3.534932
+			ispindel/brewHydroBlack/gravity 1.002085
+			ispindel/brewHydroBlack/interval 900
+			ispindel/brewHydroBlack/RSSI -91
+		*/
 	default:
 		metricUnhandledRoute.WithLabelValues(path).Inc()
 	}
@@ -209,4 +241,8 @@ func (r *Router) mustCompileCached(pattern string) *regexp.Regexp {
 
 func (r *Router) zigbee2Mqtt() *zigbee2mqtt.Zigbee2Mqtt {
 	return r.routers[Zigbee2MQTT].(*zigbee2mqtt.Zigbee2Mqtt)
+}
+
+func (r *Router) ispindel() *ispindel.Ispindel {
+	return r.routers[Ispindel].(*ispindel.Ispindel)
 }

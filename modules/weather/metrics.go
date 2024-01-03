@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -51,7 +52,6 @@ func (w *Weather) Collect(ctx context.Context) {
 	bg := boundedwaitgroup.New(3)
 
 	for _, location := range w.cfg.Locations {
-		w.logger.Debug("collecting weather metrics", "location", location.Name)
 		go func(loc Location) { bg.Add(1); defer bg.Done(); w.collectPollution(ctx, loc) }(location)
 		go func(loc Location) { bg.Add(1); defer bg.Done(); w.collectOne(ctx, loc) }(location)
 	}
@@ -62,6 +62,8 @@ func (w *Weather) Collect(ctx context.Context) {
 func (w *Weather) collectPollution(ctx context.Context, location Location) {
 	_, span := w.tracer.Start(ctx, "collectPollution")
 	defer span.End()
+
+	span.SetAttributes(attribute.String("location", location.Name))
 
 	coord := &owm.Coordinates{
 		Longitude: location.Longitude,

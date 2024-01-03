@@ -217,7 +217,16 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 	case DownPress, RotateLeft, DialRotateLeftSlow, DialRotateLeftFast, DialRotateLeftStep, BrightnessStepDown:
 		zone.DecrementBrightness(ctx)
 		zone.On(ctx)
-	case "wakeup", "press", "release", "off_hold", "off_hold_release", "on_press_release", "up_press_release", "down_press_release": // do nothing
+	case
+		"wakeup",
+		"press",
+		"release",
+		"off_hold",
+		"off_hold_release",
+		"on_press_release",
+		"up_press_release",
+		"down_press_release",
+		"button_1_press_release": // do nothing
 		return resp, nil
 	default:
 		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", req.Event, req.Device, req.Zone))
