@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -202,10 +201,6 @@ func (l *Telemetry) reportReceiver(controlCtx context.Context) {
 					err = l.handleZigbeeReport(ctx, req)
 					_ = tracing.ErrHandler(span, err, "failed to handle zigbee report", l.logger)
 					return
-				case "ispindel":
-					err = l.handleIspindelReport(ctx, req)
-					_ = tracing.ErrHandler(span, err, "failed to handle ispindel report", l.logger)
-					return
 				}
 
 				switch req.DeviceDiscovery.ObjectId {
@@ -253,91 +248,6 @@ func (l *Telemetry) TelemetryReportIOTDevice(stream telemetryv1proto.TelemetrySe
 		l.reportQueue <- req
 		queueLength.With(prometheus.Labels{}).Set(float64(len(l.reportQueue)))
 	}
-}
-
-func (l *Telemetry) handleIspindelReport(ctx context.Context, req *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {
-	var err error
-
-	if len(req.DeviceDiscovery.Endpoints) == 0 {
-		l.logger.Debug("unhandled empty ispindel endpoints", "discovery", fmt.Sprintf("%+v", req.DeviceDiscovery))
-		return nil
-	}
-
-	ctx, span := l.tracer.Start(ctx, "handleIspindelReport")
-	defer span.End()
-
-	name := strings.ToLower(req.DeviceDiscovery.ObjectId)
-	device, err := iotutil.GetOrCreateAPIDevice(ctx, l.kubeclient, name)
-	if err != nil {
-		return tracing.ErrHandler(span, err, "failed to get or create API device", nil)
-	}
-
-	wg := sync.WaitGroup{}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		iotutil.UpdateLastSeen(ctx, l.kubeclient, device)
-	}()
-
-	if device.Spec.Type != iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL.String() {
-		device.Spec.Type = iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL.String()
-		if err = l.kubeclient.Update(ctx, device); err != nil {
-			return fmt.Errorf("failed to update device spec: %w", err)
-		}
-	}
-
-	var z string
-	if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
-		z = zone
-	}
-	if z == "" {
-		return fmt.Errorf("unable to metric without a zone")
-	}
-
-	d := req.DeviceDiscovery.ObjectId
-	m := req.DeviceDiscovery.Message
-
-	span.SetAttributes(
-		attribute.String("z", z),
-		attribute.String("d", d),
-		attribute.String("m", string(m)),
-		attribute.String("e", req.DeviceDiscovery.Endpoints[0]),
-	)
-
-	switch req.DeviceDiscovery.Endpoints[0] {
-	case "tilt":
-		f, err := strconv.ParseFloat(string(m), 64)
-		if err != nil {
-			return err
-		}
-		metricTiltAngle.WithLabelValues(d, z).Set(f)
-	case "temperature":
-		f, err := strconv.ParseFloat(string(m), 64)
-		if err != nil {
-			return err
-		}
-		metricTemperature.WithLabelValues(d, z).Set(f)
-	case "temp_units":
-	case "battery":
-		f, err := strconv.ParseFloat(string(m), 64)
-		if err != nil {
-			return err
-		}
-		metricBattery.WithLabelValues(d, z).Set(f)
-	case "gravity":
-		f, err := strconv.ParseFloat(string(m), 64)
-		if err != nil {
-			return err
-		}
-		metricSpecificGravity.WithLabelValues(d, z).Set(f)
-	case "interval":
-	case "RSSI":
-	}
-
-	wg.Wait()
-
-	return nil
 }
 
 func (l *Telemetry) handleZigbeeReport(ctx context.Context, req *telemetryv1proto.TelemetryReportIOTDeviceRequest) error {

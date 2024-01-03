@@ -23,12 +23,11 @@ import (
 
 type BridgeState string
 
-const router = "zigbee2mqtt"
-
 const (
-	RouteName             = "zigbee2mqtt"
-	Offline   BridgeState = "offline"
-	Online    BridgeState = "online"
+	routeName = "zigbee2mqtt"
+
+	Offline BridgeState = "offline"
+	Online  BridgeState = "online"
 
 	StateON  = "ON"
 	StateOFF = "OFF"
@@ -47,7 +46,7 @@ type Zigbee2Mqtt struct {
 
 func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, conn *grpc.ClientConn) (*Zigbee2Mqtt, error) {
 	z := &Zigbee2Mqtt{
-		logger:           logger.With("router", RouteName),
+		logger:           logger.With("router", routeName),
 		tracer:           tracer,
 		kubeclient:       kubeclient,
 		telemetryClient:  telemetryv1proto.NewTelemetryServiceClient(conn),
@@ -67,9 +66,9 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 func (z *Zigbee2Mqtt) BridgeStateRoute(_ context.Context, b []byte) error {
 	switch BridgeState(string(b)) {
 	case Offline:
-		telemetryIOTBridgeState.WithLabelValues().Set(float64(0))
+		metricIOTBridgeState.WithLabelValues().Set(float64(0))
 	case Online:
-		telemetryIOTBridgeState.WithLabelValues().Set(float64(1))
+		metricIOTBridgeState.WithLabelValues().Set(float64(1))
 	}
 
 	return nil
@@ -269,67 +268,67 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 	}
 
 	if m.Battery != nil {
-		telemetryIOTBatteryPercent.WithLabelValues(device.Name, router, zone).Set(*m.Battery)
+		metricIOTBatteryPercent.WithLabelValues(device.Name, routeName, zone).Set(*m.Battery)
 	}
 
 	if m.LinkQuality != nil {
-		telemetryIOTLinkQuality.WithLabelValues(device.Name, router, zone).Set(float64(*m.LinkQuality))
+		metricIOTLinkQuality.WithLabelValues(device.Name, routeName, zone).Set(float64(*m.LinkQuality))
 	}
 
 	if m.Temperature != nil {
-		telemetryIOTTemperature.WithLabelValues(device.Name, router, zone).Set(*m.Temperature)
+		metricIOTTemperature.WithLabelValues(device.Name, routeName, zone).Set(*m.Temperature)
 	}
 
 	if m.Humidity != nil {
-		telemetryIOTHumidity.WithLabelValues(device.Name, router, zone).Set(*m.Humidity)
+		metricIOTHumidity.WithLabelValues(device.Name, routeName, zone).Set(*m.Humidity)
 	}
 
 	if m.Co2 != nil {
-		telemetryIOTCo2.WithLabelValues(device.Name, router, zone).Set(*m.Co2)
+		metricIOTCo2.WithLabelValues(device.Name, routeName, zone).Set(*m.Co2)
 	}
 
 	if m.Formaldehyde != nil {
-		telemetryIOTFormaldehyde.WithLabelValues(device.Name, router, zone).Set(*m.Formaldehyde)
+		metricIOTFormaldehyde.WithLabelValues(device.Name, routeName, zone).Set(*m.Formaldehyde)
 	}
 
 	if m.VOC != nil {
-		telemetryIOTVoc.WithLabelValues(device.Name, router, zone).Set(float64(*m.VOC))
+		metricIOTVoc.WithLabelValues(device.Name, routeName, zone).Set(float64(*m.VOC))
 	}
 
 	if m.State != nil {
 		switch *m.State {
 		case StateON:
-			telemetryIOTState.WithLabelValues(device.Name, router, zone).Set(float64(1))
+			metricIOTState.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
 		case StateOFF:
-			telemetryIOTState.WithLabelValues(device.Name, router, zone).Set(float64(0))
+			metricIOTState.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
 		}
 	}
 
 	if m.Illuminance != nil {
-		telemetryIOTIlluminance.WithLabelValues(device.Name, router, zone).Set(float64(*m.Illuminance))
+		metricIOTIlluminance.WithLabelValues(device.Name, routeName, zone).Set(float64(*m.Illuminance))
 	}
 
 	if m.Occupancy != nil {
 		if *m.Occupancy {
-			telemetryIOTOccupancy.WithLabelValues(device.Name, router, zone).Set(float64(1))
+			metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
 		} else {
-			telemetryIOTOccupancy.WithLabelValues(device.Name, router, zone).Set(float64(0))
+			metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
 		}
 	}
 
 	if m.WaterLeak != nil {
 		if *m.WaterLeak {
-			telemetryIOTWaterLeak.WithLabelValues(device.Name, router, zone).Set(float64(1))
+			metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
 		} else {
-			telemetryIOTWaterLeak.WithLabelValues(device.Name, router, zone).Set(float64(0))
+			metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
 		}
 	}
 
 	if m.Tamper != nil {
 		if *m.Tamper {
-			telemetryIOTTamper.WithLabelValues(device.Name, router, zone).Set(float64(1))
+			metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
 		} else {
-			telemetryIOTTamper.WithLabelValues(device.Name, router, zone).Set(float64(0))
+			metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
 		}
 	}
 }
