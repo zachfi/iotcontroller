@@ -53,13 +53,6 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		zonekeeperClient: iotv1proto.NewZoneKeeperServiceClient(conn),
 	}
 
-	/* reportStream, err := z.telemetryClient.TelemetryReportIOTDevice(ctx) */
-	/* if err != nil { */
-	/* 	return err */
-	/* } */
-	/**/
-	/* z.reportStream = reportStream */
-
 	return z, nil
 }
 
@@ -121,13 +114,14 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...interfa
 				z.action(ctx, *m.Action, device.Name, zone)
 			}()
 		}
-	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		z.selfAnnounce(ctx, device.Name, zone)
-	}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			z.selfAnnounce(ctx, device.Name, zone)
+		}()
+
+	}
 
 	/* deviceReq := &telemetryv1proto.TelemetryReportIOTDeviceRequest{ */
 	/* 	DeviceDiscovery: iot.ParseDiscoveryMessage(topicPath, msg), */
