@@ -154,6 +154,9 @@ func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnou
 	}
 
 	zone, err = z.GetZone(ctx, req.Zone)
+	if err != nil {
+		return &iotv1proto.SelfAnnounceResponse{}, err
+	}
 	return resp, zone.Flush(ctx, limiter)
 }
 
