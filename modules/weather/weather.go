@@ -15,10 +15,17 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 
+	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
+
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 var module = "weather"
+
+const (
+	EventSunset  = "sunset"
+	EventSunrise = "sunrise"
+)
 
 type Weather struct {
 	services.Service
@@ -50,12 +57,11 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*Weather, erro
 		owmClient: &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
 
-	w.Service = services.NewIdleService(w.starting, w.stopping)
+	w.Service = services.NewBasicService(w.starting, w.running, w.stopping)
 	return w, nil
 }
 
-func (w *Weather) starting(ctx context.Context) error {
-	go w.run(ctx)
+func (w *Weather) starting(_ context.Context) error {
 	return nil
 }
 
@@ -63,15 +69,23 @@ func (w *Weather) stopping(_ error) error {
 	return nil
 }
 
-func (w *Weather) run(ctx context.Context) {
-	ticker := time.NewTicker(w.cfg.Interval)
+func (w *Weather) running(ctx context.Context) error {
+	collectTicker := time.NewTicker(w.cfg.Interval)
+
+	bg := boundedwaitgroup.New(3)
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			w.Collect(ctx)
+			return nil
+		case <-collectTicker.C:
+			bg.Add(1)
+			go func() {
+				defer bg.Done()
+				w.Collect(ctx)
+			}()
+
+			bg.Wait()
 		}
 	}
 }

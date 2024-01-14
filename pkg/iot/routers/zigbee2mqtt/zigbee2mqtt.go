@@ -113,14 +113,13 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...interfa
 				defer wg.Done()
 				z.action(ctx, *m.Action, device.Name, zone)
 			}()
+		} else {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				z.selfAnnounce(ctx, device.Name, zone)
+			}()
 		}
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			z.selfAnnounce(ctx, device.Name, zone)
-		}()
-
 	}
 
 	/* deviceReq := &telemetryv1proto.TelemetryReportIOTDeviceRequest{ */

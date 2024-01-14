@@ -9,8 +9,11 @@ const (
 
 	// Condition matching
 	AlertNameLabel = "alertname"
+	EpochLabel     = "epoch"
 	EventNameLabel = "eventname"
+	LocationLabel  = "location"
 	StatusLabel    = "status"
+	WhenLabel      = "when"
 	ZoneLabel      = "zone"
 )
 

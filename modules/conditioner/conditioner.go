@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/grafana/dskit/services"
 	"go.opentelemetry.io/otel"
@@ -138,14 +139,20 @@ func (c *Conditioner) runConditionEvent(ctx context.Context, req *iotv1proto.Eve
 	)
 	defer span.End()
 
+	now := time.Now()
+
 	for _, rem := range cond.Spec.Remediations {
 		var (
 			state     string
 			zoneState = iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
 		)
 
+		// TODO: use WhenGate to determine if we are within a window.
+
 		// A status exists on alerts, so lets check for it so that we can handle it below.
 		if status, ok := req.Labels[iot.StatusLabel]; ok {
+			span.SetAttributes(attribute.String(iot.StatusLabel, status))
+
 			switch status {
 			case alertStatusFiring:
 				if rem.ActiveState != "" {
@@ -156,7 +163,58 @@ func (c *Conditioner) runConditionEvent(ctx context.Context, req *iotv1proto.Eve
 					state = rem.InactiveState
 				}
 			}
+		} else if rem.WhenGate.Start != "" || rem.WhenGate.Stop != "" {
+			if when, ok := req.Labels[iot.WhenLabel]; ok {
+				span.SetAttributes(attribute.String(iot.WhenLabel, when))
+
+				eventTime, err := time.Parse(time.RFC3339, when)
+				if err != nil {
+					c.logger.Error("failed to parse duration", "err", err)
+					continue
+				}
+
+				var (
+					start time.Duration
+					stop  time.Duration
+				)
+
+				if rem.WhenGate.Start != "" {
+					start, err = time.ParseDuration(rem.WhenGate.Start)
+					if err != nil {
+						c.logger.Error("failed to parse duration", "err", err)
+						continue
+					}
+
+					windowStart := eventTime.Add(start)
+					span.SetAttributes(attribute.String("windowStart", windowStart.Format(time.RFC3339)))
+
+					if now.After(windowStart) {
+						if rem.ActiveState != "" {
+							state = rem.ActiveState
+						}
+					}
+				}
+
+				if rem.WhenGate.Stop != "" {
+					stop, err = time.ParseDuration(rem.WhenGate.Stop)
+					if err != nil {
+						c.logger.Error("failed to parse duration", "err", err)
+						continue
+					}
+
+					windowStop := eventTime.Add(stop)
+					span.SetAttributes(attribute.String("windowStop", windowStop.Format(time.RFC3339)))
+
+					if now.After(windowStop) {
+						if rem.InactiveState != "" {
+							state = rem.InactiveState
+						}
+					}
+				}
+			}
 		}
+
+		span.SetAttributes(attribute.String("state", state))
 
 		switch state {
 		case "on":
@@ -180,6 +238,8 @@ func (c *Conditioner) runConditionEvent(ctx context.Context, req *iotv1proto.Eve
 				zoneState = iotv1proto.ZoneState(s)
 			}
 		}
+
+		span.SetAttributes(attribute.String("zoneState", zoneState.String()))
 
 		if zoneState > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
 			_, err := c.zonekeeperClient.SetState(ctx, &iotv1proto.SetStateRequest{

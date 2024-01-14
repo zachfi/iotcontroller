@@ -58,6 +58,12 @@ type Remediation struct {
 	ActiveState   string `json:"active_state,omitempty"`
 	InactiveState string `json:"inactive_state,omitempty"`
 	Timeout       string `json:"timeout,omitempty"`
+	WhenGate      When   `json:"when_gate,omitempty"`
+}
+
+type When struct {
+	Start string `json:"start,omitempty"`
+	Stop  string `json:"stop,omitempty"`
 }
 
 type Match struct {
