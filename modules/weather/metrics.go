@@ -12,6 +12,9 @@ import (
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	"github.com/zachfi/iotcontroller/pkg/iot"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 var (
@@ -49,13 +52,21 @@ func (w *Weather) Collect(ctx context.Context) {
 	ctx, span := w.tracer.Start(ctx, "Collect")
 	defer span.End()
 
-	bg := boundedwaitgroup.New(3)
+	bg := boundedwaitgroup.New(4)
 
 	for _, location := range w.cfg.Locations {
-		go func(loc Location) { bg.Add(1); defer bg.Done(); w.collectPollution(ctx, loc) }(location)
-		go func(loc Location) { bg.Add(1); defer bg.Done(); w.collectOne(ctx, loc) }(location)
-	}
+		bg.Add(1)
+		go func(loc Location) {
+			defer bg.Done()
+			w.collectPollution(ctx, loc)
+		}(location)
 
+		bg.Add(1)
+		go func(loc Location) {
+			defer bg.Done()
+			w.collectOne(ctx, loc)
+		}(location)
+	}
 	bg.Wait()
 }
 
@@ -96,6 +107,8 @@ func (w *Weather) collectOne(ctx context.Context, location Location) {
 	_, span := w.tracer.Start(ctx, "collectOne")
 	defer span.End()
 
+	span.SetAttributes(attribute.String("location", location.Name))
+
 	coord := &owm.Coordinates{
 		Longitude: location.Longitude,
 		Latitude:  location.Latitude,
@@ -104,23 +117,39 @@ func (w *Weather) collectOne(ctx context.Context, location Location) {
 	// Possibility to exclude information. For example exclude daily information []string{ExcludeDaily}
 	o, err := owm.NewOneCall("C", "EN", w.cfg.APIKey, []string{})
 	if err != nil {
-		w.logger.Error("onecal failed", "err", err)
+		w.logger.Error("onecall failed", "err", err)
 		return
 	}
 
 	err = o.OneCallByCoordinates(coord)
 	if err != nil {
-		w.logger.Error("onecal coordinates failed", "err", err)
+		w.logger.Error("onecall coordinates failed", "err", err)
 	}
 
 	// Sunrise and sunset
 	epochs := map[string]float64{
-		"sunrise": float64(o.Current.Sunrise),
-		"sunset":  float64(o.Current.Sunset),
+		EventSunrise: float64(o.Current.Sunrise),
+		EventSunset:  float64(o.Current.Sunset),
 	}
 
 	for epoch, value := range epochs {
 		metricWeatherEpoch.WithLabelValues(location.Name, epoch).Add(value)
+
+		in := &iotv1proto.EventRequest{
+			Name:   epoch,
+			Labels: make(map[string]string),
+		}
+
+		in.Labels[iot.EpochLabel] = epoch
+		in.Labels[iot.LocationLabel] = location.Name
+		in.Labels[iot.WhenLabel] = time.Unix(int64(value), 0).Format(time.RFC3339)
+		in.Labels["value"] = fmt.Sprintf("%f", value)
+
+		_, err := w.eventReceiverClient.Event(ctx, in)
+		if err != nil {
+			w.logger.Error("failed to send event", "err", err)
+		}
+
 	}
 
 	// Current conditions

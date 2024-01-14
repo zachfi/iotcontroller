@@ -57,6 +57,13 @@ spec:
                       type: string
                     timeout:
                       type: string
+                    when_gate:
+                      properties:
+                        start:
+                          type: string
+                        stop:
+                          type: string
+                      type: object
                     zone:
                       type: string
                   type: object

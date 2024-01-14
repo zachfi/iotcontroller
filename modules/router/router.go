@@ -106,7 +106,7 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 			return err
 		}
 	case r.match(path, "zigbee2mqtt/([^/]+)/set", &deviceID):
-		// TODO:
+		// ignore
 	case r.match(path, "zigbee2mqtt/bridge/devices"):
 		if err = r.zigbee2Mqtt().DevicesRoute(ctx, payload); err != nil {
 			return err

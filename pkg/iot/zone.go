@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strings"
 	sync "sync"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -43,8 +42,8 @@ var (
 		iotv1proto.Brightness_BRIGHTNESS_LOW:     90,
 		iotv1proto.Brightness_BRIGHTNESS_VERYLOW: 70,
 	}
-	defaultScheduleDuration = time.Minute * 10
-	defaultOnStates         = []iotv1proto.ZoneState{
+	/* defaultScheduleDuration = time.Minute * 10 */
+	defaultOnStates = []iotv1proto.ZoneState{
 		iotv1proto.ZoneState_ZONE_STATE_COLOR,
 		iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION,
 		iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION,
@@ -69,8 +68,8 @@ type Zone struct {
 
 	devices map[*iotv1proto.Device]Handler
 
-	colorTempMap  map[iotv1proto.ColorTemperature]int32
-	brightnessMap map[iotv1proto.Brightness]uint8
+	colorTempMap map[iotv1proto.ColorTemperature]int32
+	/* brightnessMap map[iotv1proto.Brightness]uint8 */
 }
 
 func NewZone(name string, logger *slog.Logger) (*Zone, error) {
@@ -79,13 +78,13 @@ func NewZone(name string, logger *slog.Logger) (*Zone, error) {
 	}
 
 	z := &Zone{
-		name:          name,
-		logger:        logger.With("zone", name),
-		tracer:        otel.Tracer(name),
-		colorPool:     defaultColorPool,
-		colorTemp:     tempDay,
-		brightnessMap: defaultBrightnessMap,
-		colorTempMap:  defaultColorTemperatureMap,
+		name:      name,
+		logger:    logger.With("zone", name),
+		tracer:    otel.Tracer(name),
+		colorPool: defaultColorPool,
+		/* colorTemp: tempDay, */
+		/* brightnessMap: defaultBrightnessMap, */
+		colorTempMap: defaultColorTemperatureMap,
 	}
 
 	return z, nil
@@ -146,12 +145,12 @@ func (z *Zone) SetDevice(ctx context.Context, device *iotv1proto.Device, handler
 	return nil
 }
 
-func (z *Zone) SetBrightnessMap(m map[iotv1proto.Brightness]uint8) {
-	z.mtx.Lock()
-	defer z.mtx.Unlock()
-
-	z.brightnessMap = m
-}
+/* func (z *Zone) SetBrightnessMap(m map[iotv1proto.Brightness]uint8) { */
+/* 	z.mtx.Lock() */
+/* 	defer z.mtx.Unlock() */
+/**/
+/* 	z.brightnessMap = m */
+/* } */
 
 func (z *Zone) SetColorTemperatureMap(m map[iotv1proto.ColorTemperature]int32) {
 	z.mtx.Lock()
