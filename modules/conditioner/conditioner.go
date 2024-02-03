@@ -38,10 +38,11 @@ type Conditioner struct {
 
 	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
 	kubeClient       kubeclient.Client
-	mqttClient       *mqttclient.MQTTClient
+
+	sched *schedule
 }
 
-func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqttclient.MQTTClient, k kubeclient.Client) (*Conditioner, error) {
+func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, k kubeclient.Client) (*Conditioner, error) {
 	c := &Conditioner{
 		cfg:    &cfg,
 		logger: logger.With("module", module),
@@ -49,7 +50,11 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 
 		zonekeeperClient: iotv1proto.NewZoneKeeperServiceClient(conn),
 		kubeClient:       k,
-		mqttClient:       mqttClient,
+
+		sched: &schedule{
+			events: make(map[string]*event, 100),
+			reqs:   make(chan *iotv1proto.SetStateRequest, 10),
+		},
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
@@ -100,6 +105,34 @@ func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (
 	}
 
 	return &iotv1proto.EventResponse{}, nil
+}
+
+func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
+	if !cond.Spec.Enabled {
+		return
+	}
+
+	if cond.Spec.Schedule == "" {
+		return
+	}
+
+	cron, err := cronexpr.Parse(cond.Spec.Schedule)
+	if err != nil {
+		c.logger.Error("failed to parse cron expression from schedule", "err", err)
+		return
+	}
+
+	next := cron.Next(time.Now())
+	if next.IsZero() {
+		return
+	}
+
+	for _, rem := range cond.Spec.Remediations {
+		c.sched.add(ctx, cond.Name, next, &iotv1proto.SetStateRequest{
+			Name:  rem.Zone,
+			State: c.zoneState(rem.ActiveState),
+		})
+	}
 }
 
 func (c *Conditioner) matchCondition(_ context.Context, labels map[string]string, cond apiv1.Condition) bool {
