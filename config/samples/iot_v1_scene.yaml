@@ -1,0 +1,12 @@
+apiVersion: iot.iot/v1
+kind: Scene
+metadata:
+  labels:
+    app.kubernetes.io/name: scene
+    app.kubernetes.io/instance: scene-sample
+    app.kubernetes.io/part-of: iotcontroller
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: iotcontroller
+  name: scene-sample
+spec:
+  # TODO(user): Add fields here

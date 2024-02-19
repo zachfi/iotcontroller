@@ -33,4 +33,12 @@ resources:
   kind: Zone
   path: github.com/zachfi/iotcontroller/api/v1
   version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: iot
+  group: iot
+  kind: Scene
+  path: github.com/zachfi/iotcontroller/api/v1
+  version: v1
 version: "3"
