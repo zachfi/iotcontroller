@@ -5,4 +5,3 @@ steps:
   - make
   image: golang
   name: make
-type: kubernetes
