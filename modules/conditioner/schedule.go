@@ -13,21 +13,58 @@ type schedule struct {
 	sync.Mutex
 
 	events map[string]*event
-	reqs   chan *iotv1proto.SetStateRequest
+	reqs   chan request
 }
 
 type event struct {
 	cancel context.CancelFunc
 	t      time.Time
-	req    *iotv1proto.SetStateRequest
+	req    request
 }
 
-func (s *schedule) add(ctx context.Context, name string, t time.Time, req *iotv1proto.SetStateRequest) {
+type request struct {
+	stateReq *iotv1proto.SetStateRequest
+	sceneReq *iotv1proto.SetSceneRequest
+}
+
+func matched(a, b request) bool {
+	if a.sceneReq != nil && b.sceneReq == nil {
+		return false
+	}
+
+	if a.stateReq != nil && b.stateReq == nil {
+		return false
+	}
+
+	if b.sceneReq != nil && a.sceneReq == nil {
+		return false
+	}
+
+	if b.stateReq != nil && a.stateReq == nil {
+		return false
+	}
+
+	if a.sceneReq != nil && b.sceneReq != nil {
+		if a.sceneReq.Name != b.sceneReq.Name || a.sceneReq.Scene != b.sceneReq.Scene {
+			return false
+		}
+	}
+
+	if a.stateReq != nil && b.stateReq != nil {
+		if a.stateReq.Name != b.stateReq.Name || a.stateReq.State != b.stateReq.State {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (s *schedule) add(ctx context.Context, name string, t time.Time, req request) {
 	s.Lock()
 	defer s.Unlock()
 
 	if v, ok := s.events[name]; ok {
-		if v.t.Equal(t) && v.req.Name == req.Name && v.req.State == req.State {
+		if matched(v.req, req) {
 			return
 		}
 
@@ -41,7 +78,7 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req *iotv1
 		req:    req,
 	}
 
-	go func(ctx context.Context) {
+	go func(ctx context.Context, req request) {
 		timer := time.NewTimer(time.Until(t))
 		defer timer.Stop()
 
@@ -54,7 +91,7 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req *iotv1
 				return
 			}
 		}
-	}(ctx)
+	}(ctx, req)
 }
 
 // run calls the client for each request
@@ -64,9 +101,18 @@ func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceC
 		case <-ctx.Done():
 			return
 		case req := <-s.reqs:
-			_, err := client.SetState(ctx, req)
-			if err != nil {
-				logger.Error("failed to set state", "err", err)
+			if req.sceneReq != nil {
+				_, err := client.SetScene(ctx, req.sceneReq)
+				if err != nil {
+					logger.Error("failed to set scene", "err", err)
+				}
+			}
+
+			if req.stateReq != nil {
+				_, err := client.SetState(ctx, req.stateReq)
+				if err != nil {
+					logger.Error("failed to set state", "err", err)
+				}
 			}
 		}
 	}
