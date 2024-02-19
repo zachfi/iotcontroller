@@ -13,7 +13,6 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
 
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 
@@ -39,7 +38,7 @@ type Weather struct {
 	eventReceiverClient iotv1proto.EventReceiverServiceClient
 }
 
-func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*Weather, error) {
+func New(cfg Config, logger *slog.Logger, eventReceiverClient iotv1proto.EventReceiverServiceClient) (*Weather, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("unable to create new %q with empty cfg.apikey", module)
 	}
@@ -52,7 +51,7 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*Weather, erro
 		cfg:                 &cfg,
 		logger:              logger.With("module", module),
 		tracer:              otel.Tracer(module),
-		eventReceiverClient: iotv1proto.NewEventReceiverServiceClient(conn),
+		eventReceiverClient: eventReceiverClient,
 
 		owmClient: &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
