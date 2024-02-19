@@ -21,8 +21,6 @@ const (
 	tempDay           = 300
 	tempMorning       = 200
 	tempFirstLight    = 100
-
-	nightVisionColor = `#FF00FF`
 )
 
 var (
@@ -45,9 +43,6 @@ var (
 	/* defaultScheduleDuration = time.Minute * 10 */
 	defaultOnStates = []iotv1proto.ZoneState{
 		iotv1proto.ZoneState_ZONE_STATE_COLOR,
-		iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION,
-		iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION,
-		iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION,
 		iotv1proto.ZoneState_ZONE_STATE_ON,
 		iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
 	}
@@ -102,6 +97,13 @@ func (z *Zone) Brightness() iotv1proto.Brightness {
 	defer z.mtx.Unlock()
 
 	return z.brightness
+}
+
+func (z *Zone) Color() string {
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	return z.color
 }
 
 func (z *Zone) ColorTemperature() iotv1proto.ColorTemperature {
@@ -186,6 +188,16 @@ func (z *Zone) SetColorTemperature(ctx context.Context, colorTemp iotv1proto.Col
 	defer z.mtx.Unlock()
 
 	z.colorTemp = colorTemp
+}
+
+func (z *Zone) SetColor(ctx context.Context, color string) {
+	_, span := z.tracer.Start(ctx, "Zone.SetColor")
+	defer span.End()
+
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	z.color = color
 }
 
 func (z *Zone) SetBrightness(ctx context.Context, brightness iotv1proto.Brightness) {
@@ -345,16 +357,6 @@ func (z *Zone) Flush(ctx context.Context, limiter FlushLimiter) error {
 		if err != nil {
 			errs = append(errs, err)
 		}
-	case iotv1proto.ZoneState_ZONE_STATE_NIGHTVISION:
-		z.color = nightVisionColor
-		err = z.handleColor(ctx, limiter)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	case iotv1proto.ZoneState_ZONE_STATE_EVENINGVISION:
-		z.colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_EVENING
-	case iotv1proto.ZoneState_ZONE_STATE_MORNINGVISION:
-		z.colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_MORNING
 	}
 
 	switch z.state {
