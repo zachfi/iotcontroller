@@ -309,6 +309,7 @@ var RouteService_ServiceDesc = grpc.ServiceDesc{
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ZoneKeeperServiceClient interface {
 	SetState(ctx context.Context, in *SetStateRequest, opts ...grpc.CallOption) (*SetStateResponse, error)
+	SetScene(ctx context.Context, in *SetSceneRequest, opts ...grpc.CallOption) (*SetSceneResponse, error)
 	GetDeviceZone(ctx context.Context, in *GetDeviceZoneRequest, opts ...grpc.CallOption) (*GetDeviceZoneResponse, error)
 	ActionHandler(ctx context.Context, in *ActionHandlerRequest, opts ...grpc.CallOption) (*ActionHandlerResponse, error)
 	SelfAnnounce(ctx context.Context, in *SelfAnnounceRequest, opts ...grpc.CallOption) (*SelfAnnounceResponse, error)
@@ -325,6 +326,15 @@ func NewZoneKeeperServiceClient(cc grpc.ClientConnInterface) ZoneKeeperServiceCl
 func (c *zoneKeeperServiceClient) SetState(ctx context.Context, in *SetStateRequest, opts ...grpc.CallOption) (*SetStateResponse, error) {
 	out := new(SetStateResponse)
 	err := c.cc.Invoke(ctx, "/iot.v1.ZoneKeeperService/SetState", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *zoneKeeperServiceClient) SetScene(ctx context.Context, in *SetSceneRequest, opts ...grpc.CallOption) (*SetSceneResponse, error) {
+	out := new(SetSceneResponse)
+	err := c.cc.Invoke(ctx, "/iot.v1.ZoneKeeperService/SetScene", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -363,6 +373,7 @@ func (c *zoneKeeperServiceClient) SelfAnnounce(ctx context.Context, in *SelfAnno
 // for forward compatibility
 type ZoneKeeperServiceServer interface {
 	SetState(context.Context, *SetStateRequest) (*SetStateResponse, error)
+	SetScene(context.Context, *SetSceneRequest) (*SetSceneResponse, error)
 	GetDeviceZone(context.Context, *GetDeviceZoneRequest) (*GetDeviceZoneResponse, error)
 	ActionHandler(context.Context, *ActionHandlerRequest) (*ActionHandlerResponse, error)
 	SelfAnnounce(context.Context, *SelfAnnounceRequest) (*SelfAnnounceResponse, error)
@@ -374,6 +385,9 @@ type UnimplementedZoneKeeperServiceServer struct {
 
 func (UnimplementedZoneKeeperServiceServer) SetState(context.Context, *SetStateRequest) (*SetStateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetState not implemented")
+}
+func (UnimplementedZoneKeeperServiceServer) SetScene(context.Context, *SetSceneRequest) (*SetSceneResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetScene not implemented")
 }
 func (UnimplementedZoneKeeperServiceServer) GetDeviceZone(context.Context, *GetDeviceZoneRequest) (*GetDeviceZoneResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceZone not implemented")
@@ -410,6 +424,24 @@ func _ZoneKeeperService_SetState_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ZoneKeeperServiceServer).SetState(ctx, req.(*SetStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ZoneKeeperService_SetScene_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSceneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZoneKeeperServiceServer).SetScene(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/iot.v1.ZoneKeeperService/SetScene",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZoneKeeperServiceServer).SetScene(ctx, req.(*SetSceneRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -478,6 +510,10 @@ var ZoneKeeperService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetState",
 			Handler:    _ZoneKeeperService_SetState_Handler,
+		},
+		{
+			MethodName: "SetScene",
+			Handler:    _ZoneKeeperService_SetScene_Handler,
 		},
 		{
 			MethodName: "GetDeviceZone",
