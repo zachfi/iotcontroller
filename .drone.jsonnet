@@ -2,7 +2,7 @@
   local this = self,
 
   kind: 'pipeline',
-  type: 'kubernetes',
+  // type: 'kubernetes',
   name: 'build',
   steps: [
     {
