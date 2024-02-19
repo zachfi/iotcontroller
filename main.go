@@ -82,10 +82,11 @@ func main() {
 		level.Set(slog.LevelError)
 	}
 
-	loggerOpts := &slog.HandlerOptions{Level: level}
-	handler := slog.NewTextHandler(os.Stdout, loggerOpts)
-
-	logger := slog.New(handler)
+	var (
+		loggerOpts = &slog.HandlerOptions{Level: level}
+		handler    = slog.NewTextHandler(os.Stdout, loggerOpts)
+		logger     = slog.New(handler)
+	)
 
 	shutdownTracer, err := tracing.InstallOpenTelemetryTracer(
 		&cfg.Tracing,
