@@ -27,6 +27,8 @@ type ConditionSpec struct {
 
 	Remediations []Remediation `json:"remediations,omitempty"`
 	Matches      []Match       `json:"matches,omitempty"`
+	// A cron string: * * * * *
+	Schedule string `json:"schedule,omitempty"`
 }
 
 // ConditionStatus defines the observed state of Condition
@@ -57,8 +59,13 @@ type Remediation struct {
 	Zone          string `json:"zone,omitempty"`
 	ActiveState   string `json:"active_state,omitempty"`
 	InactiveState string `json:"inactive_state,omitempty"`
-	Timeout       string `json:"timeout,omitempty"`
-	WhenGate      When   `json:"when_gate,omitempty"`
+
+	ActiveScene   string `json:"active_scene,omitempty"`
+	InactiveScene string `json:"inactive_scene,omitempty"`
+
+	// WhenGate is used to create a window for the epoch around which this
+	// Remediation is applicable.
+	WhenGate When `json:"when_gate,omitempty"`
 }
 
 type When struct {
