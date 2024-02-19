@@ -68,12 +68,6 @@ enum ZoneState {
   ZONE_STATE_OFFTIMER = 3;
   ZONE_STATE_COLOR = 4;
   ZONE_STATE_RANDOMCOLOR = 5;
-  /* DIM = 5; */
-
-  ////
-  ZONE_STATE_NIGHTVISION = 6;
-  ZONE_STATE_EVENINGVISION = 7;
-  ZONE_STATE_MORNINGVISION = 8;
 }
 
 message SetStateResponse {}
@@ -81,6 +75,13 @@ message SetStateResponse {}
 message SetStateRequest {
   string name = 1;
   ZoneState state = 2;
+}
+
+message SetSceneResponse {}
+
+message SetSceneRequest {
+  string name = 1;
+  string scene = 2;
 }
 
 message GetDeviceZoneRequest {
@@ -108,6 +109,7 @@ message SelfAnnounceResponse {}
 
 service ZoneKeeperService {
   rpc SetState(SetStateRequest) returns (SetStateResponse);
+  rpc SetScene(SetSceneRequest) returns (SetSceneResponse);
   rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
   rpc ActionHandler(ActionHandlerRequest) returns (ActionHandlerResponse);
   rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
