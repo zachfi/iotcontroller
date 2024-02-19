@@ -34,6 +34,7 @@ const (
 	Server string = "server"
 
 	Client       string = "client"
+	EventClient  string = "eventclient"
 	Conditioner  string = "conditioner"
 	Controller   string = "controller"
 	Harvester    string = "harvester"
@@ -65,21 +66,19 @@ func (a *App) setupModuleManager() error {
 
 	mm.RegisterModule(All, nil)
 
-	// mm.RegisterModule(Timer, a.initTimer)
-
 	deps := map[string][]string{
 		// Server:       nil,
 
-		Client:     {Server},             // GRPC client
-		MQTTClient: {Server},             // MQTT client
-		Controller: {Server, MQTTClient}, // K8s client
+		Client:     {Server}, // GRPC client
+		MQTTClient: {Server}, // MQTT client
+		Controller: {Server}, // K8s client
 
-		Conditioner:  {Server, MQTTClient, Client, Controller},
+		Conditioner:  {Server, Client, Controller},
 		Harvester:    {Server, MQTTClient, Client, Telemetry, Router},
 		HookReceiver: {Server, Client, Conditioner},
 		Router:       {Server, Client, Controller},
-		Telemetry:    {Server, Controller, Client},
-		Weather:      {Server, Client},
+		Telemetry:    {Server, Client, Controller},
+		Weather:      {Server, Client, Conditioner},
 		ZoneKeeper:   {Server, MQTTClient, Controller},
 
 		// Timer:      {Server},
@@ -108,7 +107,7 @@ func (a *App) setupModuleManager() error {
 }
 
 func (a *App) initHookReceiver() (services.Service, error) {
-	h, err := hookreceiver.New(a.cfg.HookReceiver, a.logger, a.client.Conn())
+	h, err := hookreceiver.New(a.cfg.HookReceiver, a.logger, a.eventReceiverClient)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +125,7 @@ func (a *App) initClient() (services.Service, error) {
 	}
 
 	a.client = c
+	a.eventReceiverClient = iotv1proto.NewEventReceiverServiceClient(c.Conn())
 	return c, nil
 }
 
@@ -150,18 +150,18 @@ func (a *App) initMqttClient() (services.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.mqttclient = c
 
+	a.mqttclient = c
 	return c, nil
 }
 
 func (a *App) initController() (services.Service, error) {
-	c, err := controller.New(a.cfg.Controller, a.logger, a.mqttclient)
+	c, err := controller.New(a.cfg.Controller, a.logger)
 	if err != nil {
 		return nil, err
 	}
-	a.controller = c
 
+	a.controller = c
 	return c, nil
 }
 
@@ -190,7 +190,7 @@ func (a *App) initTelemetry() (services.Service, error) {
 }
 
 func (a *App) initWeather() (services.Service, error) {
-	w, err := weather.New(a.cfg.Weather, a.logger, a.client.Conn())
+	w, err := weather.New(a.cfg.Weather, a.logger, a.eventReceiverClient)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +222,7 @@ func (a *App) initHarvester() (services.Service, error) {
 }
 
 func (a *App) initConditioner() (services.Service, error) {
-	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.client.Conn(), a.mqttclient, a.controller.Client())
+	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.client.Conn(), a.controller.Client())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create harvester")
 	}
