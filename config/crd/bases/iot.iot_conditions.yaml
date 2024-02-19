@@ -51,13 +51,17 @@ spec:
               remediations:
                 items:
                   properties:
+                    active_scene:
+                      type: string
                     active_state:
+                      type: string
+                    inactive_scene:
                       type: string
                     inactive_state:
                       type: string
-                    timeout:
-                      type: string
                     when_gate:
+                      description: WhenGate is used to create a window for the epoch
+                        around which this Remediation is applicable.
                       properties:
                         start:
                           type: string
@@ -68,6 +72,9 @@ spec:
                       type: string
                   type: object
                 type: array
+              schedule:
+                description: 'A cron string: * * * * *'
+                type: string
             type: object
           status:
             description: ConditionStatus defines the observed state of Condition
