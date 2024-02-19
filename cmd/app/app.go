@@ -31,6 +31,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/telemetry"
 	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 const (
@@ -61,6 +62,9 @@ type App struct {
 	zonekeeper   *zonekeeper.ZoneKeeper
 	hookreceiver *hookreceiver.HookReceiver
 	router       *router.Router
+
+	// Service clients
+	eventReceiverClient iotv1proto.EventReceiverServiceClient
 
 	ModuleManager *modules.Manager
 	serviceMap    map[string]services.Service
