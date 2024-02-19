@@ -158,3 +158,8 @@ proto-grpc:
 	@buf build
 	@buf lint
 	@buf generate
+
+.PHONY: drone
+drone:
+	@drone jsonnet --format
+	@drone lint
