@@ -13,9 +13,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	gcodes "google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/zachfi/zkit/pkg/tracing"
@@ -50,11 +51,6 @@ type ZoneKeeper struct {
 
 	handlers   map[controllerHandler]iot.Handler
 	announceer map[string]time.Time
-
-	// TODO: a color temperature scheduler might adjsut the temperature of the
-	// lights depending on a schedule.  Could this be a kubernetes object that we
-	// consume?  Could be done over RPC for the udpate from a
-	// schedule_controller. colorTempScheduler ColorTempSchedulerFunc
 
 	zones map[string]*iot.Zone
 }
@@ -104,17 +100,41 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 	}
 
 	zone.SetState(ctx, req.State)
-
-	wg := sync.WaitGroup{}
-
-	wg.Add(1)
-	go func(ctx context.Context) {
-		defer wg.Done()
-		z.apiStatusUpdate(ctx, zone)
-	}(ctx)
-
 	err = zone.Flush(ctx, unlimited)
-	wg.Wait()
+	z.apiStatusUpdate(ctx, zone)
+	return resp, err
+}
+
+func (z *ZoneKeeper) SetScene(ctx context.Context, req *iotv1proto.SetSceneRequest) (*iotv1proto.SetSceneResponse, error) {
+	if req.Scene == "" {
+		return nil, fmt.Errorf("unable to operate on empty scene name")
+	}
+
+	var (
+		err  error
+		zone *iot.Zone
+		resp = &iotv1proto.SetSceneResponse{}
+	)
+
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.SetState",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("name", req.Name),
+			attribute.String("scene", req.Scene),
+		),
+	)
+	defer func() { _ = tracing.ErrHandler(span, err, "set scene", z.logger) }()
+
+	zone, err = z.GetZone(ctx, req.Name)
+	if err != nil {
+		return resp, err
+	}
+
+	err = z.setZoneScene(ctx, zone, req.Scene)
+	if err != nil {
+		return resp, err
+	}
+
 	return resp, err
 }
 
@@ -141,13 +161,13 @@ func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnou
 			span.SetAttributes(
 				attribute.String("skipped", "too recent"),
 			)
-			defer z.mtx.Unlock()
+			z.mtx.Unlock()
 			return resp, nil
 		}
 	}
+	z.mtx.Unlock()
 
 	z.announceer[req.String()] = time.Now()
-	z.mtx.Unlock()
 
 	limiter = func(d string) bool {
 		return d == req.Device
@@ -256,6 +276,68 @@ const (
 	BrightnessStepDown = "brightness_step_down"
 )
 
+func (z *ZoneKeeper) setZoneScene(ctx context.Context, zone *iot.Zone, scene string) error {
+	var (
+		err      error
+		apiScene apiv1.Scene
+	)
+
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.setZoneScene")
+	defer func() { _ = tracing.ErrHandler(span, err, "set zone scene", z.logger) }()
+
+	span.SetAttributes(
+		attribute.String("zone", zone.Name()),
+		attribute.String("scene", scene),
+	)
+
+	nsn := types.NamespacedName{
+		Name:      scene,
+		Namespace: namespace,
+	}
+
+	err = z.kubeclient.Get(ctx, nsn, &apiScene)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			span.AddEvent(err.Error())
+			return gstatus.Error(gcodes.NotFound, err.Error())
+		}
+	}
+
+	var (
+		brightness = iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED
+		colorTemp  = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED
+		color      string
+	)
+
+	if v, ok := iotv1proto.Brightness_value[apiScene.Spec.Brightness]; ok {
+		brightness = iotv1proto.Brightness(v)
+	}
+
+	if v, ok := iotv1proto.ColorTemperature_value[apiScene.Spec.ColorTemperature]; ok {
+		colorTemp = iotv1proto.ColorTemperature(v)
+	}
+
+	if apiScene.Spec.Color != "" {
+		color = apiScene.Spec.Color
+	}
+
+	if brightness > iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED {
+		zone.SetBrightness(ctx, brightness)
+	}
+
+	if colorTemp > iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED {
+		zone.SetColorTemperature(ctx, colorTemp)
+	}
+
+	if color != "" {
+		zone.SetColor(ctx, color)
+	}
+
+	z.apiStatusUpdate(ctx, zone)
+
+	return nil
+}
+
 func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 	var (
 		err  error
@@ -263,15 +345,16 @@ func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 	)
 
 	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.apiStatusUpdate")
-	defer func() { _ = errHandler(span, err) }()
+	defer func() { _ = tracing.ErrHandler(span, err, "api status update", z.logger) }()
 
-	name, state, brightness, colorTemp := iotZone.Name(), iotZone.State(), iotZone.Brightness(), iotZone.ColorTemperature()
+	name, state, brightness, colorTemp, color := iotZone.Name(), iotZone.State(), iotZone.Brightness(), iotZone.ColorTemperature(), iotZone.Color()
 
 	span.SetAttributes(
 		attribute.String("zone", name),
 		attribute.String("state", state.String()),
 		attribute.String("brightness", brightness.String()),
 		attribute.String("colorTemp", colorTemp.String()),
+		attribute.String("color", color),
 	)
 
 	zone, err = z.getOrCreateAPIZone(ctx, name)
@@ -282,6 +365,7 @@ func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 	zone.Status.State = iotZone.State().String()
 	zone.Status.Brightness = iotv1proto.Brightness_name[int32(iotZone.Brightness())]
 	zone.Status.ColorTemperature = iotv1proto.ColorTemperature_name[int32(iotZone.ColorTemperature())]
+	zone.Status.Color = color
 
 	if err = z.kubeclient.Status().Update(ctx, zone); err != nil {
 		return
@@ -354,9 +438,27 @@ func (z *ZoneKeeper) GetZone(ctx context.Context, name string) (*iot.Zone, error
 		return nil, fmt.Errorf("failed to get api zone: %w", err)
 	}
 
-	zone.SetState(ctx, iotv1proto.ZoneState(iotv1proto.ZoneState_value[apiZone.Status.State]))
-	zone.SetBrightness(ctx, iotv1proto.Brightness(iotv1proto.Brightness_value[apiZone.Status.Brightness]))
-	zone.SetColorTemperature(ctx, iotv1proto.ColorTemperature(iotv1proto.ColorTemperature_value[apiZone.Status.ColorTemperature]))
+	var (
+		state      = iotv1proto.ZoneState(iotv1proto.ZoneState_value[apiZone.Status.State])
+		brightness = iotv1proto.Brightness(iotv1proto.Brightness_value[apiZone.Status.Brightness])
+		colorTemp  = iotv1proto.ColorTemperature(iotv1proto.ColorTemperature_value[apiZone.Status.ColorTemperature])
+	)
+
+	if state == iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		state = iotv1proto.ZoneState_ZONE_STATE_ON
+	}
+
+	if brightness == iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED {
+		brightness = iotv1proto.Brightness_BRIGHTNESS_FULL
+	}
+
+	if colorTemp == iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED {
+		colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_FIRSTLIGHT
+	}
+
+	zone.SetState(ctx, state)
+	zone.SetBrightness(ctx, brightness)
+	zone.SetColorTemperature(ctx, colorTemp)
 
 	z.zones[name] = zone
 
@@ -401,7 +503,7 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.zoneUpdate")
 	defer func() { _ = errHandler(span, err) }()
 
-	opts := &client.ListOptions{
+	opts := &kubeclient.ListOptions{
 		Namespace: namespace,
 	}
 
