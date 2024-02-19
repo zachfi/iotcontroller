@@ -18,7 +18,6 @@ import (
 
 	iotv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/controllers"
-	"github.com/zachfi/iotcontroller/modules/mqttclient"
 )
 
 type Controller struct {
@@ -29,8 +28,7 @@ type Controller struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	mgr        manager.Manager
-	mqttclient *mqttclient.MQTTClient
+	mgr manager.Manager
 }
 
 var scheme = runtime.NewScheme() // setupLog = ctrl.Log.WithName("setup")
@@ -42,7 +40,7 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
-func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*Controller, error) {
+func New(cfg Config, logger *slog.Logger) (*Controller, error) {
 	c := &Controller{
 		cfg:    &cfg,
 		logger: logger.With("module", "controller"),
@@ -76,7 +74,6 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*C
 	}
 
 	c.mgr = mgr
-	c.mqttclient = mqttclient
 
 	return c, nil
 }
