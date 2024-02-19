@@ -124,7 +124,7 @@ func (h ZigbeeHandler) SetColorTemp(ctx context.Context, device *iotv1proto.Devi
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/SetColorTemp", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
-		attribute.Int("tempo", int(temp)),
+		attribute.Int("temp", int(temp)),
 	))
 	defer span.End()
 
