@@ -12,7 +12,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
+
+	"github.com/zachfi/zkit/pkg/tracing"
 
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
@@ -32,12 +33,12 @@ type HookReceiver struct {
 	eventReceiverClient iotv1proto.EventReceiverServiceClient
 }
 
-func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*HookReceiver, error) {
+func New(cfg Config, logger *slog.Logger, eventReceiverClient iotv1proto.EventReceiverServiceClient) (*HookReceiver, error) {
 	h := &HookReceiver{
 		cfg:                 &cfg,
 		logger:              logger.With("module", module),
 		tracer:              otel.Tracer(module),
-		eventReceiverClient: iotv1proto.NewEventReceiverServiceClient(conn),
+		eventReceiverClient: eventReceiverClient,
 	}
 
 	h.Service = services.NewIdleService(h.starting, h.stopping)
@@ -45,20 +46,20 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn) (*HookReceiver,
 }
 
 func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	var err error
 
-	spanCtx, span := h.tracer.Start(
-		ctx,
+	ctx, span := h.tracer.Start(
+		r.Context(),
 		"HookReceiver.Handler",
 		trace.WithSpanKind(trace.SpanKindServer),
 	)
-	defer span.End()
+	defer tracing.ErrHandler(span, err, "HookReceiver.Handler", h.logger)
 
 	dec := json.NewDecoder(r.Body)
 	defer r.Body.Close()
 
 	var m HookMessage
-	if err := dec.Decode(&m); err != nil {
+	if err = dec.Decode(&m); err != nil {
 		http.Error(w, "invalid request body", 400)
 		h.logger.Error("invalid request body", "err", err)
 		return
@@ -133,7 +134,7 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		_, err := h.eventReceiverClient.Event(spanCtx, in)
+		_, err := h.eventReceiverClient.Event(ctx, in)
 		if err != nil {
 			hookreceiverReceiverErrorsTotal.WithLabelValues(name, zone).Inc()
 			h.logger.Error("failed to send event", "err", err)
