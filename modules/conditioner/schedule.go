@@ -12,6 +12,8 @@ import (
 type schedule struct {
 	sync.Mutex
 
+	logger *slog.Logger
+
 	events map[string]*event
 	reqs   chan request
 }
@@ -60,6 +62,11 @@ func matched(a, b request) bool {
 }
 
 func (s *schedule) add(ctx context.Context, name string, t time.Time, req request) {
+	if req.sceneReq == nil && req.stateReq == nil {
+		s.logger.Error("unable to schedule request with nil scene and nil state")
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -95,7 +102,7 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 }
 
 // run calls the client for each request
-func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceClient, logger *slog.Logger) {
+func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceClient) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -104,14 +111,14 @@ func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceC
 			if req.sceneReq != nil {
 				_, err := client.SetScene(ctx, req.sceneReq)
 				if err != nil {
-					logger.Error("failed to set scene", "err", err)
+					s.logger.Error("failed to set scene", "err", err)
 				}
 			}
 
 			if req.stateReq != nil {
 				_, err := client.SetState(ctx, req.stateReq)
 				if err != nil {
-					logger.Error("failed to set state", "err", err)
+					s.logger.Error("failed to set state", "err", err)
 				}
 			}
 		}

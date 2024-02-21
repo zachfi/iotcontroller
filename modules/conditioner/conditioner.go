@@ -56,6 +56,7 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, k kubeclient.Cl
 		sched: &schedule{
 			events: make(map[string]*event, 1000),
 			reqs:   make(chan request),
+			logger: logger.With("conditioner", "schedule"),
 		},
 	}
 
@@ -129,13 +130,14 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 
 	var req request
 	for _, rem := range cond.Spec.Remediations {
+		req.sceneReq = nil
+		req.stateReq = nil
+
 		if rem.ActiveScene != "" {
 			req.sceneReq = &iotv1proto.SetSceneRequest{
 				Name:  rem.Zone,
 				Scene: rem.ActiveScene,
 			}
-		} else {
-			req.sceneReq = nil
 		}
 
 		if rem.ActiveState != "" {
@@ -143,11 +145,11 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 				Name:  rem.Zone,
 				State: c.zoneState(rem.ActiveState),
 			}
-		} else {
-			req.stateReq = nil
 		}
 
-		c.sched.add(ctx, cond.Name, next, req)
+		if req.sceneReq != nil || req.stateReq != nil {
+			c.sched.add(ctx, cond.Name, next, req)
+		}
 	}
 }
 
@@ -416,7 +418,7 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 }
 
 func (c *Conditioner) starting(ctx context.Context) error {
-	go c.sched.run(ctx, c.zonekeeperClient, c.logger)
+	go c.sched.run(ctx, c.zonekeeperClient)
 	return nil
 }
 
