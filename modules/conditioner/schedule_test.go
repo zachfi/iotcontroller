@@ -8,16 +8,15 @@ import (
 )
 
 func Test_matched(t *testing.T) {
-	cases := []struct {
+	cases := map[string]struct {
 		a      request
 		b      request
 		expect bool
 	}{
-		{
+		"default": {
 			expect: true,
 		},
-		// Simple scene match
-		{
+		"simple scene match": {
 			a: request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
@@ -32,7 +31,7 @@ func Test_matched(t *testing.T) {
 			},
 			expect: true,
 		},
-		{
+		"simple scene not match": {
 			a: request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
@@ -47,7 +46,7 @@ func Test_matched(t *testing.T) {
 			},
 			expect: false,
 		},
-		{
+		"simple scene not match empty": {
 			a: request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
@@ -55,9 +54,9 @@ func Test_matched(t *testing.T) {
 				},
 			},
 			b:      request{},
-			expect: true,
+			expect: false,
 		},
-		{
+		"simple scene not match empty alt": {
 			a: request{},
 			b: request{
 				sceneReq: &iotv1proto.SetSceneRequest{
@@ -67,18 +66,8 @@ func Test_matched(t *testing.T) {
 			},
 			expect: false,
 		},
-		{
-			a: request{},
-			b: request{
-				stateReq: &iotv1proto.SetStateRequest{
-					State: iotv1proto.ZoneState_ZONE_STATE_COLOR,
-					Name:  "porch",
-				},
-			},
-			expect: false,
-		},
 		// mismatched zone
-		{
+		"simple state not match": {
 			a: request{
 				stateReq: &iotv1proto.SetStateRequest{
 					State: iotv1proto.ZoneState_ZONE_STATE_COLOR,
@@ -93,8 +82,7 @@ func Test_matched(t *testing.T) {
 			},
 			expect: false,
 		},
-		// empty b
-		{
+		"simple state not match empty": {
 			a: request{
 				stateReq: &iotv1proto.SetStateRequest{
 					State: iotv1proto.ZoneState_ZONE_STATE_COLOR,
@@ -105,7 +93,7 @@ func Test_matched(t *testing.T) {
 			expect: false,
 		},
 		// empty a
-		{
+		"simple state not match empty alt": {
 			a: request{},
 			b: request{
 				stateReq: &iotv1proto.SetStateRequest{
@@ -115,8 +103,7 @@ func Test_matched(t *testing.T) {
 			},
 			expect: false,
 		},
-		// Large match
-		{
+		"large match": {
 			a: request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
