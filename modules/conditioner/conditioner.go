@@ -391,7 +391,7 @@ func (c *Conditioner) remActiveWindow(ctx context.Context, req *iotv1proto.Event
 }
 
 func (c *Conditioner) runTimerLoop(ctx context.Context) {
-	t := time.NewTicker(time.Minute)
+	t := time.NewTicker(15 * time.Second)
 
 	for {
 		select {
@@ -404,7 +404,10 @@ func (c *Conditioner) runTimerLoop(ctx context.Context) {
 }
 
 func (c *Conditioner) runTimer(ctx context.Context) {
-	list := &apiv1.ConditionList{}
+	var (
+		list  = &apiv1.ConditionList{}
+		names = []string
+	)
 
 	err := c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
 	if err != nil {
@@ -414,7 +417,10 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 
 	for _, cond := range list.Items {
 		c.setSchedule(ctx, cond)
+		names = append(names, cond.Name)
 	}
+
+	c.removeExtraneous(names)
 }
 
 func (c *Conditioner) starting(ctx context.Context) error {
@@ -430,6 +436,10 @@ func (c *Conditioner) running(ctx context.Context) error {
 
 func (c *Conditioner) stopping(_ error) error {
 	return nil
+}
+
+func (c *Conditioner) Status() []scheduleStatus {
+	return c.sched.Status()
 }
 
 func handleStatusLabel(status string, rem apiv1.Remediation) (state string, scene string) {
