@@ -2,12 +2,12 @@ package harvester
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
@@ -67,6 +67,11 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 }
 
 func (h *Harvester) starting(ctx context.Context) error {
+	// TODO: when we are starting with All target, we don't want to connect to
+	// the k8s service because the service is not yet available.  Perhaps split
+	// this out into various targets, OR, in All mode connect to only the local
+	// bind address and not the k8s service.
+
 	reportStream, err := h.telemetryClient.TelemetryReportIOTDevice(ctx)
 	if err != nil {
 		return err
@@ -100,7 +105,7 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 		topicPath, err = iot.ParseTopicPath(msg.Topic())
 		if err != nil {
 			harvesterMessageErrors.WithLabelValues().Inc()
-			h.logger.Error("err", errors.Wrap(err, "failed to parse topic path"))
+			h.logger.Error("msg", "failed to parse topic path", "err", err)
 			return
 		}
 
@@ -158,6 +163,27 @@ func (h *Harvester) running(ctx context.Context) error {
 }
 
 func (h *Harvester) stopping(_ error) error {
-	_, err := h.reportStream.CloseAndRecv()
-	return err
+	var (
+		err  error
+		errs []error
+	)
+	if h.reportStream != nil {
+		_, err = h.reportStream.CloseAndRecv()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if h.routeStream != nil {
+		_, err = h.routeStream.CloseAndRecv()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
