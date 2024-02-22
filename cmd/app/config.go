@@ -20,7 +20,6 @@ import (
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/router"
-	"github.com/zachfi/iotcontroller/modules/telemetry"
 	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 )
@@ -45,7 +44,6 @@ type Config struct {
 	HookReceiver hookreceiver.Config `yaml:"hookreceiver,omitempty"`
 	MQTTClient   mqttclient.Config   `yaml:"mqttclient,omitempty"`
 	Router       router.Config       `yaml:"router,omitempty"`
-	Telemetry    telemetry.Config    `yaml:"telemetry,omitempty"`
 	Weather      weather.Config      `yaml:"weather,omitempty"`
 	ZoneKeeper   zonekeeper.Config   `yaml:"zonekeeper,omitempty"`
 }
@@ -70,7 +68,6 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.Harvester.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "harvester"), f)
 	c.MQTTClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "mqttclient"), f)
 	c.Router.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "router"), f)
-	c.Telemetry.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "telemetry"), f)
 	c.Weather.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "weather"), f)
 	c.ZoneKeeper.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "zonekeeper"), f)
 

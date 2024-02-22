@@ -23,11 +23,9 @@ import (
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/router"
-	"github.com/zachfi/iotcontroller/modules/telemetry"
 	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
-	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
 const (
@@ -41,7 +39,6 @@ const (
 	HookReceiver string = "hook-receiver"
 	MQTTClient   string = "mqttclient"
 	Router       string = "router"
-	Telemetry    string = "telemetry"
 	Weather      string = "weather"
 	ZoneKeeper   string = "zone-keeper"
 
@@ -60,7 +57,6 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(Harvester, a.initHarvester)
 	mm.RegisterModule(HookReceiver, a.initHookReceiver)
 	mm.RegisterModule(Router, a.initRouter)
-	mm.RegisterModule(Telemetry, a.initTelemetry)
 	mm.RegisterModule(Weather, a.initWeather)
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
 
@@ -74,10 +70,9 @@ func (a *App) setupModuleManager() error {
 		Controller: {Server}, // K8s client
 
 		Conditioner:  {Server, Client, Controller},
-		Harvester:    {Server, MQTTClient, Client, Telemetry, Router},
+		Harvester:    {Server, MQTTClient, Client, Router},
 		HookReceiver: {Server, Client, Conditioner},
 		Router:       {Server, Client, Controller},
-		Telemetry:    {Server, Client, Controller},
 		Weather:      {Server, Client, Conditioner},
 		ZoneKeeper:   {Server, MQTTClient, Controller},
 
@@ -89,7 +84,6 @@ func (a *App) setupModuleManager() error {
 			Harvester,
 			HookReceiver,
 			Router,
-			Telemetry,
 			Weather,
 			ZoneKeeper,
 		},
@@ -175,18 +169,6 @@ func (a *App) initRouter() (services.Service, error) {
 
 	a.router = r
 	return r, nil
-}
-
-func (a *App) initTelemetry() (services.Service, error) {
-	t, err := telemetry.New(a.cfg.Telemetry, a.logger, a.controller.Client(), a.client.Conn())
-	if err != nil {
-		return nil, err
-	}
-
-	telemetryv1proto.RegisterTelemetryServiceServer(a.Server.GRPC, t)
-
-	a.telemetry = t
-	return t, nil
 }
 
 func (a *App) initWeather() (services.Service, error) {

@@ -18,7 +18,6 @@ import (
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotutil "github.com/zachfi/iotcontroller/pkg/iot/util"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
-	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
 type BridgeState string
@@ -39,7 +38,6 @@ type Zigbee2Mqtt struct {
 
 	kubeclient kubeclient.Client
 
-	telemetryClient  telemetryv1proto.TelemetryServiceClient
 	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
 	/* reportStream     telemetryv1proto.TelemetryService_TelemetryReportIOTDeviceClient */
 }
@@ -49,7 +47,6 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		logger:           logger.With("router", routeName),
 		tracer:           tracer,
 		kubeclient:       kubeclient,
-		telemetryClient:  telemetryv1proto.NewTelemetryServiceClient(conn),
 		zonekeeperClient: iotv1proto.NewZoneKeeperServiceClient(conn),
 	}
 
@@ -133,14 +130,6 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...interfa
 }
 
 func (z *Zigbee2Mqtt) DevicesRoute(ctx context.Context, b []byte, _ ...interface{}) error {
-	// TODO: use the new data to populate knowledge of the device in k8s.  This
-	// might mean that we adjust the proto to include multiple kinds, or supports
-	// multiple features to match the new spec.  It makes me wonder if this new
-	// structure is being pushed to more closely match what comes off the wire.
-	// If so, this might be alos useful in the future if we get away from
-	// zigbee2mqtt and directly implement a character device reading and ZCL
-	// parsing..
-
 	var err error
 	_, span := z.tracer.Start(ctx, "Zigbee2Mqtt.DevicesRoute")
 	defer tracing.ErrHandler(span, err, "devices route failed", z.logger)
@@ -212,6 +201,10 @@ func (z *Zigbee2Mqtt) handleZigbeeBridgeDevice(ctx context.Context, logger *slog
 
 	if err = z.kubeclient.Status().Update(ctx, device); err != nil {
 		return fmt.Errorf("failed to update device status: %w", err)
+	}
+
+	if err = iotutil.UpdateLastSeen(ctx, z.kubeclient, device); err != nil {
+		return fmt.Errorf("failed to update device last seen: %w", err)
 	}
 
 	return nil
