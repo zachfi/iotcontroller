@@ -28,7 +28,6 @@ import (
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/router"
-	"github.com/zachfi/iotcontroller/modules/telemetry"
 	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
@@ -57,7 +56,6 @@ type App struct {
 	// lights     *lights.Lights
 	mqttclient   *mqttclient.MQTTClient
 	client       *client.Client
-	telemetry    *telemetry.Telemetry
 	weather      *weather.Weather
 	zonekeeper   *zonekeeper.ZoneKeeper
 	hookreceiver *hookreceiver.HookReceiver
