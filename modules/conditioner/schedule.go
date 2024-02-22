@@ -110,7 +110,7 @@ func (s *schedule) removeExtraneous(names map[string]struct{}) {
 
 	var namesToDelete []string
 	for k := range s.events {
-		if v, ok := names[k]; !ok {
+		if _, ok := names[k]; !ok {
 			namesToDelete = append(namesToDelete, k)
 		}
 	}

@@ -406,7 +406,7 @@ func (c *Conditioner) runTimerLoop(ctx context.Context) {
 func (c *Conditioner) runTimer(ctx context.Context) {
 	var (
 		list  = &apiv1.ConditionList{}
-		names = []string
+		names = make(map[string]struct{}, 10)
 	)
 
 	err := c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
@@ -417,10 +417,10 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 
 	for _, cond := range list.Items {
 		c.setSchedule(ctx, cond)
-		names = append(names, cond.Name)
+		names[cond.Name] = struct{}{}
 	}
 
-	c.removeExtraneous(names)
+	c.sched.removeExtraneous(names)
 }
 
 func (c *Conditioner) starting(ctx context.Context) error {
