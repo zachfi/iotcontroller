@@ -17,9 +17,7 @@ import (
 	"github.com/zachfi/zkit/pkg/tracing"
 
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
-	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
-	telemetryv1proto "github.com/zachfi/iotcontroller/proto/telemetry/v1"
 )
 
 const module = "harvester"
@@ -42,10 +40,8 @@ type Harvester struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	telemetryClient telemetryv1proto.TelemetryServiceClient
-	routeClient     iotv1proto.RouteServiceClient
-	reportStream    telemetryv1proto.TelemetryService_TelemetryReportIOTDeviceClient
-	routeStream     iotv1proto.RouteService_RouteClient
+	routeClient iotv1proto.RouteServiceClient
+	routeStream iotv1proto.RouteService_RouteClient
 
 	mqttClient *mqttclient.MQTTClient
 }
@@ -56,9 +52,8 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 
-		telemetryClient: telemetryv1proto.NewTelemetryServiceClient(conn),
-		routeClient:     iotv1proto.NewRouteServiceClient(conn),
-		mqttClient:      mqttClient,
+		routeClient: iotv1proto.NewRouteServiceClient(conn),
+		mqttClient:  mqttClient,
 	}
 
 	h.Service = services.NewBasicService(h.starting, h.running, h.stopping)
@@ -71,13 +66,7 @@ func (h *Harvester) starting(ctx context.Context) error {
 	// the k8s service because the service is not yet available.  Perhaps split
 	// this out into various targets, OR, in All mode connect to only the local
 	// bind address and not the k8s service.
-
-	reportStream, err := h.telemetryClient.TelemetryReportIOTDevice(ctx)
-	if err != nil {
-		return err
-	}
-
-	h.reportStream = reportStream
+	/* if h.cfg.Target == All { } */
 
 	routeStream, err := h.routeClient.Route(ctx)
 	if err != nil {
@@ -101,30 +90,7 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 
 		harvesterMessageTotal.WithLabelValues().Inc()
 
-		var topicPath iot.TopicPath
-		topicPath, err = iot.ParseTopicPath(msg.Topic())
-		if err != nil {
-			harvesterMessageErrors.WithLabelValues().Inc()
-			h.logger.Error("msg", "failed to parse topic path", "err", err)
-			return
-		}
-
 		wg := sync.WaitGroup{}
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			deviceReq := &telemetryv1proto.TelemetryReportIOTDeviceRequest{
-				DeviceDiscovery: iot.ParseDiscoveryMessage(topicPath, msg),
-			}
-
-			deviceErr := h.reportStream.Send(deviceReq)
-			if deviceErr != nil {
-				harvesterMessageErrors.WithLabelValues().Inc()
-				h.logger.Error("failed to send on reportStream", "err", deviceErr)
-			}
-		}()
 
 		wg.Add(1)
 		go func() {
@@ -167,12 +133,6 @@ func (h *Harvester) stopping(_ error) error {
 		err  error
 		errs []error
 	)
-	if h.reportStream != nil {
-		_, err = h.reportStream.CloseAndRecv()
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
 
 	if h.routeStream != nil {
 		_, err = h.routeStream.CloseAndRecv()
