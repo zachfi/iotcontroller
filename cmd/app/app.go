@@ -150,7 +150,7 @@ func (a *App) Run() error {
 }
 
 func (a *App) readyHandler(sm *services.Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		if !sm.IsHealthy() {
 			msg := bytes.Buffer{}
 			msg.WriteString("Some services are not Running:\n")
@@ -179,9 +179,10 @@ func (a *App) statusHandler() http.HandlerFunc {
 		msg := bytes.Buffer{}
 
 		simpleEndpoints := map[string]func(io.Writer) error{
-			"version":   a.writeStatusVersion,
-			"endpoints": a.writeStatusEndpoints,
-			"services":  a.writeStatusServices,
+			"version":     a.writeStatusVersion,
+			"endpoints":   a.writeStatusEndpoints,
+			"services":    a.writeStatusServices,
+			"conditioner": a.writeStatusConditioner,
 		}
 
 		wrapStatus := func(endpoint string) {
@@ -202,6 +203,7 @@ func (a *App) statusHandler() http.HandlerFunc {
 			wrapStatus("version")
 			wrapStatus("services")
 			wrapStatus("endpoints")
+			wrapStatus("conditioner")
 		}
 
 		w.Header().Set("Content-Type", "text/plain")
@@ -245,7 +247,7 @@ func (a *App) writeStatusEndpoints(w io.Writer) error {
 
 	endpoints := []endpoint{}
 
-	err := a.Server.HTTP.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+	err := a.Server.HTTP.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		e := endpoint{}
 
 		pathTemplate, err := route.GetPathTemplate()
@@ -314,6 +316,25 @@ func (a *App) writeStatusServices(w io.Writer) error {
 		x.AppendRows([]table.Row{
 			{name, service.State(), e},
 		})
+	}
+
+	x.AppendSeparator()
+	x.Render()
+
+	return nil
+}
+
+func (a *App) writeStatusConditioner(w io.Writer) error {
+	x := table.NewWriter()
+	x.SetOutputMirror(w)
+	x.AppendHeader(table.Row{"name", "next", "scene", "state"})
+
+	for _, s := range a.conditioner.Status() {
+		x.AppendRow(
+			table.Row{
+				s.Name, s.Next, s.Scene, s.State,
+			},
+		)
 	}
 
 	x.AppendSeparator()
