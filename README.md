@@ -19,11 +19,14 @@ quite easily to extend support additional platforms and messages in the future.
 A couple future ideas that come to mind are perhaps a Home Assistant route to
 allow compatibility with anything in that ecosystem. Similarly, an ESPHome
 format could be included so that devices flashed with their firmware could be
-read into this project.
+read into this project. I also plan to re-integrate the messages that Anavi
+devices send, which may be one of the above accidentally.
 
 As new devices appear on the bus, they are written as `Device` resources in
-Kubernetes. These `Device` resources are grouped using `Zone` which inform the
-Conditioner and other components how to operate these devices.
+Kubernetes to include information like their Type and some status information
+about when the last time the device was seen. These `Device` resources are
+grouped by the user with `Zone` resources, which inform the Conditioner and
+other components how to operate these devices.
 
 #### Zigbee2Mqtt
 
