@@ -247,6 +247,7 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 		"off_hold",
 		"off_hold_release",
 		"on_press_release",
+		"off_press_release",
 		"up_press_release",
 		"down_press_release",
 		"button_1_press_release": // do nothing
