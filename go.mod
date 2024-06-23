@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/briandowns/openweathermap v0.19.0
-	github.com/eclipse/paho.mqtt.golang v1.4.2
+	github.com/eclipse/paho.mqtt.golang v1.4.3
 	github.com/go-kit/log v0.2.1
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
 	github.com/gorilla/mux v1.8.0
@@ -23,7 +23,7 @@ require (
 	go.opentelemetry.io/otel v1.21.0
 	go.opentelemetry.io/otel/trace v1.21.0
 	google.golang.org/grpc v1.60.1
-	google.golang.org/protobuf v1.32.0
+	google.golang.org/protobuf v1.34.2
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/apimachinery v0.25.0
 	k8s.io/client-go v0.25.0
@@ -68,7 +68,7 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
 	github.com/google/uuid v1.3.1 // indirect
-	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.1 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
