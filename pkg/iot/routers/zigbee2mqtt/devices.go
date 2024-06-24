@@ -1,9 +1,6 @@
 package zigbee2mqtt
 
 import (
-	"regexp"
-	"strings"
-
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
@@ -25,11 +22,16 @@ const (
 	PropertyLinkQuality       = "linkquality"
 	PropertyOccupancy         = "occupancy"
 	PropertyPressure          = "pressure"
+	PropertySoilMoisture      = "soil_moisture"
 	PropertyState             = "state"
 	PropertyTemperature       = "temperature"
 	PropertyVOC               = "voc"
 	PropertyVoltage           = "voltage"
 	PropertyWaterLeak         = "water_leak"
+)
+
+const (
+	FeatureTypeSwitch = "switch"
 )
 
 type Devices []Device
@@ -129,6 +131,26 @@ func DeviceType(z Device) iotv1proto.DeviceType {
 		}
 	}
 
+	// Check for soil monitor by checking for soil_mosture
+	for _, e := range z.Definition.Exposes {
+		if e.Property == PropertySoilMoisture {
+			return iotv1proto.DeviceType_DEVICE_TYPE_SOIL
+		}
+	}
+
+	for _, e := range z.Definition.Exposes {
+		if e.Property == PropertyVOC {
+			return iotv1proto.DeviceType_DEVICE_TYPE_AIR_QUALITY
+		}
+	}
+
+	// Use humidity to identify a temperature sensor
+	for _, e := range z.Definition.Exposes {
+		if e.Property == PropertyHumidity {
+			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
+		}
+	}
+
 	// Check for button using action
 	for _, e := range z.Definition.Exposes {
 		if e.Property == PropertyAction {
@@ -136,88 +158,30 @@ func DeviceType(z Device) iotv1proto.DeviceType {
 		}
 	}
 
-	// TODO: migrate use of these device types to the "exposes" data structure.
+	// Use occupancy to identify a motion device
+	for _, e := range z.Definition.Exposes {
+		if e.Property == PropertyOccupancy {
+			return iotv1proto.DeviceType_DEVICE_TYPE_MOTION
+		}
+	}
+
+	// Use water_leak to identify a moisture devices
+	for _, e := range z.Definition.Exposes {
+		if e.Property == PropertyWaterLeak {
+			return iotv1proto.DeviceType_DEVICE_TYPE_LEAK
+		}
+	}
+
+	// Use the switch exposure to identify relay devices
+	for _, e := range z.Definition.Exposes {
+		if e.Type == FeatureTypeSwitch {
+			return iotv1proto.DeviceType_DEVICE_TYPE_RELAY
+		}
+	}
 
 	switch z.Type {
 	case "Coordinator":
 		return iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR
-	}
-
-	switch z.Definition.Vendor {
-	case "Philips":
-		switch z.ModelID {
-		case "LWB014":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT
-		case "ROM001":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		default:
-			if strings.HasPrefix(z.ModelID, "LC") {
-				return iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT
-			}
-		}
-
-		switch z.Definition.Description {
-		case "Hue dimmer switch":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		case "Hue Tap dial switch":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		}
-
-	case "Xiaomi":
-		switch z.Definition.Model {
-		case "WXKG11LM":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		}
-
-		switch z.ModelID {
-		case "lumi.sensor_switch":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		case "lumi.sensor_motion.aq2":
-			return iotv1proto.DeviceType_DEVICE_TYPE_MOTION
-		case "lumi.weather":
-			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
-		case "lumi.sensor_cube.aqgl01":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		case "lumi.remote.b1acn01":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		case "lumi.sensor_wleak.aq1":
-			return iotv1proto.DeviceType_DEVICE_TYPE_LEAK
-		}
-
-	case "SONOFF":
-		relayRegex := regexp.MustCompile(`^S[0-9]{2}ZB.*$`)
-		match := relayRegex.FindAllString(z.Definition.Model, -1)
-		if len(match) == 1 {
-			return iotv1proto.DeviceType_DEVICE_TYPE_RELAY
-		}
-
-		buttonRegex := regexp.MustCompile(`^SNZB-[0-9]{2}.*$`)
-		match = buttonRegex.FindAllString(z.Definition.Model, -1)
-		if len(match) == 1 {
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		}
-
-	case "Third Reality":
-		// Same as the Third Reality below, but on the model, not the description
-		switch z.Definition.Model {
-		case "3RTHS24BZ":
-			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
-		case "3RSB22BZ":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		}
-		switch z.Definition.Description {
-		case "Temperature and humidity sensor":
-			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
-		case "Smart button":
-			return iotv1proto.DeviceType_DEVICE_TYPE_BUTTON
-		}
-
-	case "TuYa":
-		switch z.Definition.Model {
-		case "TS0601_air_quality_sensor":
-			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
-		}
-
 	}
 
 	return iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED

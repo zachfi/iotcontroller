@@ -269,6 +269,10 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 		metricIOTHumidity.WithLabelValues(device.Name, routeName, zone).Set(*m.Humidity)
 	}
 
+	if m.SoilMoisture != nil {
+		metricIOTSoilMoisture.WithLabelValues(device.Name, routeName, zone).Set(*m.SoilMoisture)
+	}
+
 	if m.Co2 != nil {
 		metricIOTCo2.WithLabelValues(device.Name, routeName, zone).Set(*m.Co2)
 	}
