@@ -546,8 +546,14 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 			handler = z.handlers[controllerHandlerZigbee]
 		case iotv1proto.DeviceType_DEVICE_TYPE_MOTION:
 			handler = z.handlers[controllerHandlerZigbee]
+		case iotv1proto.DeviceType_DEVICE_TYPE_SOIL:
+			handler = z.handlers[controllerHandlerZigbee]
+		case iotv1proto.DeviceType_DEVICE_TYPE_AIR_QUALITY:
+			handler = z.handlers[controllerHandlerZigbee]
+
 		case iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL:
 			handler = z.handlers[controllerHandlerNoop]
+
 		default:
 			z.logger.Warn("using default handler", "device", d.Name, "type", d.Spec.Type)
 			handler = z.handlers[controllerHandlerNoop]

@@ -56,6 +56,12 @@ var (
 		Help:      "Sensor Temperature(C)",
 	}, []string{"device", "router", "zone"})
 
+	metricIOTSoilMoisture = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "soil_moisture",
+		Namespace: metricsNamespace,
+		Help:      "Soil moisture percent",
+	}, []string{"device", "router", "zone"})
+
 	metricIOTHumidity = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "humidity",
 		Namespace: metricsNamespace,
@@ -145,19 +151,19 @@ var (
 	metricSpecificGravity = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "specific_gravity",
 		Namespace: metricsNamespace,
-		Help:      "Specific Gravity",
+		Help:      "Specific Gravity (SG)",
 	}, []string{"device", "zone"})
 
 	metricTiltAngle = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "tilt_angle",
 		Namespace: metricsNamespace,
-		Help:      "tilt angle",
+		Help:      "Tilt angle",
 	}, []string{"device", "zone"})
 
 	metricBattery = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "battery",
 		Namespace: metricsNamespace,
-		Help:      "temperature",
+		Help:      "Device battery level",
 	}, []string{"device", "zone"})
 
 	metricRSSI = promauto.NewGaugeVec(prometheus.GaugeOpts{
