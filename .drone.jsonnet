@@ -3,13 +3,13 @@
 
   kind: 'pipeline',
   // type: 'kubernetes',
-  name: 'build',
+  name: 'ci',
   steps: [
     {
-      name: 'make',
+      name: 'test',
       image: 'golang',
       commands: [
-        'make',
+        'make test',
       ],
     },
   ],
