@@ -1,4 +1,3 @@
-local cacheBase = '/repo';
 local image = 'zachfi/shell:latest';
 
 local buildImage() = {
