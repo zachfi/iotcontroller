@@ -1,0 +1,6184 @@
+[
+  {
+    "definition": null,
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "10": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "ssIasAce"
+          ],
+          "output": [
+            "ssIasZone",
+            "ssIasWd"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "110": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "12": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "13": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genOta"
+          ],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "2": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "3": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "4": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "47": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "5": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "6": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "8": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "Coordinator",
+    "ieee_address": "0x00124b0014d91d6b",
+    "interview_completed": true,
+    "interviewing": false,
+    "network_address": 0,
+    "supported": true,
+    "type": "Coordinator"
+  },
+  {
+    "date_code": "20230403",
+    "definition": {
+      "description": "Hue white and color ambiance E26/E27",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            },
+            {
+              "access": 7,
+              "description": "Color temperature of this light",
+              "label": "Color temp",
+              "name": "color_temp",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                }
+              ],
+              "property": "color_temp",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color temperature after cold power on of this light",
+              "label": "Color temp startup",
+              "name": "color_temp_startup",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                },
+                {
+                  "description": "Restore previous color_temp on cold power on",
+                  "name": "previous",
+                  "value": 65535
+                }
+              ],
+              "property": "color_temp_startup",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color of this light in the CIE 1931 color space (x/y)",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "X",
+                  "name": "x",
+                  "property": "x",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Y",
+                  "name": "y",
+                  "property": "y",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (X/Y)",
+              "name": "color_xy",
+              "property": "color",
+              "type": "composite"
+            },
+            {
+              "access": 7,
+              "description": "Color of this light expressed as hue/saturation",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "Hue",
+                  "name": "hue",
+                  "property": "hue",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Saturation",
+                  "name": "saturation",
+                  "property": "saturation",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (HS)",
+              "name": "color_hs",
+              "property": "color",
+              "type": "composite"
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "fireplace",
+            "colorloop",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290022166",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "When enabled colors will be synced, e.g. if the light supports both color x/y and color temperature a conversion from color x/y to color temperature will be done when setting the x/y color (default true).",
+          "label": "Color sync",
+          "name": "color_sync",
+          "property": "color_sync",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink",
+            "manuSpecificPhilips2",
+            "lightingColorCtrl",
+            "manuSpecificUbisysDimmerSetup"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00178801087fc8c8",
+    "ieee_address": "0x00178801087fc8c8",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "LCA003",
+    "network_address": 1525,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.104.2",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20210703",
+    "definition": {
+      "description": "Zigbee smart plug (US version)",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of the switch",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            }
+          ],
+          "type": "switch"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "S31ZB",
+      "options": [
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff"
+          ],
+          "output": [
+            "genBasic"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b00250c1fc1",
+    "ieee_address": "0x00124b00250c1fc1",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "S31 Lite zb",
+    "network_address": 26642,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.0.7",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20180525",
+    "definition": {
+      "description": "Aqara wireless switch",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "single",
+            "double",
+            "triple",
+            "quadruple",
+            "hold",
+            "release"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Temperature of the device",
+          "label": "Device temperature",
+          "name": "device_temperature",
+          "property": "device_temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Number of power outages (since last pairing)",
+          "label": "Power outage count",
+          "name": "power_outage_count",
+          "property": "power_outage_count",
+          "type": "numeric"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "WXKG11LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the device_temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Device temperature calibration",
+          "name": "device_temperature_calibration",
+          "property": "device_temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Set to false to disable the legacy integration (highly recommended), will change structure of the published payload (default true).",
+          "label": "Legacy",
+          "name": "legacy",
+          "property": "legacy",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genMultistateInput",
+            "genIdentify"
+          ],
+          "output": [
+            "genBasic"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0006e419c2",
+    "ieee_address": "0x00158d0006e419c2",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.remote.b1acn01",
+    "network_address": 5409,
+    "power_source": "Battery",
+    "software_build_id": "3000-0001",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20211103",
+    "definition": {
+      "description": "Wireless button",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "single",
+            "double",
+            "long"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "SNZB-01",
+      "options": [],
+      "supports_ota": false,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genPowerCfg",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genPowerCfg"
+          ],
+          "output": [
+            "genOnOff",
+            "genIdentify"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "batteryVoltage",
+            "cluster": "genPowerCfg",
+            "maximum_report_interval": 62000,
+            "minimum_report_interval": 3600,
+            "reportable_change": 0
+          },
+          {
+            "attribute": "batteryPercentageRemaining",
+            "cluster": "genPowerCfg",
+            "maximum_report_interval": 62000,
+            "minimum_report_interval": 3600,
+            "reportable_change": 0
+          }
+        ],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b00250468dc",
+    "ieee_address": "0x00124b00250468dc",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "eWeLink",
+    "model_id": "WB01",
+    "network_address": 43482,
+    "power_source": "Battery",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20230403",
+    "definition": {
+      "description": "Hue white and color ambiance E26/E27",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            },
+            {
+              "access": 7,
+              "description": "Color temperature of this light",
+              "label": "Color temp",
+              "name": "color_temp",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                }
+              ],
+              "property": "color_temp",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color temperature after cold power on of this light",
+              "label": "Color temp startup",
+              "name": "color_temp_startup",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                },
+                {
+                  "description": "Restore previous color_temp on cold power on",
+                  "name": "previous",
+                  "value": 65535
+                }
+              ],
+              "property": "color_temp_startup",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color of this light in the CIE 1931 color space (x/y)",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "X",
+                  "name": "x",
+                  "property": "x",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Y",
+                  "name": "y",
+                  "property": "y",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (X/Y)",
+              "name": "color_xy",
+              "property": "color",
+              "type": "composite"
+            },
+            {
+              "access": 7,
+              "description": "Color of this light expressed as hue/saturation",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "Hue",
+                  "name": "hue",
+                  "property": "hue",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Saturation",
+                  "name": "saturation",
+                  "property": "saturation",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (HS)",
+              "name": "color_hs",
+              "property": "color",
+              "type": "composite"
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "fireplace",
+            "colorloop",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290022166",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "When enabled colors will be synced, e.g. if the light supports both color x/y and color temperature a conversion from color x/y to color temperature will be done when setting the x/y color (default true).",
+          "label": "Color sync",
+          "name": "color_sync",
+          "property": "color_sync",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink",
+            "manuSpecificPhilips2",
+            "lightingColorCtrl",
+            "manuSpecificUbisysDimmerSetup"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x001788010898e9c1",
+    "ieee_address": "0x001788010898e9c1",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "LCA003",
+    "network_address": 62367,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.104.2",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20170627",
+    "definition": {
+      "description": "Aqara human body movement and illuminance sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Indicates whether the device detected occupancy",
+          "label": "Occupancy",
+          "name": "occupancy",
+          "property": "occupancy",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 1,
+          "description": "Temperature of the device",
+          "label": "Device temperature",
+          "name": "device_temperature",
+          "property": "device_temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Measured illuminance in lux",
+          "label": "Illuminance (lux)",
+          "name": "illuminance_lux",
+          "property": "illuminance",
+          "type": "numeric",
+          "unit": "lx"
+        },
+        {
+          "access": 1,
+          "description": "Measured illuminance in lux",
+          "label": "Illuminance",
+          "name": "illuminance",
+          "property": "illuminance",
+          "type": "numeric",
+          "unit": "lx"
+        },
+        {
+          "access": 1,
+          "description": "Number of power outages",
+          "label": "Power outage count",
+          "name": "power_outage_count",
+          "property": "power_outage_count",
+          "type": "numeric"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "RTCGQ11LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the device_temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Device temperature calibration",
+          "name": "device_temperature_calibration",
+          "property": "device_temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the illuminance_lux value (percentual offset), takes into effect on next report of device.",
+          "label": "Illuminance lux calibration",
+          "name": "illuminance_lux_calibration",
+          "property": "illuminance_lux_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the illuminance value (percentual offset), takes into effect on next report of device.",
+          "label": "Illuminance calibration",
+          "name": "illuminance_calibration",
+          "property": "illuminance_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Time in seconds after which occupancy is cleared after detecting it (default 90 seconds).",
+          "label": "Occupancy timeout",
+          "name": "occupancy_timeout",
+          "property": "occupancy_timeout",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Sends a message the last time occupancy (occupancy: true) was detected. When setting this for example to [10, 60] a `{\"no_occupancy_since\": 10}` will be send after 10 seconds and a `{\"no_occupancy_since\": 60}` after 60 seconds.",
+          "item_type": {
+            "access": 3,
+            "label": "Time",
+            "name": "time",
+            "type": "numeric"
+          },
+          "label": "No occupancy since",
+          "name": "no_occupancy_since",
+          "property": "no_occupancy_since",
+          "type": "list"
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "65535",
+            "msOccupancySensing",
+            "msIlluminanceMeasurement",
+            "ssIasZone",
+            "genPowerCfg",
+            "genIdentify"
+          ],
+          "output": [
+            "genBasic",
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0006f7af13",
+    "ieee_address": "0x00158d0006f7af13",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.sensor_motion.aq2",
+    "network_address": 42313,
+    "power_source": "Battery",
+    "software_build_id": "3000-0001",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20191205",
+    "definition": {
+      "description": "Aqara temperature, humidity and pressure sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Measured temperature value",
+          "label": "Temperature",
+          "name": "temperature",
+          "property": "temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Measured relative humidity",
+          "label": "Humidity",
+          "name": "humidity",
+          "property": "humidity",
+          "type": "numeric",
+          "unit": "%"
+        },
+        {
+          "access": 1,
+          "description": "The measured atmospheric pressure",
+          "label": "Pressure",
+          "name": "pressure",
+          "property": "pressure",
+          "type": "numeric",
+          "unit": "hPa"
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "WSDCGQ11LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Temperature calibration",
+          "name": "temperature_calibration",
+          "property": "temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for temperature, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Temperature precision",
+          "name": "temperature_precision",
+          "property": "temperature_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the humidity value (absolute offset), takes into effect on next report of device.",
+          "label": "Humidity calibration",
+          "name": "humidity_calibration",
+          "property": "humidity_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for humidity, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Humidity precision",
+          "name": "humidity_precision",
+          "property": "humidity_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the pressure value (absolute offset), takes into effect on next report of device.",
+          "label": "Pressure calibration",
+          "name": "pressure_calibration",
+          "property": "pressure_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for pressure, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Pressure precision",
+          "name": "pressure_precision",
+          "property": "pressure_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "65535",
+            "msTemperatureMeasurement",
+            "msPressureMeasurement",
+            "msRelativeHumidity"
+          ],
+          "output": [
+            "genBasic",
+            "genGroups",
+            "65535"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0007be8a47",
+    "ieee_address": "0x00158d0007be8a47",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.weather",
+    "network_address": 48520,
+    "power_source": "Battery",
+    "software_build_id": "3000-0001",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20191205",
+    "definition": {
+      "description": "Aqara temperature, humidity and pressure sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Measured temperature value",
+          "label": "Temperature",
+          "name": "temperature",
+          "property": "temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Measured relative humidity",
+          "label": "Humidity",
+          "name": "humidity",
+          "property": "humidity",
+          "type": "numeric",
+          "unit": "%"
+        },
+        {
+          "access": 1,
+          "description": "The measured atmospheric pressure",
+          "label": "Pressure",
+          "name": "pressure",
+          "property": "pressure",
+          "type": "numeric",
+          "unit": "hPa"
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "WSDCGQ11LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Temperature calibration",
+          "name": "temperature_calibration",
+          "property": "temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for temperature, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Temperature precision",
+          "name": "temperature_precision",
+          "property": "temperature_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the humidity value (absolute offset), takes into effect on next report of device.",
+          "label": "Humidity calibration",
+          "name": "humidity_calibration",
+          "property": "humidity_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for humidity, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Humidity precision",
+          "name": "humidity_precision",
+          "property": "humidity_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the pressure value (absolute offset), takes into effect on next report of device.",
+          "label": "Pressure calibration",
+          "name": "pressure_calibration",
+          "property": "pressure_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for pressure, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Pressure precision",
+          "name": "pressure_precision",
+          "property": "pressure_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "65535",
+            "msTemperatureMeasurement",
+            "msPressureMeasurement",
+            "msRelativeHumidity"
+          ],
+          "output": [
+            "genBasic",
+            "genGroups",
+            "65535"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0006fafbeb",
+    "ieee_address": "0x00158d0006fafbeb",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.weather",
+    "network_address": 8721,
+    "power_source": "Battery",
+    "software_build_id": "3000-0001",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20201125",
+    "definition": {
+      "description": "Hue dimmer switch",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "on_press",
+            "on_hold",
+            "on_press_release",
+            "on_hold_release",
+            "off_press",
+            "off_hold",
+            "off_press_release",
+            "off_hold_release",
+            "up_press",
+            "up_hold",
+            "up_press_release",
+            "up_hold_release",
+            "down_press",
+            "down_hold",
+            "down_press_release",
+            "down_hold_release",
+            "recall_0",
+            "recall_1"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "929002398602",
+      "options": [
+        {
+          "access": 2,
+          "description": "Simulate a brightness value. If this device provides a brightness_move_up or brightness_move_down action it is possible to specify the update interval and delta. The action_brightness_delta indicates the delta for each interval. ",
+          "features": [
+            {
+              "access": 2,
+              "description": "Delta per interval, 20 by default",
+              "label": "Delta",
+              "name": "delta",
+              "property": "delta",
+              "type": "numeric",
+              "value_min": 0
+            },
+            {
+              "access": 2,
+              "description": "Interval duration",
+              "label": "Interval",
+              "name": "interval",
+              "property": "interval",
+              "type": "numeric",
+              "unit": "ms",
+              "value_min": 0
+            }
+          ],
+          "label": "Simulated brightness",
+          "name": "simulated_brightness",
+          "property": "simulated_brightness",
+          "type": "composite"
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genLevelCtrl",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "manuSpecificPhilips",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genPowerCfg",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genPowerCfg",
+            "genIdentify",
+            "manuSpecificPhilips",
+            "touchlink"
+          ],
+          "output": [
+            "genOta",
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genOnOff",
+            "genLevelCtrl",
+            "genScenes",
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "batteryPercentageRemaining",
+            "cluster": "genPowerCfg",
+            "maximum_report_interval": 62000,
+            "minimum_report_interval": 3600,
+            "reportable_change": 0
+          }
+        ],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x001788010b598fbb",
+    "ieee_address": "0x001788010b598fbb",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "RWL022",
+    "network_address": 33832,
+    "power_source": "Battery",
+    "software_build_id": "2.44.0_hBB3C188",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20230912",
+    "definition": {
+      "description": "Hue white A60 bulb E27/B22",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290011370",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "greenPower"
+          ],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00178801042131ca",
+    "ieee_address": "0x00178801042131ca",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Philips",
+    "model_id": "LWB014",
+    "network_address": 14473,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.108.7",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20210331",
+    "definition": {
+      "description": "Hue white A60 bulb E27/B22",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290011370",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "greenPower"
+          ],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x0017880104215e6a",
+    "ieee_address": "0x0017880104215e6a",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Philips",
+    "model_id": "LWB014",
+    "network_address": 41027,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.88.1",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20200310",
+    "definition": {
+      "description": "Aqara water leak sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Indicates whether the device detected a water leak",
+          "label": "Water leak",
+          "name": "water_leak",
+          "property": "water_leak",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 1,
+          "description": "Indicates if the battery of this device is almost empty",
+          "label": "Battery low",
+          "name": "battery_low",
+          "property": "battery_low",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Temperature of the device",
+          "label": "Device temperature",
+          "name": "device_temperature",
+          "property": "device_temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Number of power outages",
+          "label": "Power outage count",
+          "name": "power_outage_count",
+          "property": "power_outage_count",
+          "type": "numeric"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "SJCGQ11LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the device_temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Device temperature calibration",
+          "name": "device_temperature_calibration",
+          "property": "device_temperature_calibration",
+          "type": "numeric"
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genPowerCfg"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0006fe486e",
+    "ieee_address": "0x00158d0006fe486e",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.sensor_wleak.aq1",
+    "network_address": 8063,
+    "power_source": "Battery",
+    "software_build_id": "3000-0001",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "definition": {
+      "description": "Mi/Aqara smart home cube",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "label": "Action angle",
+          "name": "action_angle",
+          "property": "action_angle",
+          "type": "numeric",
+          "unit": "°",
+          "value_max": 360,
+          "value_min": -360
+        },
+        {
+          "access": 1,
+          "description": "Temperature of the device",
+          "label": "Device temperature",
+          "name": "device_temperature",
+          "property": "device_temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Number of power outages",
+          "label": "Power outage count",
+          "name": "power_outage_count",
+          "property": "power_outage_count",
+          "type": "numeric"
+        },
+        {
+          "access": 1,
+          "description": "Side of the cube",
+          "label": "Action from side",
+          "name": "action_from_side",
+          "property": "action_from_side",
+          "type": "numeric",
+          "value_max": 6,
+          "value_min": 0,
+          "value_step": 1
+        },
+        {
+          "access": 1,
+          "description": "Side of the cube",
+          "label": "Action side",
+          "name": "action_side",
+          "property": "action_side",
+          "type": "numeric",
+          "value_max": 6,
+          "value_min": 0,
+          "value_step": 1
+        },
+        {
+          "access": 1,
+          "description": "Side of the cube",
+          "label": "Action to side",
+          "name": "action_to_side",
+          "property": "action_to_side",
+          "type": "numeric",
+          "value_max": 6,
+          "value_min": 0,
+          "value_step": 1
+        },
+        {
+          "access": 1,
+          "description": "Side of the cube",
+          "label": "Side",
+          "name": "side",
+          "property": "side",
+          "type": "numeric",
+          "value_max": 6,
+          "value_min": 0,
+          "value_step": 1
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "shake",
+            "throw",
+            "wakeup",
+            "fall",
+            "tap",
+            "slide",
+            "flip180",
+            "flip90",
+            "rotate_left",
+            "rotate_right"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "MFKZQ01LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the device_temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Device temperature calibration",
+          "name": "device_temperature_calibration",
+          "property": "device_temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Set to false to disable the legacy integration (highly recommended), will change structure of the published payload (default true).",
+          "label": "Legacy",
+          "name": "legacy",
+          "property": "legacy",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "2": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "3": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d000709b466",
+    "ieee_address": "0x00158d000709b466",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.sensor_cube.aqgl01",
+    "network_address": 32760,
+    "power_source": "Battery",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "definition": {
+      "description": "MiJia wireless switch",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "single",
+            "double",
+            "triple",
+            "quadruple",
+            "hold",
+            "release",
+            "many"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Number of power outages",
+          "label": "Power outage count",
+          "name": "power_outage_count",
+          "property": "power_outage_count",
+          "type": "numeric"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "WXKG01LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "The WXKG01LM only reports a button press and release.By default, a hold action is published when there is at least 1000 ms between both events. It could be that due to delays in the network the release message is received late. This causes a single click to be identified as a hold action. If you are experiencing this you can try experimenting with this option (e.g. set it to 2000) (value is in ms).",
+          "label": "Hold timeout",
+          "name": "hold_timeout",
+          "property": "hold_timeout",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Sometimes it happens that the button does not send a release. To avoid problems a release is automatically send after a timeout. The default timeout is 4000 ms, you can increase it with this option (value is in ms).",
+          "label": "Hold timeout expire",
+          "name": "hold_timeout_expire",
+          "property": "hold_timeout_expire",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Set to false to disable the legacy integration (highly recommended), will change structure of the published payload (default true).",
+          "label": "Legacy",
+          "name": "legacy",
+          "property": "legacy",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0004238a36",
+    "ieee_address": "0x00158d0004238a36",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.sensor_switch",
+    "network_address": 39983,
+    "power_source": "Battery",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20220606",
+    "definition": {
+      "description": "15A Zigbee smart plug",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of the switch",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            }
+          ],
+          "type": "switch"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "S40ZBTPB",
+      "options": [
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "manuSpecificAmazonWWAH",
+            "manuSpecificBosch10"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "onOff",
+            "cluster": "genOnOff",
+            "maximum_report_interval": 65000,
+            "minimum_report_interval": 0,
+            "reportable_change": 1
+          }
+        ],
+        "scenes": []
+      },
+      "13": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "touchlink"
+          ],
+          "output": [
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b00257c5f24",
+    "ieee_address": "0x00124b00257c5f24",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "S40LITE",
+    "network_address": 36507,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.1.0",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20220606",
+    "definition": {
+      "description": "15A Zigbee smart plug",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of the switch",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            }
+          ],
+          "type": "switch"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "S40ZBTPB",
+      "options": [
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "manuSpecificAmazonWWAH",
+            "manuSpecificBosch10"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "13": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "touchlink"
+          ],
+          "output": [
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b00257c5f92",
+    "ieee_address": "0x00124b00257c5f92",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "S40LITE",
+    "network_address": 40871,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.1.0",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20220215",
+    "definition": {
+      "description": "Hue White and Color Ambiance BR30 with bluetooth",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            },
+            {
+              "access": 7,
+              "description": "Color temperature of this light",
+              "label": "Color temp",
+              "name": "color_temp",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                }
+              ],
+              "property": "color_temp",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color temperature after cold power on of this light",
+              "label": "Color temp startup",
+              "name": "color_temp_startup",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                },
+                {
+                  "description": "Restore previous color_temp on cold power on",
+                  "name": "previous",
+                  "value": 65535
+                }
+              ],
+              "property": "color_temp_startup",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color of this light in the CIE 1931 color space (x/y)",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "X",
+                  "name": "x",
+                  "property": "x",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Y",
+                  "name": "y",
+                  "property": "y",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (X/Y)",
+              "name": "color_xy",
+              "property": "color",
+              "type": "composite"
+            },
+            {
+              "access": 7,
+              "description": "Color of this light expressed as hue/saturation",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "Hue",
+                  "name": "hue",
+                  "property": "hue",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Saturation",
+                  "name": "saturation",
+                  "property": "saturation",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (HS)",
+              "name": "color_hs",
+              "property": "color",
+              "type": "composite"
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "fireplace",
+            "colorloop",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "046677577957",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "When enabled colors will be synced, e.g. if the light supports both color x/y and color temperature a conversion from color x/y to color temperature will be done when setting the x/y color (default true).",
+          "label": "Color sync",
+          "name": "color_sync",
+          "property": "color_sync",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink",
+            "manuSpecificPhilips2",
+            "lightingColorCtrl",
+            "manuSpecificUbisysDimmerSetup"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x001788010d37f8ff",
+    "ieee_address": "0x001788010d37f8ff",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "LCB002",
+    "network_address": 6151,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.93.10",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20220316",
+    "definition": {
+      "description": "Hue Tap dial switch",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "button_1_press",
+            "button_1_press_release",
+            "button_1_hold",
+            "button_1_hold_release",
+            "button_2_press",
+            "button_2_press_release",
+            "button_2_hold",
+            "button_2_hold_release",
+            "button_3_press",
+            "button_3_press_release",
+            "button_3_hold",
+            "button_3_hold_release",
+            "button_4_press",
+            "button_4_press_release",
+            "button_4_hold",
+            "button_4_hold_release",
+            "dial_rotate_left_step",
+            "dial_rotate_left_slow",
+            "dial_rotate_left_fast",
+            "dial_rotate_right_step",
+            "dial_rotate_right_slow",
+            "dial_rotate_right_fast",
+            "brightness_step_up",
+            "brightness_step_down"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Direction in which the dial was turned",
+          "label": "Action direction",
+          "name": "action_direction",
+          "property": "action_direction",
+          "type": "enum",
+          "values": [
+            "right",
+            "left"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Type of the rotation, value in the first message is `step` and in the next messages value is `rotate`",
+          "label": "Action type",
+          "name": "action_type",
+          "property": "action_type",
+          "type": "enum",
+          "values": [
+            "step",
+            "rotate"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Raw value that represents the amount the dial was turned",
+          "label": "Action time",
+          "name": "action_time",
+          "property": "action_time",
+          "type": "numeric",
+          "value_max": 255,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "8719514440937/8719514440999",
+      "options": [
+        {
+          "access": 2,
+          "description": "Simulate a brightness value. If this device provides a brightness_move_up or brightness_move_down action it is possible to specify the update interval and delta. The action_brightness_delta indicates the delta for each interval. ",
+          "features": [
+            {
+              "access": 2,
+              "description": "Delta per interval, 20 by default",
+              "label": "Delta",
+              "name": "delta",
+              "property": "delta",
+              "type": "numeric",
+              "value_min": 0
+            },
+            {
+              "access": 2,
+              "description": "Interval duration",
+              "label": "Interval",
+              "name": "interval",
+              "property": "interval",
+              "type": "numeric",
+              "unit": "ms",
+              "value_min": 0
+            }
+          ],
+          "label": "Simulated brightness",
+          "name": "simulated_brightness",
+          "property": "simulated_brightness",
+          "type": "composite"
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genLevelCtrl",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "manuSpecificPhilips",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genPowerCfg",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genPowerCfg",
+            "genIdentify",
+            "manuSpecificPhilips",
+            "touchlink"
+          ],
+          "output": [
+            "genOta",
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genOnOff",
+            "genLevelCtrl",
+            "genScenes",
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "batteryPercentageRemaining",
+            "cluster": "genPowerCfg",
+            "maximum_report_interval": 62000,
+            "minimum_report_interval": 3600,
+            "reportable_change": 0
+          }
+        ],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x001788010d356dd8",
+    "ieee_address": "0x001788010d356dd8",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "RDM002",
+    "network_address": 49233,
+    "power_source": "Battery",
+    "software_build_id": "2.59.19",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20210528",
+    "definition": {
+      "description": "Hue smart button",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "on",
+            "off",
+            "skip_backward",
+            "skip_forward",
+            "press",
+            "hold",
+            "release"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "8718699693985",
+      "options": [
+        {
+          "access": 2,
+          "description": "Set to false to disable the legacy integration (highly recommended), will change structure of the published payload (default true).",
+          "label": "Legacy",
+          "name": "legacy",
+          "property": "legacy",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genLevelCtrl",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "manuSpecificPhilips",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genPowerCfg",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genPowerCfg",
+            "genIdentify",
+            "manuSpecificPhilips",
+            "touchlink"
+          ],
+          "output": [
+            "genOta",
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genOnOff",
+            "genLevelCtrl",
+            "genScenes",
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "batteryPercentageRemaining",
+            "cluster": "genPowerCfg",
+            "maximum_report_interval": 62000,
+            "minimum_report_interval": 3600,
+            "reportable_change": 0
+          }
+        ],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x001788010654aa86",
+    "ieee_address": "0x001788010654aa86",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "ROM001",
+    "network_address": 59787,
+    "power_source": "Battery",
+    "software_build_id": "2.47.8_h2F968624",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "definition": {
+      "description": "Temperature and humidity sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Measured temperature value",
+          "label": "Temperature",
+          "name": "temperature",
+          "property": "temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Measured relative humidity",
+          "label": "Humidity",
+          "name": "humidity",
+          "property": "humidity",
+          "type": "numeric",
+          "unit": "%"
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "3RTHS24BZ",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Temperature calibration",
+          "name": "temperature_calibration",
+          "property": "temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for temperature, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Temperature precision",
+          "name": "temperature_precision",
+          "property": "temperature_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the humidity value (absolute offset), takes into effect on next report of device.",
+          "label": "Humidity calibration",
+          "name": "humidity_calibration",
+          "property": "humidity_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for humidity, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Humidity precision",
+          "name": "humidity_precision",
+          "property": "humidity_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Third Reality"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genPowerCfg",
+            "msTemperatureMeasurement",
+            "msRelativeHumidity"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x282c02bfffe39c52",
+    "ieee_address": "0x282c02bfffe39c52",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Third Reality, Inc",
+    "model_id": "3RTHS24BZ",
+    "network_address": 3938,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.00.21",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "definition": {
+      "description": "Smart button",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Indicates if the battery of this device is almost empty",
+          "label": "Battery low",
+          "name": "battery_low",
+          "property": "battery_low",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "single",
+            "double",
+            "long"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "3RSB22BZ",
+      "options": [],
+      "supports_ota": true,
+      "vendor": "Third Reality"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genPowerCfg",
+            "genMultistateInput"
+          ],
+          "output": [
+            "genOta",
+            "genOnOff",
+            "genLevelCtrl"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x282c02bfffe38a7a",
+    "ieee_address": "0x282c02bfffe38a7a",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Third Reality, Inc",
+    "model_id": "3RSB22BZ",
+    "network_address": 40751,
+    "power_source": "Battery",
+    "software_build_id": "1.00.23",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "definition": {
+      "description": "Smart button",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Indicates if the battery of this device is almost empty",
+          "label": "Battery low",
+          "name": "battery_low",
+          "property": "battery_low",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "single",
+            "double",
+            "long"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "3RSB22BZ",
+      "options": [],
+      "supports_ota": true,
+      "vendor": "Third Reality"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genPowerCfg",
+            "genMultistateInput"
+          ],
+          "output": [
+            "genOta",
+            "genOnOff",
+            "genLevelCtrl"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x282c02bfffe37d6e",
+    "ieee_address": "0x282c02bfffe37d6e",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Third Reality, Inc",
+    "model_id": "3RSB22BZ",
+    "network_address": 11039,
+    "power_source": "Battery",
+    "software_build_id": "1.00.23",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "definition": {
+      "description": "Air quality sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Measured temperature value",
+          "label": "Temperature",
+          "name": "temperature",
+          "property": "temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Measured relative humidity",
+          "label": "Humidity",
+          "name": "humidity",
+          "property": "humidity",
+          "type": "numeric",
+          "unit": "%"
+        },
+        {
+          "access": 1,
+          "description": "The measured CO2 (carbon dioxide) value",
+          "label": "CO2",
+          "name": "co2",
+          "property": "co2",
+          "type": "numeric",
+          "unit": "ppm"
+        },
+        {
+          "access": 1,
+          "description": "Measured VOC value",
+          "label": "VOC",
+          "name": "voc",
+          "property": "voc",
+          "type": "numeric",
+          "unit": "ppm"
+        },
+        {
+          "access": 1,
+          "description": "The measured formaldehyd value",
+          "label": "Formaldehyd",
+          "name": "formaldehyd",
+          "property": "formaldehyd",
+          "type": "numeric",
+          "unit": "mg/m³"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "TS0601_air_quality_sensor",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Temperature calibration",
+          "name": "temperature_calibration",
+          "property": "temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for temperature, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Temperature precision",
+          "name": "temperature_precision",
+          "property": "temperature_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the humidity value (absolute offset), takes into effect on next report of device.",
+          "label": "Humidity calibration",
+          "name": "humidity_calibration",
+          "property": "humidity_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for humidity, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Humidity precision",
+          "name": "humidity_precision",
+          "property": "humidity_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the co2 value (absolute offset), takes into effect on next report of device.",
+          "label": "Co2 calibration",
+          "name": "co2_calibration",
+          "property": "co2_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the voc value (absolute offset), takes into effect on next report of device.",
+          "label": "Voc calibration",
+          "name": "voc_calibration",
+          "property": "voc_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the formaldehyd value (absolute offset), takes into effect on next report of device.",
+          "label": "Formaldehyd calibration",
+          "name": "formaldehyd_calibration",
+          "property": "formaldehyd_calibration",
+          "type": "numeric"
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "TuYa"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genGroups",
+            "genScenes",
+            "manuSpecificTuya",
+            "genBasic"
+          ],
+          "output": [
+            "genOta",
+            "genTime"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0xa4c138f53188a309",
+    "ieee_address": "0xa4c138f53188a309",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "_TZE200_yvx5lh6k",
+    "model_id": "TS0601",
+    "network_address": 31629,
+    "power_source": "Mains (single phase)",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20220606",
+    "definition": {
+      "description": "15A Zigbee smart plug",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of the switch",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            }
+          ],
+          "type": "switch"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "S40ZBTPB",
+      "options": [
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "manuSpecificAmazonWWAH",
+            "manuSpecificBosch10"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "onOff",
+            "cluster": "genOnOff",
+            "maximum_report_interval": 65000,
+            "minimum_report_interval": 0,
+            "reportable_change": 1
+          }
+        ],
+        "scenes": []
+      },
+      "13": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "touchlink"
+          ],
+          "output": [
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b0029ddcb8b",
+    "ieee_address": "0x00124b0029ddcb8b",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "S40LITE",
+    "network_address": 3122,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.1.0",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20170311",
+    "definition": {
+      "description": "Hue white A60 bulb E27/B22",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290011370",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "greenPower"
+          ],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x0017880104650857",
+    "ieee_address": "0x0017880104650857",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Philips",
+    "model_id": "LWB014",
+    "network_address": 35519,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.23.0_r20156",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20220606",
+    "definition": {
+      "description": "15A Zigbee smart plug",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of the switch",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            }
+          ],
+          "type": "switch"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "S40ZBTPB",
+      "options": [
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "manuSpecificAmazonWWAH",
+            "manuSpecificBosch10"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "onOff",
+            "cluster": "genOnOff",
+            "maximum_report_interval": 65000,
+            "minimum_report_interval": 0,
+            "reportable_change": 1
+          }
+        ],
+        "scenes": []
+      },
+      "13": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "touchlink"
+          ],
+          "output": [
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b0029dee19b",
+    "ieee_address": "0x00124b0029dee19b",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "S40LITE",
+    "network_address": 3086,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.1.0",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "",
+    "definition": {
+      "description": "Air quality sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Measured temperature value",
+          "label": "Temperature",
+          "name": "temperature",
+          "property": "temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Measured relative humidity",
+          "label": "Humidity",
+          "name": "humidity",
+          "property": "humidity",
+          "type": "numeric",
+          "unit": "%"
+        },
+        {
+          "access": 1,
+          "description": "The measured CO2 (carbon dioxide) value",
+          "label": "CO2",
+          "name": "co2",
+          "property": "co2",
+          "type": "numeric",
+          "unit": "ppm"
+        },
+        {
+          "access": 1,
+          "description": "Measured VOC value",
+          "label": "VOC",
+          "name": "voc",
+          "property": "voc",
+          "type": "numeric",
+          "unit": "ppm"
+        },
+        {
+          "access": 1,
+          "description": "The measured formaldehyd value",
+          "label": "Formaldehyd",
+          "name": "formaldehyd",
+          "property": "formaldehyd",
+          "type": "numeric",
+          "unit": "mg/m³"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "TS0601_air_quality_sensor",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Temperature calibration",
+          "name": "temperature_calibration",
+          "property": "temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for temperature, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Temperature precision",
+          "name": "temperature_precision",
+          "property": "temperature_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the humidity value (absolute offset), takes into effect on next report of device.",
+          "label": "Humidity calibration",
+          "name": "humidity_calibration",
+          "property": "humidity_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for humidity, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Humidity precision",
+          "name": "humidity_precision",
+          "property": "humidity_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the co2 value (absolute offset), takes into effect on next report of device.",
+          "label": "Co2 calibration",
+          "name": "co2_calibration",
+          "property": "co2_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the voc value (absolute offset), takes into effect on next report of device.",
+          "label": "Voc calibration",
+          "name": "voc_calibration",
+          "property": "voc_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the formaldehyd value (absolute offset), takes into effect on next report of device.",
+          "label": "Formaldehyd calibration",
+          "name": "formaldehyd_calibration",
+          "property": "formaldehyd_calibration",
+          "type": "numeric"
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "TuYa"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genGroups",
+            "genScenes",
+            "manuSpecificTuya",
+            "genBasic"
+          ],
+          "output": [
+            "genOta",
+            "genTime"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0xa4c13824eae78c03",
+    "ieee_address": "0xa4c13824eae78c03",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "_TZE200_yvx5lh6k",
+    "model_id": "TS0601",
+    "network_address": 11031,
+    "power_source": "Mains (single phase)",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20220606",
+    "definition": {
+      "description": "15A Zigbee smart plug",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of the switch",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            }
+          ],
+          "type": "switch"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "S40ZBTPB",
+      "options": [
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "manuSpecificAmazonWWAH",
+            "manuSpecificBosch10"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "onOff",
+            "cluster": "genOnOff",
+            "maximum_report_interval": 65000,
+            "minimum_report_interval": 0,
+            "reportable_change": 1
+          }
+        ],
+        "scenes": []
+      },
+      "13": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "touchlink"
+          ],
+          "output": [
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b0024c0d17e",
+    "ieee_address": "0x00124b0024c0d17e",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "S40LITE",
+    "network_address": 43652,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.1.0",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20191218",
+    "definition": {
+      "description": "Hue white A60 bulb E27/B22",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290011370",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "greenPower"
+          ],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x0017880102be373d",
+    "ieee_address": "0x0017880102be373d",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Philips",
+    "model_id": "LWB014",
+    "network_address": 29884,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.50.2_r30933",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20191218",
+    "definition": {
+      "description": "Hue white A60 bulb E27/B22",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290011370",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "greenPower"
+          ],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x0017880102bc39c5",
+    "ieee_address": "0x0017880102bc39c5",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Philips",
+    "model_id": "LWB014",
+    "network_address": 34456,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.50.2_r30933",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20220215",
+    "definition": {
+      "description": "Hue White and Color Ambiance BR30 with bluetooth",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            },
+            {
+              "access": 7,
+              "description": "Color temperature of this light",
+              "label": "Color temp",
+              "name": "color_temp",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                }
+              ],
+              "property": "color_temp",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color temperature after cold power on of this light",
+              "label": "Color temp startup",
+              "name": "color_temp_startup",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                },
+                {
+                  "description": "Restore previous color_temp on cold power on",
+                  "name": "previous",
+                  "value": 65535
+                }
+              ],
+              "property": "color_temp_startup",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color of this light in the CIE 1931 color space (x/y)",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "X",
+                  "name": "x",
+                  "property": "x",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Y",
+                  "name": "y",
+                  "property": "y",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (X/Y)",
+              "name": "color_xy",
+              "property": "color",
+              "type": "composite"
+            },
+            {
+              "access": 7,
+              "description": "Color of this light expressed as hue/saturation",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "Hue",
+                  "name": "hue",
+                  "property": "hue",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Saturation",
+                  "name": "saturation",
+                  "property": "saturation",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (HS)",
+              "name": "color_hs",
+              "property": "color",
+              "type": "composite"
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "fireplace",
+            "colorloop",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "046677577957",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "When enabled colors will be synced, e.g. if the light supports both color x/y and color temperature a conversion from color x/y to color temperature will be done when setting the x/y color (default true).",
+          "label": "Color sync",
+          "name": "color_sync",
+          "property": "color_sync",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink",
+            "manuSpecificPhilips2",
+            "lightingColorCtrl",
+            "manuSpecificUbisysDimmerSetup"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x001788010d3803ad",
+    "ieee_address": "0x001788010d3803ad",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "LCB002",
+    "network_address": 62328,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.93.10",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "definition": {
+      "description": "MiJia wireless switch",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "single",
+            "double",
+            "triple",
+            "quadruple",
+            "hold",
+            "release",
+            "many"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Number of power outages",
+          "label": "Power outage count",
+          "name": "power_outage_count",
+          "property": "power_outage_count",
+          "type": "numeric"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "WXKG01LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "The WXKG01LM only reports a button press and release.By default, a hold action is published when there is at least 1000 ms between both events. It could be that due to delays in the network the release message is received late. This causes a single click to be identified as a hold action. If you are experiencing this you can try experimenting with this option (e.g. set it to 2000) (value is in ms).",
+          "label": "Hold timeout",
+          "name": "hold_timeout",
+          "property": "hold_timeout",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Sometimes it happens that the button does not send a release. To avoid problems a release is automatically send after a timeout. The default timeout is 4000 ms, you can increase it with this option (value is in ms).",
+          "label": "Hold timeout expire",
+          "name": "hold_timeout_expire",
+          "property": "hold_timeout_expire",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Set to false to disable the legacy integration (highly recommended), will change structure of the published payload (default true).",
+          "label": "Legacy",
+          "name": "legacy",
+          "property": "legacy",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0004238a81",
+    "ieee_address": "0x00158d0004238a81",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.sensor_switch",
+    "network_address": 6448,
+    "power_source": "Battery",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "definition": {
+      "description": "MiJia wireless switch",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Triggered action (e.g. a button click)",
+          "label": "Action",
+          "name": "action",
+          "property": "action",
+          "type": "enum",
+          "values": [
+            "single",
+            "double",
+            "triple",
+            "quadruple",
+            "hold",
+            "release",
+            "many"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Voltage of the battery in millivolts",
+          "label": "Voltage",
+          "name": "voltage",
+          "property": "voltage",
+          "type": "numeric",
+          "unit": "mV"
+        },
+        {
+          "access": 1,
+          "description": "Number of power outages",
+          "label": "Power outage count",
+          "name": "power_outage_count",
+          "property": "power_outage_count",
+          "type": "numeric"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "WXKG01LM",
+      "options": [
+        {
+          "access": 2,
+          "description": "The WXKG01LM only reports a button press and release.By default, a hold action is published when there is at least 1000 ms between both events. It could be that due to delays in the network the release message is received late. This causes a single click to be identified as a hold action. If you are experiencing this you can try experimenting with this option (e.g. set it to 2000) (value is in ms).",
+          "label": "Hold timeout",
+          "name": "hold_timeout",
+          "property": "hold_timeout",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Sometimes it happens that the button does not send a release. To avoid problems a release is automatically send after a timeout. The default timeout is 4000 ms, you can increase it with this option (value is in ms).",
+          "label": "Hold timeout expire",
+          "name": "hold_timeout_expire",
+          "property": "hold_timeout_expire",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Set to false to disable the legacy integration (highly recommended), will change structure of the published payload (default true).",
+          "label": "Legacy",
+          "name": "legacy",
+          "property": "legacy",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "Xiaomi"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": []
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00158d0003960d06",
+    "ieee_address": "0x00158d0003960d06",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "LUMI",
+    "model_id": "lumi.sensor_switch",
+    "network_address": 20317,
+    "power_source": "Battery",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20230105",
+    "definition": {
+      "description": "Temperature and humidity sensor with screen",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "Measured temperature value",
+          "label": "Temperature",
+          "name": "temperature",
+          "property": "temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Measured relative humidity",
+          "label": "Humidity",
+          "name": "humidity",
+          "property": "humidity",
+          "type": "numeric",
+          "unit": "%"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "SNZB-02D",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Temperature calibration",
+          "name": "temperature_calibration",
+          "property": "temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for temperature, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Temperature precision",
+          "name": "temperature_precision",
+          "property": "temperature_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the humidity value (absolute offset), takes into effect on next report of device.",
+          "label": "Humidity calibration",
+          "name": "humidity_calibration",
+          "property": "humidity_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for humidity, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Humidity precision",
+          "name": "humidity_precision",
+          "property": "humidity_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genPollCtrl",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "msTemperatureMeasurement",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "msRelativeHumidity",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          },
+          {
+            "cluster": "genPowerCfg",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genPowerCfg",
+            "genIdentify",
+            "genPollCtrl",
+            "msTemperatureMeasurement",
+            "msRelativeHumidity",
+            "manuSpecificAmazonWWAH",
+            "64529"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "measuredValue",
+            "cluster": "msTemperatureMeasurement",
+            "maximum_report_interval": 1800,
+            "minimum_report_interval": 5,
+            "reportable_change": 20
+          },
+          {
+            "attribute": "measuredValue",
+            "cluster": "msRelativeHumidity",
+            "maximum_report_interval": 3600,
+            "minimum_report_interval": 10,
+            "reportable_change": 100
+          },
+          {
+            "attribute": "batteryPercentageRemaining",
+            "cluster": "genPowerCfg",
+            "maximum_report_interval": 7200,
+            "minimum_report_interval": 3600,
+            "reportable_change": 0
+          }
+        ],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x3410f4fffe6da825",
+    "ieee_address": "0x3410f4fffe6da825",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "SNZB-02D",
+    "network_address": 17316,
+    "power_source": "Battery",
+    "software_build_id": "1.0.9",
+    "supported": true,
+    "type": "EndDevice"
+  },
+  {
+    "date_code": "20220606",
+    "definition": {
+      "description": "15A Zigbee smart plug",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of the switch",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            }
+          ],
+          "type": "switch"
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "S40ZBTPB",
+      "options": [
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "SONOFF"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [
+          {
+            "cluster": "genOnOff",
+            "target": {
+              "endpoint": 1,
+              "ieee_address": "0x00124b0014d91d6b",
+              "type": "endpoint"
+            }
+          }
+        ],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "manuSpecificAmazonWWAH",
+            "manuSpecificBosch10"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [
+          {
+            "attribute": "onOff",
+            "cluster": "genOnOff",
+            "maximum_report_interval": 65000,
+            "minimum_report_interval": 0,
+            "reportable_change": 1
+          }
+        ],
+        "scenes": []
+      },
+      "13": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "touchlink"
+          ],
+          "output": [
+            "touchlink"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x00124b002c3a2db5",
+    "ieee_address": "0x00124b002c3a2db5",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "SONOFF",
+    "model_id": "S40LITE",
+    "network_address": 35439,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.1.0",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20191218",
+    "definition": {
+      "description": "Hue white A60 bulb E27/B22",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290011370",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "greenPower"
+          ],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x0017880102c40dd0",
+    "ieee_address": "0x0017880102c40dd0",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Philips",
+    "model_id": "LWB014",
+    "network_address": 27412,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.50.2_r30933",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "20201117",
+    "definition": {
+      "description": "Hue White and color ambiance A19 800 lumen",
+      "exposes": [
+        {
+          "features": [
+            {
+              "access": 7,
+              "description": "On/off state of this light",
+              "label": "State",
+              "name": "state",
+              "property": "state",
+              "type": "binary",
+              "value_off": "OFF",
+              "value_on": "ON",
+              "value_toggle": "TOGGLE"
+            },
+            {
+              "access": 7,
+              "description": "Brightness of this light",
+              "label": "Brightness",
+              "name": "brightness",
+              "property": "brightness",
+              "type": "numeric",
+              "value_max": 254,
+              "value_min": 0
+            },
+            {
+              "access": 7,
+              "description": "Color temperature of this light",
+              "label": "Color temp",
+              "name": "color_temp",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                }
+              ],
+              "property": "color_temp",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color temperature after cold power on of this light",
+              "label": "Color temp startup",
+              "name": "color_temp_startup",
+              "presets": [
+                {
+                  "description": "Coolest temperature supported",
+                  "name": "coolest",
+                  "value": 153
+                },
+                {
+                  "description": "Cool temperature (250 mireds / 4000 Kelvin)",
+                  "name": "cool",
+                  "value": 250
+                },
+                {
+                  "description": "Neutral temperature (370 mireds / 2700 Kelvin)",
+                  "name": "neutral",
+                  "value": 370
+                },
+                {
+                  "description": "Warm temperature (454 mireds / 2200 Kelvin)",
+                  "name": "warm",
+                  "value": 454
+                },
+                {
+                  "description": "Warmest temperature supported",
+                  "name": "warmest",
+                  "value": 500
+                },
+                {
+                  "description": "Restore previous color_temp on cold power on",
+                  "name": "previous",
+                  "value": 65535
+                }
+              ],
+              "property": "color_temp_startup",
+              "type": "numeric",
+              "unit": "mired",
+              "value_max": 500,
+              "value_min": 153
+            },
+            {
+              "access": 7,
+              "description": "Color of this light in the CIE 1931 color space (x/y)",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "X",
+                  "name": "x",
+                  "property": "x",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Y",
+                  "name": "y",
+                  "property": "y",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (X/Y)",
+              "name": "color_xy",
+              "property": "color",
+              "type": "composite"
+            },
+            {
+              "access": 7,
+              "description": "Color of this light expressed as hue/saturation",
+              "features": [
+                {
+                  "access": 7,
+                  "label": "Hue",
+                  "name": "hue",
+                  "property": "hue",
+                  "type": "numeric"
+                },
+                {
+                  "access": 7,
+                  "label": "Saturation",
+                  "name": "saturation",
+                  "property": "saturation",
+                  "type": "numeric"
+                }
+              ],
+              "label": "Color (HS)",
+              "name": "color_hs",
+              "property": "color",
+              "type": "composite"
+            }
+          ],
+          "type": "light"
+        },
+        {
+          "access": 7,
+          "description": "Controls the behavior when the device is powered on after power loss",
+          "label": "Power-on behavior",
+          "name": "power_on_behavior",
+          "property": "power_on_behavior",
+          "type": "enum",
+          "values": [
+            "off",
+            "on",
+            "toggle",
+            "previous"
+          ]
+        },
+        {
+          "access": 2,
+          "label": "Effect",
+          "name": "effect",
+          "property": "effect",
+          "type": "enum",
+          "values": [
+            "blink",
+            "breathe",
+            "okay",
+            "channel_change",
+            "candle",
+            "fireplace",
+            "colorloop",
+            "finish_effect",
+            "stop_effect",
+            "stop_hue_effect"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "9290022266A",
+      "options": [
+        {
+          "access": 2,
+          "description": "Controls the transition time (in seconds) of on/off, brightness, color temperature (if applicable) and color (if applicable) changes. Defaults to `0` (no transition).",
+          "label": "Transition",
+          "name": "transition",
+          "property": "transition",
+          "type": "numeric",
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "When enabled colors will be synced, e.g. if the light supports both color x/y and color temperature a conversion from color x/y to color temperature will be done when setting the x/y color (default true).",
+          "label": "Color sync",
+          "name": "color_sync",
+          "property": "color_sync",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        },
+        {
+          "access": 2,
+          "description": "State actions will also be published as 'action' when true (default false).",
+          "label": "State action",
+          "name": "state_action",
+          "property": "state_action",
+          "type": "binary",
+          "value_off": false,
+          "value_on": true
+        }
+      ],
+      "supports_ota": true,
+      "vendor": "Philips"
+    },
+    "disabled": false,
+    "endpoints": {
+      "11": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genBasic",
+            "genIdentify",
+            "genGroups",
+            "genScenes",
+            "genOnOff",
+            "genLevelCtrl",
+            "touchlink",
+            "manuSpecificSamsungAccelerometer",
+            "lightingColorCtrl",
+            "manuSpecificUbisysDimmerSetup"
+          ],
+          "output": [
+            "genOta"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      },
+      "242": {
+        "bindings": [],
+        "clusters": {
+          "input": [],
+          "output": [
+            "greenPower"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0x001788010d783295",
+    "ieee_address": "0x001788010d783295",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "Signify Netherlands B.V.",
+    "model_id": "LCA005",
+    "network_address": 63063,
+    "power_source": "Mains (single phase)",
+    "software_build_id": "1.76.11",
+    "supported": true,
+    "type": "Router"
+  },
+  {
+    "date_code": "",
+    "definition": {
+      "description": "Soil sensor",
+      "exposes": [
+        {
+          "access": 1,
+          "description": "Measured temperature value",
+          "label": "Temperature",
+          "name": "temperature",
+          "property": "temperature",
+          "type": "numeric",
+          "unit": "°C"
+        },
+        {
+          "access": 1,
+          "description": "Measured soil moisture value",
+          "label": "Soil moisture",
+          "name": "soil_moisture",
+          "property": "soil_moisture",
+          "type": "numeric",
+          "unit": "%"
+        },
+        {
+          "access": 3,
+          "description": "Temperature unit",
+          "label": "Temperature unit",
+          "name": "temperature_unit",
+          "property": "temperature_unit",
+          "type": "enum",
+          "values": [
+            "celsius",
+            "fahrenheit"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Remaining battery in %, can take up to 24 hours before reported.",
+          "label": "Battery",
+          "name": "battery",
+          "property": "battery",
+          "type": "numeric",
+          "unit": "%",
+          "value_max": 100,
+          "value_min": 0
+        },
+        {
+          "access": 1,
+          "description": "State of the battery",
+          "label": "Battery state",
+          "name": "battery_state",
+          "property": "battery_state",
+          "type": "enum",
+          "values": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "access": 1,
+          "description": "Link quality (signal strength)",
+          "label": "Linkquality",
+          "name": "linkquality",
+          "property": "linkquality",
+          "type": "numeric",
+          "unit": "lqi",
+          "value_max": 255,
+          "value_min": 0
+        }
+      ],
+      "model": "TS0601_soil",
+      "options": [
+        {
+          "access": 2,
+          "description": "Calibrates the temperature value (absolute offset), takes into effect on next report of device.",
+          "label": "Temperature calibration",
+          "name": "temperature_calibration",
+          "property": "temperature_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for temperature, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Temperature precision",
+          "name": "temperature_precision",
+          "property": "temperature_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        },
+        {
+          "access": 2,
+          "description": "Calibrates the soil_moisture value (absolute offset), takes into effect on next report of device.",
+          "label": "Soil moisture calibration",
+          "name": "soil_moisture_calibration",
+          "property": "soil_moisture_calibration",
+          "type": "numeric"
+        },
+        {
+          "access": 2,
+          "description": "Number of digits after decimal point for soil_moisture, takes into effect on next report of device. This option can only decrease the precision, not increase it.",
+          "label": "Soil moisture precision",
+          "name": "soil_moisture_precision",
+          "property": "soil_moisture_precision",
+          "type": "numeric",
+          "value_max": 3,
+          "value_min": 0
+        }
+      ],
+      "supports_ota": false,
+      "vendor": "TuYa"
+    },
+    "disabled": false,
+    "endpoints": {
+      "1": {
+        "bindings": [],
+        "clusters": {
+          "input": [
+            "genGroups",
+            "genScenes",
+            "manuSpecificTuya",
+            "genBasic"
+          ],
+          "output": [
+            "genOta",
+            "genTime"
+          ]
+        },
+        "configured_reportings": [],
+        "scenes": []
+      }
+    },
+    "friendly_name": "0xa4c1386fc2751121",
+    "ieee_address": "0xa4c1386fc2751121",
+    "interview_completed": true,
+    "interviewing": false,
+    "manufacturer": "_TZE200_myd45weu",
+    "model_id": "TS0601",
+    "network_address": 38086,
+    "power_source": "Battery",
+    "supported": true,
+    "type": "EndDevice"
+  }
+]

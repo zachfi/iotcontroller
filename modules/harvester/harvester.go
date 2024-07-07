@@ -2,11 +2,12 @@ package harvester
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"sync"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
@@ -16,8 +17,7 @@ import (
 	"github.com/zachfi/zkit/pkg/tracing"
 
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
-	"github.com/zachfi/iotcontroller/pkg/iot"
-	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 const module = "harvester"
@@ -40,8 +40,8 @@ type Harvester struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	telemetryClient telemetryv1.TelemetryServiceClient
-	stream          telemetryv1.TelemetryService_TelemetryReportIOTDeviceClient
+	routeClient iotv1proto.RouteServiceClient
+	routeStream iotv1proto.RouteService_RouteClient
 
 	mqttClient *mqttclient.MQTTClient
 }
@@ -52,8 +52,8 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 
-		telemetryClient: telemetryv1.NewTelemetryServiceClient(conn),
-		mqttClient:      mqttClient,
+		routeClient: iotv1proto.NewRouteServiceClient(conn),
+		mqttClient:  mqttClient,
 	}
 
 	h.Service = services.NewBasicService(h.starting, h.running, h.stopping)
@@ -62,17 +62,23 @@ func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqt
 }
 
 func (h *Harvester) starting(ctx context.Context) error {
-	stream, err := h.telemetryClient.TelemetryReportIOTDevice(ctx)
+	// TODO: when we are starting with All target, we don't want to connect to
+	// the k8s service because the service is not yet available.  Perhaps split
+	// this out into various targets, OR, in All mode connect to only the local
+	// bind address and not the k8s service.
+	/* if h.cfg.Target == All { } */
+
+	routeStream, err := h.routeClient.Route(ctx)
 	if err != nil {
 		return err
 	}
 
-	h.stream = stream
+	h.routeStream = routeStream
 
 	return nil
 }
 
-func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
+func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 	return func(_ mqtt.Client, msg mqtt.Message) {
 		var err error
 		_, span := h.tracer.Start(
@@ -84,28 +90,30 @@ func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
 
 		harvesterMessageTotal.WithLabelValues().Inc()
 
-		var topicPath iot.TopicPath
-		topicPath, err = iot.ParseTopicPath(msg.Topic())
-		if err != nil {
-			harvesterMessageErrors.WithLabelValues().Inc()
-			h.logger.Error("err", errors.Wrap(err, "failed to parse topic path"))
-			return
-		}
+		wg := sync.WaitGroup{}
 
-		req := &telemetryv1.TelemetryReportIOTDeviceRequest{
-			DeviceDiscovery: iot.ParseDiscoveryMessage(topicPath, msg),
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-		err = h.stream.Send(req)
-		if err != nil {
-			harvesterMessageErrors.WithLabelValues().Inc()
-			h.logger.Error("failed to send on stream", "err", err.Error())
-		}
+			routeReq := &iotv1proto.RouteRequest{
+				Path:    msg.Topic(),
+				Message: msg.Payload(),
+			}
+
+			routeErr := h.routeStream.Send(routeReq)
+			if routeErr != nil {
+				harvesterMessageErrors.WithLabelValues().Inc()
+				h.logger.Error("failed to send on routeStream", "err", routeErr)
+			}
+		}()
+
+		wg.Wait()
 	}
 }
 
 func (h *Harvester) running(ctx context.Context) error {
-	var onMessageReceived mqtt.MessageHandler = h.messageFunc(ctx)
+	onMessageReceived := h.messageFunc(ctx)
 
 	go func() {
 		token := h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
@@ -121,6 +129,21 @@ func (h *Harvester) running(ctx context.Context) error {
 }
 
 func (h *Harvester) stopping(_ error) error {
-	_, err := h.stream.CloseAndRecv()
-	return err
+	var (
+		err  error
+		errs []error
+	)
+
+	if h.routeStream != nil {
+		_, err = h.routeStream.CloseAndRecv()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }

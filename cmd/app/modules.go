@@ -11,6 +11,8 @@ import (
 	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 
@@ -20,25 +22,25 @@ import (
 	"github.com/zachfi/iotcontroller/modules/harvester"
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
-	"github.com/zachfi/iotcontroller/modules/telemetry"
+	"github.com/zachfi/iotcontroller/modules/router"
+	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
-	iotv1 "github.com/zachfi/iotcontroller/proto/iot/v1"
-	telemetryv1 "github.com/zachfi/iotcontroller/proto/telemetry/v1"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 const (
 	Server string = "server"
 
 	Client       string = "client"
+	EventClient  string = "eventclient"
 	Conditioner  string = "conditioner"
 	Controller   string = "controller"
 	Harvester    string = "harvester"
 	HookReceiver string = "hook-receiver"
 	MQTTClient   string = "mqttclient"
-	Telemetry    string = "telemetry"
+	Router       string = "router"
+	Weather      string = "weather"
 	ZoneKeeper   string = "zone-keeper"
-
-	// Weather string = "weather"
 
 	All string = "all"
 )
@@ -54,28 +56,26 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(Controller, a.initController)
 	mm.RegisterModule(Harvester, a.initHarvester)
 	mm.RegisterModule(HookReceiver, a.initHookReceiver)
-	mm.RegisterModule(Telemetry, a.initTelemetry)
+	mm.RegisterModule(Router, a.initRouter)
+	mm.RegisterModule(Weather, a.initWeather)
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
 
 	mm.RegisterModule(All, nil)
 
-	// mm.RegisterModule(Lights, a.initLights)
-	// mm.RegisterModule(Timer, a.initTimer)
-
 	deps := map[string][]string{
 		// Server:       nil,
 
-		Client:     {Server},
-		MQTTClient: {Server},
+		Client:     {Server}, // GRPC client
+		MQTTClient: {Server}, // MQTT client
+		Controller: {Server}, // K8s client
 
-		Conditioner:  {Server, MQTTClient, Client, Controller},
-		Controller:   {Server, MQTTClient},
-		Harvester:    {Server, MQTTClient, Client, Telemetry},
+		Conditioner:  {Server, Client, Controller},
+		Harvester:    {Server, MQTTClient, Client, Router},
 		HookReceiver: {Server, Client, Conditioner},
-		Telemetry:    {Server, Controller, Client},
+		Router:       {Server, Client, Controller},
+		Weather:      {Server, Client, Conditioner},
 		ZoneKeeper:   {Server, MQTTClient, Controller},
 
-		// Lights:          {Server},
 		// Timer:      {Server},
 
 		All: {
@@ -83,7 +83,8 @@ func (a *App) setupModuleManager() error {
 			Controller,
 			Harvester,
 			HookReceiver,
-			Telemetry,
+			Router,
+			Weather,
 			ZoneKeeper,
 		},
 	}
@@ -100,7 +101,7 @@ func (a *App) setupModuleManager() error {
 }
 
 func (a *App) initHookReceiver() (services.Service, error) {
-	h, err := hookreceiver.New(a.cfg.HookReceiver, a.logger, a.client.Conn())
+	h, err := hookreceiver.New(a.cfg.HookReceiver, a.logger, a.eventReceiverClient)
 	if err != nil {
 		return nil, err
 	}
@@ -118,55 +119,66 @@ func (a *App) initClient() (services.Service, error) {
 	}
 
 	a.client = c
+	a.eventReceiverClient = iotv1proto.NewEventReceiverServiceClient(c.Conn())
 	return c, nil
 }
 
-func (a *App) initTimer() (services.Service, error) {
-	// conn := comms.SlimRPCClient(z.cfg.RPC.ServerAddress, z.logger)
-	//
-	// t, err := timer.New(z.cfg.Timer, z.logger, conn)
-	// if err != nil {
-	// 	return nil, errors.Wrap(err, "unable to init timer")
-	// }
-	//
-	// // astro.RegisterAstroServer(z.Server.GRPC, t.Astro)
-	// // named.RegisterNamedServer(z.Server.GRPC, t.Named)
-	//
-	// z.timer = t
-	// return t, nil
-	return nil, nil
-}
+/* func (a *App) initTimer() (services.Service, error) { */
+// conn := comms.SlimRPCClient(z.cfg.RPC.ServerAddress, z.logger)
+//
+// t, err := timer.New(z.cfg.Timer, z.logger, conn)
+// if err != nil {
+// 	return nil, errors.Wrap(err, "unable to init timer")
+// }
+//
+// // astro.RegisterAstroServer(z.Server.GRPC, t.Astro)
+// // named.RegisterNamedServer(z.Server.GRPC, t.Named)
+//
+// z.timer = t
+// return t, nil
+/* 	return nil, nil */
+/* } */
 
 func (a *App) initMqttClient() (services.Service, error) {
 	c, err := mqttclient.New(a.cfg.MQTTClient, a.logger)
 	if err != nil {
 		return nil, err
 	}
-	a.mqttclient = c
 
+	a.mqttclient = c
 	return c, nil
 }
 
 func (a *App) initController() (services.Service, error) {
-	c, err := controller.New(a.cfg.Controller, a.logger, a.mqttclient)
+	c, err := controller.New(a.cfg.Controller, a.logger)
 	if err != nil {
 		return nil, err
 	}
-	a.controller = c
 
+	a.controller = c
 	return c, nil
 }
 
-func (a *App) initTelemetry() (services.Service, error) {
-	t, err := telemetry.New(a.cfg.Telemetry, a.logger, a.controller.Client(), a.client.Conn())
+func (a *App) initRouter() (services.Service, error) {
+	r, err := router.New(a.cfg.Router, a.logger, a.controller.Client(), a.client.Conn())
 	if err != nil {
 		return nil, err
 	}
 
-	telemetryv1.RegisterTelemetryServiceServer(a.Server.GRPC, t)
+	iotv1proto.RegisterRouteServiceServer(a.Server.GRPC, r)
 
-	a.telemetry = t
-	return t, nil
+	a.router = r
+	return r, nil
+}
+
+func (a *App) initWeather() (services.Service, error) {
+	w, err := weather.New(a.cfg.Weather, a.logger, a.eventReceiverClient)
+	if err != nil {
+		return nil, err
+	}
+
+	a.weather = w
+	return w, nil
 }
 
 func (a *App) initZoneKeeper() (services.Service, error) {
@@ -175,7 +187,7 @@ func (a *App) initZoneKeeper() (services.Service, error) {
 		return nil, err
 	}
 
-	iotv1.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
+	iotv1proto.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
 
 	a.zonekeeper = z
 	return z, nil
@@ -192,12 +204,12 @@ func (a *App) initHarvester() (services.Service, error) {
 }
 
 func (a *App) initConditioner() (services.Service, error) {
-	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.client.Conn(), a.mqttclient, a.controller.Client())
+	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.client.Conn(), a.controller.Client())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create harvester")
 	}
 
-	iotv1.RegisterAlertReceiverServiceServer(a.Server.GRPC, c)
+	iotv1proto.RegisterEventReceiverServiceServer(a.Server.GRPC, c)
 
 	a.conditioner = c
 	return c, nil
@@ -217,6 +229,19 @@ func (a *App) initServer() (services.Service, error) {
 	a.cfg.Server.GRPCMiddleware = []grpc.UnaryServerInterceptor{
 		otelgrpc.UnaryServerInterceptor(),
 	}
+
+	/* prometheus.MustRegister(&a.cfg) */
+
+	if a.cfg.EnableGoRuntimeMetrics {
+		// unregister default Go collector
+		prometheus.Unregister(collectors.NewGoCollector())
+		// register Go collector with all available runtime metrics
+		prometheus.MustRegister(collectors.NewGoCollector(
+			collectors.WithGoCollectorRuntimeMetrics(collectors.MetricsAll),
+		))
+	}
+
+	/* DisableSignalHandling(&t.cfg.Server) */
 
 	server, err := server.New(a.cfg.Server)
 	if err != nil {

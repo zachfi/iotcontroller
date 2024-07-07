@@ -55,6 +55,10 @@ spec:
                 type: string
               state:
                 type: string
+              timeout_after:
+                type: string
+              timeout_state:
+                type: string
             type: object
         type: object
     served: true

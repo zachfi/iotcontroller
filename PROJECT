@@ -4,7 +4,7 @@
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: iot
 layout:
-- go.kubebuilder.io/v3
+- go.kubebuilder.io/v4
 projectName: iotcontroller
 repo: github.com/zachfi/iotcontroller
 resources:
@@ -31,6 +31,14 @@ resources:
   domain: iot
   group: iot
   kind: Zone
+  path: github.com/zachfi/iotcontroller/api/v1
+  version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: iot
+  group: iot
+  kind: Scene
   path: github.com/zachfi/iotcontroller/api/v1
   version: v1
 version: "3"

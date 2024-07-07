@@ -22,11 +22,13 @@ import (
 
 // ConditionSpec defines the desired state of Condition
 type ConditionSpec struct {
-	Name         string        `json:"name,omitempty"`
-	Enabled      bool          `json:"enabled,omitempty"`
-	Alertname    string        `json:"alertname,omitempty"`
-	Zone         string        `json:"zone,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Enabled bool   `json:"enabled,omitempty"`
+
 	Remediations []Remediation `json:"remediations,omitempty"`
+	Matches      []Match       `json:"matches,omitempty"`
+	// A cron string: * * * * *
+	Schedule string `json:"schedule,omitempty"`
 }
 
 // ConditionStatus defines the observed state of Condition
@@ -57,6 +59,22 @@ type Remediation struct {
 	Zone          string `json:"zone,omitempty"`
 	ActiveState   string `json:"active_state,omitempty"`
 	InactiveState string `json:"inactive_state,omitempty"`
+
+	ActiveScene   string `json:"active_scene,omitempty"`
+	InactiveScene string `json:"inactive_scene,omitempty"`
+
+	// WhenGate is used to create a window for the epoch around which this
+	// Remediation is applicable.
+	WhenGate When `json:"when_gate,omitempty"`
+}
+
+type When struct {
+	Start string `json:"start,omitempty"`
+	Stop  string `json:"stop,omitempty"`
+}
+
+type Match struct {
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 func init() {

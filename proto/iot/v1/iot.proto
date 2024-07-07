@@ -3,7 +3,6 @@ syntax = "proto3";
 package iot.v1;
 
 message UpdateDeviceResponse {}
-message AlertResponse {}
 
 // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
 message DeviceDiscovery {
@@ -15,14 +14,6 @@ message DeviceDiscovery {
   bytes message = 6;
 }
 
-message AlertRequest {
-  string group = 1;
-  string status = 2;
-  string name = 3;
-  string zone = 4;
-  map<string, string> labels = 5;
-}
-
 message UpdateDeviceRequest {
   string device = 1;
 }
@@ -31,8 +22,24 @@ service IOTService {
   rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
 }
 
-service AlertReceiverService {
-  rpc Alert(AlertRequest) returns (AlertResponse);
+message EventRequest {
+  string name = 1;
+  map<string, string> labels = 2;
+}
+message EventResponse {}
+
+service EventReceiverService {
+  rpc Event(EventRequest) returns (EventResponse);
+}
+
+message RouteRequest {
+  string path = 1;
+  bytes message = 2;
+}
+message RouteResponse {}
+
+service RouteService {
+  rpc Route(stream RouteRequest) returns (RouteResponse);
 }
 
 enum ColorTemperature {
@@ -61,12 +68,6 @@ enum ZoneState {
   ZONE_STATE_OFFTIMER = 3;
   ZONE_STATE_COLOR = 4;
   ZONE_STATE_RANDOMCOLOR = 5;
-  /* DIM = 5; */
-
-  ////
-  ZONE_STATE_NIGHTVISION = 6;
-  ZONE_STATE_EVENINGVISION = 7;
-  ZONE_STATE_MORNINGVISION = 8;
 }
 
 message SetStateResponse {}
@@ -74,6 +75,13 @@ message SetStateResponse {}
 message SetStateRequest {
   string name = 1;
   ZoneState state = 2;
+}
+
+message SetSceneResponse {}
+
+message SetSceneRequest {
+  string name = 1;
+  string scene = 2;
 }
 
 message GetDeviceZoneRequest {
@@ -101,6 +109,7 @@ message SelfAnnounceResponse {}
 
 service ZoneKeeperService {
   rpc SetState(SetStateRequest) returns (SetStateResponse);
+  rpc SetScene(SetSceneRequest) returns (SetSceneResponse);
   rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
   rpc ActionHandler(ActionHandlerRequest) returns (ActionHandlerResponse);
   rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
@@ -123,4 +132,6 @@ enum DeviceType {
   DEVICE_TYPE_TEMPERATURE = 8;
   DEVICE_TYPE_MOTION = 9;
   DEVICE_TYPE_ISPINDEL = 10;
+  DEVICE_TYPE_SOIL = 11;
+  DEVICE_TYPE_AIR_QUALITY = 12;
 }

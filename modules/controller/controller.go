@@ -12,13 +12,15 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	iotv1 "github.com/zachfi/iotcontroller/api/v1"
-	"github.com/zachfi/iotcontroller/controllers"
-	"github.com/zachfi/iotcontroller/modules/mqttclient"
+	controller "github.com/zachfi/iotcontroller/internal/controller"
 )
 
 type Controller struct {
@@ -29,8 +31,7 @@ type Controller struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	mgr        manager.Manager
-	mqttclient *mqttclient.MQTTClient
+	mgr manager.Manager
 }
 
 var scheme = runtime.NewScheme() // setupLog = ctrl.Log.WithName("setup")
@@ -42,7 +43,7 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
-func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*Controller, error) {
+func New(cfg Config, logger *slog.Logger) (*Controller, error) {
 	c := &Controller{
 		cfg:    &cfg,
 		logger: logger.With("module", "controller"),
@@ -53,12 +54,20 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*C
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		MetricsBindAddress:     c.cfg.MetricsAddr,
-		Port:                   9443,
 		HealthProbeBindAddress: c.cfg.ProbeAddr,
 		LeaderElection:         c.cfg.EnableLeaderElection,
 		LeaderElectionID:       "cefdf353.iot",
-		Namespace:              cfg.Namespace,
+		Cache: cache.Options{
+			DefaultNamespaces: map[string]cache.Config{
+				c.cfg.Namespace: {},
+			},
+		},
+		Metrics: server.Options{
+			BindAddress: c.cfg.MetricsAddr,
+		},
+		WebhookServer: webhook.NewServer(webhook.Options{
+			Port: 9443,
+		}),
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -76,7 +85,6 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*C
 	}
 
 	c.mgr = mgr
-	c.mqttclient = mqttclient
 
 	return c, nil
 }
@@ -84,7 +92,7 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient) (*C
 func (c *Controller) starting(ctx context.Context) error {
 	var err error
 
-	deviceController := &controllers.DeviceReconciler{
+	deviceController := &controller.DeviceReconciler{
 		Client: c.mgr.GetClient(),
 		Scheme: c.mgr.GetScheme(),
 	}
@@ -95,7 +103,7 @@ func (c *Controller) starting(ctx context.Context) error {
 		return errors.Wrap(err, "unable to create Device controller")
 	}
 
-	zoneController := &controllers.ZoneReconciler{
+	zoneController := &controller.ZoneReconciler{
 		Client: c.mgr.GetClient(),
 		Scheme: c.mgr.GetScheme(),
 	}

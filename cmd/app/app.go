@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/gorilla/mux"
+	"github.com/grafana/dskit/grpcutil"
 	"github.com/grafana/dskit/modules"
 	"github.com/grafana/dskit/server"
 	"github.com/grafana/dskit/services"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/prometheus/common/version"
+	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/zachfi/iotcontroller/modules/client"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
@@ -25,8 +27,10 @@ import (
 	"github.com/zachfi/iotcontroller/modules/harvester"
 	"github.com/zachfi/iotcontroller/modules/hookreceiver"
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
-	"github.com/zachfi/iotcontroller/modules/telemetry"
+	"github.com/zachfi/iotcontroller/modules/router"
+	"github.com/zachfi/iotcontroller/modules/weather"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 const (
@@ -52,9 +56,13 @@ type App struct {
 	// lights     *lights.Lights
 	mqttclient   *mqttclient.MQTTClient
 	client       *client.Client
-	telemetry    *telemetry.Telemetry
+	weather      *weather.Weather
 	zonekeeper   *zonekeeper.ZoneKeeper
 	hookreceiver *hookreceiver.HookReceiver
+	router       *router.Router
+
+	// Service clients
+	eventReceiverClient iotv1proto.EventReceiverServiceClient
 
 	ModuleManager *modules.Manager
 	serviceMap    map[string]services.Service
@@ -94,13 +102,14 @@ func (a *App) Run() error {
 		return fmt.Errorf("failed to start service manager %w", err)
 	}
 
-	a.Server.HTTP.Path("/ready").Handler(a.readyHandler(sm))
-	a.Server.HTTP.Path("/status").Handler(a.statusHandler()).Methods("GET")
-	a.Server.HTTP.Path("/status/{endpoint}").Handler(a.statusHandler()).Methods("GET")
+	a.Server.HTTP.Path("/ready").Handler(a.readyHandler(sm)).Methods(http.MethodGet)
+	a.Server.HTTP.Path("/status").Handler(a.statusHandler()).Methods(http.MethodGet)
+	a.Server.HTTP.Path("/status/{endpoint}").Handler(a.statusHandler()).Methods(http.MethodGet)
+	grpc_health_v1.RegisterHealthServer(a.Server.GRPC, grpcutil.NewHealthCheck(sm))
 
 	// Listen for events from this manager, and log them.
-	healthy := func() { a.logger.Info("started") }
-	stopped := func() { a.logger.Info("stopped") }
+	healthy := func() { a.logger.Info("started", "app", appName) }
+	stopped := func() { a.logger.Info("stopped", "app", appName) }
 	serviceFailed := func(service services.Service) {
 		// if any service fails, stop everything
 		sm.StopAsync()
@@ -108,7 +117,7 @@ func (a *App) Run() error {
 		// let's find out which module failed
 		for m, s := range serviceMap {
 			if s == service {
-				if service.FailureCase() == modules.ErrStopProcess {
+				if errors.Is(service.FailureCase(), modules.ErrStopProcess) {
 					a.logger.Info("received stop signal via return error", "module", m, "err", service.FailureCase())
 				} else {
 					a.logger.Error("module failed", "module", m, "err", service.FailureCase())
@@ -139,7 +148,7 @@ func (a *App) Run() error {
 }
 
 func (a *App) readyHandler(sm *services.Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		if !sm.IsHealthy() {
 			msg := bytes.Buffer{}
 			msg.WriteString("Some services are not Running:\n")
@@ -168,9 +177,10 @@ func (a *App) statusHandler() http.HandlerFunc {
 		msg := bytes.Buffer{}
 
 		simpleEndpoints := map[string]func(io.Writer) error{
-			"version":   a.writeStatusVersion,
-			"endpoints": a.writeStatusEndpoints,
-			"services":  a.writeStatusServices,
+			"version":     a.writeStatusVersion,
+			"endpoints":   a.writeStatusEndpoints,
+			"services":    a.writeStatusServices,
+			"conditioner": a.writeStatusConditioner,
 		}
 
 		wrapStatus := func(endpoint string) {
@@ -191,6 +201,7 @@ func (a *App) statusHandler() http.HandlerFunc {
 			wrapStatus("version")
 			wrapStatus("services")
 			wrapStatus("endpoints")
+			wrapStatus("conditioner")
 		}
 
 		w.Header().Set("Content-Type", "text/plain")
@@ -234,7 +245,7 @@ func (a *App) writeStatusEndpoints(w io.Writer) error {
 
 	endpoints := []endpoint{}
 
-	err := a.Server.HTTP.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+	err := a.Server.HTTP.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		e := endpoint{}
 
 		pathTemplate, err := route.GetPathTemplate()
@@ -303,6 +314,25 @@ func (a *App) writeStatusServices(w io.Writer) error {
 		x.AppendRows([]table.Row{
 			{name, service.State(), e},
 		})
+	}
+
+	x.AppendSeparator()
+	x.Render()
+
+	return nil
+}
+
+func (a *App) writeStatusConditioner(w io.Writer) error {
+	x := table.NewWriter()
+	x.SetOutputMirror(w)
+	x.AppendHeader(table.Row{"name", "next", "scene", "state"})
+
+	for _, s := range a.conditioner.Status() {
+		x.AppendRow(
+			table.Row{
+				s.Name, s.Next, s.Scene, s.State,
+			},
+		)
 	}
 
 	x.AppendSeparator()

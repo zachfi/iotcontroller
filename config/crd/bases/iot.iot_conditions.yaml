@@ -35,24 +35,45 @@ spec:
           spec:
             description: ConditionSpec defines the desired state of Condition
             properties:
-              alertname:
-                type: string
               enabled:
                 type: boolean
+              matches:
+                items:
+                  properties:
+                    labels:
+                      additionalProperties:
+                        type: string
+                      type: object
+                  type: object
+                type: array
               name:
                 type: string
               remediations:
                 items:
                   properties:
+                    active_scene:
+                      type: string
                     active_state:
+                      type: string
+                    inactive_scene:
                       type: string
                     inactive_state:
                       type: string
+                    when_gate:
+                      description: WhenGate is used to create a window for the epoch
+                        around which this Remediation is applicable.
+                      properties:
+                        start:
+                          type: string
+                        stop:
+                          type: string
+                      type: object
                     zone:
                       type: string
                   type: object
                 type: array
-              zone:
+              schedule:
+                description: 'A cron string: * * * * *'
                 type: string
             type: object
           status:

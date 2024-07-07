@@ -13,9 +13,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	gcodes "google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/zachfi/zkit/pkg/tracing"
 
@@ -45,15 +47,10 @@ type ZoneKeeper struct {
 	tracer trace.Tracer
 
 	mqttclient *mqttclient.MQTTClient
-	kubeclient client.Client
+	kubeclient kubeclient.Client
 
 	handlers   map[controllerHandler]iot.Handler
 	announceer map[string]time.Time
-
-	// TODO: a color temperature scheduler might adjsut the temperature of the
-	// lights depending on a schedule.  Could this be a kubernetes object that we
-	// consume?  Could be done over RPC for the udpate from a
-	// schedule_controller. colorTempScheduler ColorTempSchedulerFunc
 
 	zones map[string]*iot.Zone
 }
@@ -65,7 +62,7 @@ const (
 	controllerHandlerNoop
 )
 
-func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kubeclient client.Client) (*ZoneKeeper, error) {
+func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kubeclient kubeclient.Client) (*ZoneKeeper, error) {
 	z := &ZoneKeeper{
 		cfg:        &cfg,
 		logger:     logger.With("module", module),
@@ -103,17 +100,41 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 	}
 
 	zone.SetState(ctx, req.State)
-
-	wg := sync.WaitGroup{}
-
-	wg.Add(1)
-	go func(ctx context.Context) {
-		defer wg.Done()
-		z.apiStatusUpdate(ctx, zone)
-	}(ctx)
-
 	err = zone.Flush(ctx, unlimited)
-	wg.Wait()
+	z.apiStatusUpdate(ctx, zone)
+	return resp, err
+}
+
+func (z *ZoneKeeper) SetScene(ctx context.Context, req *iotv1proto.SetSceneRequest) (*iotv1proto.SetSceneResponse, error) {
+	if req.Scene == "" {
+		return nil, fmt.Errorf("unable to operate on empty scene name")
+	}
+
+	var (
+		err  error
+		zone *iot.Zone
+		resp = &iotv1proto.SetSceneResponse{}
+	)
+
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.SetState",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("name", req.Name),
+			attribute.String("scene", req.Scene),
+		),
+	)
+	defer func() { _ = tracing.ErrHandler(span, err, "set scene", z.logger) }()
+
+	zone, err = z.GetZone(ctx, req.Name)
+	if err != nil {
+		return resp, err
+	}
+
+	err = z.setZoneScene(ctx, zone, req.Scene)
+	if err != nil {
+		return resp, err
+	}
+
 	return resp, err
 }
 
@@ -135,24 +156,27 @@ func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnou
 	defer func() { _ = tracing.ErrHandler(span, err, "self announce", z.logger) }()
 
 	z.mtx.Lock()
-	if v, ok := z.announceer[req.Device]; ok {
-		if time.Since(v) < 10*time.Second {
+	if v, ok := z.announceer[req.String()]; ok {
+		if time.Since(v) < 1*time.Second {
 			span.SetAttributes(
 				attribute.String("skipped", "too recent"),
 			)
-			defer z.mtx.Unlock()
+			z.mtx.Unlock()
 			return resp, nil
 		}
 	}
-
-	z.announceer[req.Device] = time.Now()
 	z.mtx.Unlock()
+
+	z.announceer[req.String()] = time.Now()
 
 	limiter = func(d string) bool {
 		return d == req.Device
 	}
 
 	zone, err = z.GetZone(ctx, req.Zone)
+	if err != nil {
+		return &iotv1proto.SelfAnnounceResponse{}, err
+	}
 	return resp, zone.Flush(ctx, limiter)
 }
 
@@ -210,13 +234,23 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 	case "hold", "button_2_press":
 		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_DIM)
 		zone.On(ctx)
-	case "up_press", "rotate_right", "dial_rotate_right_slow", "dial_rotate_right_fast", "dial_rotate_right_step", "brightness_step_up":
+	case UpPress, RotateRight, DialRotateRightSlow, DialRotateRightFast, DialRotateRightStep, BrightnessStepUp:
 		zone.IncrementBrightness(ctx)
 		zone.On(ctx)
-	case "down_press", "rotate_left", "dial_rotate_left_slow", "dial_rotate_left_fast", "dial_rotate_left_step", "brightness_step_down":
+	case DownPress, RotateLeft, DialRotateLeftSlow, DialRotateLeftFast, DialRotateLeftStep, BrightnessStepDown:
 		zone.DecrementBrightness(ctx)
 		zone.On(ctx)
-	case "wakeup", "press", "release", "off_hold", "off_hold_release", "on_press_release", "up_press_release", "down_press_release": // do nothing
+	case
+		"wakeup",
+		"press",
+		"release",
+		"off_hold",
+		"off_hold_release",
+		"on_press_release",
+		"off_press_release",
+		"up_press_release",
+		"down_press_release",
+		"button_1_press_release": // do nothing
 		return resp, nil
 	default:
 		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", req.Event, req.Device, req.Zone))
@@ -225,22 +259,103 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 	return resp, errHandler(span, zone.Flush(ctx, unlimited))
 }
 
+const (
+	// Incprement Brightness
+	UpPress             = "up_press"
+	RotateRight         = "rotate_right"
+	DialRotateRightSlow = "dial_rotate_right_slow"
+	DialRotateRightFast = "dial_rotate_right_fast"
+	DialRotateRightStep = "dial_rotate_right_step"
+	BrightnessStepUp    = "brightness_step_up"
+
+	// Decrement Brightness
+	DownPress          = "down_press"
+	RotateLeft         = "rotate_left"
+	DialRotateLeftSlow = "dial_rotate_left_slow"
+	DialRotateLeftFast = "dial_rotate_left_fast"
+	DialRotateLeftStep = "dial_rotate_left_step"
+	BrightnessStepDown = "brightness_step_down"
+)
+
+func (z *ZoneKeeper) setZoneScene(ctx context.Context, zone *iot.Zone, scene string) error {
+	var (
+		err      error
+		apiScene apiv1.Scene
+	)
+
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.setZoneScene")
+	defer func() { _ = tracing.ErrHandler(span, err, "set zone scene", z.logger) }()
+
+	span.SetAttributes(
+		attribute.String("zone", zone.Name()),
+		attribute.String("scene", scene),
+	)
+
+	nsn := types.NamespacedName{
+		Name:      scene,
+		Namespace: namespace,
+	}
+
+	err = z.kubeclient.Get(ctx, nsn, &apiScene)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			span.AddEvent(err.Error())
+			return gstatus.Error(gcodes.NotFound, err.Error())
+		}
+	}
+
+	var (
+		brightness = iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED
+		colorTemp  = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED
+		color      string
+	)
+
+	if v, ok := iotv1proto.Brightness_value[apiScene.Spec.Brightness]; ok {
+		brightness = iotv1proto.Brightness(v)
+	}
+
+	if v, ok := iotv1proto.ColorTemperature_value[apiScene.Spec.ColorTemperature]; ok {
+		colorTemp = iotv1proto.ColorTemperature(v)
+	}
+
+	if apiScene.Spec.Color != "" {
+		color = apiScene.Spec.Color
+	}
+
+	if brightness > iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED {
+		zone.SetBrightness(ctx, brightness)
+	}
+
+	if colorTemp > iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED {
+		zone.SetColorTemperature(ctx, colorTemp)
+	}
+
+	if color != "" {
+		zone.SetColor(ctx, color)
+	}
+
+	z.apiStatusUpdate(ctx, zone)
+
+	return nil
+}
+
 func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 	var (
 		err  error
 		zone *apiv1.Zone
 	)
 
-	_, span := z.tracer.Start(ctx, "ZoneKeeper.apiStatusUpdate")
-	defer func() { _ = errHandler(span, err) }()
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.apiStatusUpdate")
+	defer func() { _ = tracing.ErrHandler(span, err, "api status update", z.logger) }()
 
-	name, state, brightness, colorTemp := iotZone.Name(), iotZone.State(), iotZone.Brightness(), iotZone.ColorTemperature()
+	name, state, brightness, colorTemp, color := iotZone.Name(), iotZone.State(), iotZone.Brightness(), iotZone.ColorTemperature(), iotZone.Color()
 
 	span.SetAttributes(
 		attribute.String("zone", name),
 		attribute.String("state", state.String()),
 		attribute.String("brightness", brightness.String()),
 		attribute.String("colorTemp", colorTemp.String()),
+		attribute.String("color", color),
 	)
 
 	zone, err = z.getOrCreateAPIZone(ctx, name)
@@ -251,6 +366,7 @@ func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 	zone.Status.State = iotZone.State().String()
 	zone.Status.Brightness = iotv1proto.Brightness_name[int32(iotZone.Brightness())]
 	zone.Status.ColorTemperature = iotv1proto.ColorTemperature_name[int32(iotZone.ColorTemperature())]
+	zone.Status.Color = color
 
 	if err = z.kubeclient.Status().Update(ctx, zone); err != nil {
 		return
@@ -323,9 +439,27 @@ func (z *ZoneKeeper) GetZone(ctx context.Context, name string) (*iot.Zone, error
 		return nil, fmt.Errorf("failed to get api zone: %w", err)
 	}
 
-	zone.SetState(ctx, iotv1proto.ZoneState(iotv1proto.ZoneState_value[apiZone.Status.State]))
-	zone.SetBrightness(ctx, iotv1proto.Brightness(iotv1proto.Brightness_value[apiZone.Status.Brightness]))
-	zone.SetColorTemperature(ctx, iotv1proto.ColorTemperature(iotv1proto.ColorTemperature_value[apiZone.Status.ColorTemperature]))
+	var (
+		state      = iotv1proto.ZoneState(iotv1proto.ZoneState_value[apiZone.Status.State])
+		brightness = iotv1proto.Brightness(iotv1proto.Brightness_value[apiZone.Status.Brightness])
+		colorTemp  = iotv1proto.ColorTemperature(iotv1proto.ColorTemperature_value[apiZone.Status.ColorTemperature])
+	)
+
+	if state == iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		state = iotv1proto.ZoneState_ZONE_STATE_ON
+	}
+
+	if brightness == iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED {
+		brightness = iotv1proto.Brightness_BRIGHTNESS_FULL
+	}
+
+	if colorTemp == iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED {
+		colorTemp = iotv1proto.ColorTemperature_COLOR_TEMPERATURE_FIRSTLIGHT
+	}
+
+	zone.SetState(ctx, state)
+	zone.SetBrightness(ctx, brightness)
+	zone.SetColorTemperature(ctx, colorTemp)
 
 	z.zones[name] = zone
 
@@ -370,7 +504,7 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.zoneUpdate")
 	defer func() { _ = errHandler(span, err) }()
 
-	opts := &client.ListOptions{
+	opts := &kubeclient.ListOptions{
 		Namespace: namespace,
 	}
 
@@ -393,29 +527,33 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 			Type: iotv1proto.DeviceType(iotv1proto.DeviceType_value[d.Spec.Type]),
 		}
 
-		switch d.Spec.Type {
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT.String():
+		switch device.Type {
+		case iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_RELAY:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_RELAY.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_LEAK:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_LEAK.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_BUTTON:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BUTTON.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_MOISTURE:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOISTURE.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_MOTION:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOTION.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_SOIL:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL.String():
+		case iotv1proto.DeviceType_DEVICE_TYPE_AIR_QUALITY:
+			handler = z.handlers[controllerHandlerZigbee]
+
+		case iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL:
 			handler = z.handlers[controllerHandlerNoop]
+
 		default:
 			z.logger.Warn("using default handler", "device", d.Name, "type", d.Spec.Type)
 			handler = z.handlers[controllerHandlerNoop]
@@ -427,6 +565,9 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 				errs = append(errs, err)
 			}
 		}
+
+		// TODO: remove/update a device when its zone changes
+
 	}
 
 	if len(errs) > 0 {
@@ -444,16 +585,21 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 
 // GetZoneName returns a a pointer to a string containing the name of the zone for a given device name, or nil if one was not found.
 func (z *ZoneKeeper) GetDeviceZone(ctx context.Context, req *iotv1proto.GetDeviceZoneRequest) (*iotv1proto.GetDeviceZoneResponse, error) {
+	_, span := z.tracer.Start(ctx, "ZoneKeeper/GetDeviceZone", trace.WithAttributes(
+		attribute.String("device", req.Device),
+	))
+
 	resp := &iotv1proto.GetDeviceZoneResponse{}
 
 	for name, zone := range z.zones {
 		if zone.HasDevice(req.Device) {
 			resp.Zone = name
-			return resp, nil
+			span.SetAttributes(attribute.String("found zone", name))
+			return resp, errHandler(span, nil)
 		}
 	}
 
-	return nil, fmt.Errorf("device not matched in any zone")
+	return resp, errHandler(span, fmt.Errorf("device not matched in any zone"))
 }
 
 func (z *ZoneKeeper) getOrCreateAPIZone(ctx context.Context, name string) (*apiv1.Zone, error) {

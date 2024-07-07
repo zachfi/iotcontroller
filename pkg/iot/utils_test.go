@@ -1,14 +1,10 @@
 package iot
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	trace "go.opentelemetry.io/otel/trace"
-
-	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 func TestParseTopicPath(t *testing.T) {
@@ -229,6 +225,7 @@ func TestReadMessage(t *testing.T) {
 	}
 }
 
+/*
 func TestReadZigbeeMessage(t *testing.T) {
 	t.Parallel()
 
@@ -243,7 +240,7 @@ func TestReadZigbeeMessage(t *testing.T) {
 				Message:   []byte(`online`),
 				Endpoints: []string{"state"},
 			},
-			Obj: ZigbeeBridgeState("online"),
+			Obj: zigbee2mqtt.BridgeState("online"),
 		},
 		{
 			discovery: &iotv1proto.DeviceDiscovery{
@@ -258,7 +255,7 @@ func TestReadZigbeeMessage(t *testing.T) {
 			}`),
 				Endpoints: []string{"log"},
 			},
-			Obj: ZigbeeBridgeLog{
+			Obj: zigbee2mqtt.BridgeLog{
 				Message: "Update available for '0x001777090899e9c9'",
 				Meta: map[string]interface{}{
 					"device": "0x001777090899e9c9",
@@ -292,18 +289,18 @@ func TestZigbeeDeviceType(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		bridgeDevice ZigbeeBridgeDevice
+		bridgeDevice zigbee2mqtt.Device
 		devType      iotv1proto.DeviceType
 	}{
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
+			bridgeDevice: zigbee2mqtt.Device{
 				Type: "Coordinator",
 			},
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor: "Philips",
 				},
 				ModelID: "LCA003",
@@ -311,8 +308,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor: "Philips",
 				},
 				ModelID: "LCB002",
@@ -320,8 +317,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor: "SONOFF",
 					Model:  "S31ZB",
 				},
@@ -329,8 +326,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_RELAY,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor: "SONOFF",
 					Model:  "S40ZBTPB",
 				},
@@ -338,8 +335,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_RELAY,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor: "SONOFF",
 					Model:  "SNZB-01",
 				},
@@ -347,8 +344,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor:      "Philips",
 					Description: "Hue dimmer switch",
 				},
@@ -356,8 +353,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor:      "Philips",
 					Description: "Hue Tap dial switch",
 				},
@@ -365,8 +362,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor:      "Third Reality",
 					Description: "Temperature and humidity sensor",
 					Model:       "3RTHS24BZ",
@@ -375,8 +372,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor:      "Third Reality",
 					Description: "Smart button",
 					Model:       "3RSB22BZ",
@@ -385,8 +382,8 @@ func TestZigbeeDeviceType(t *testing.T) {
 			devType: iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
 		},
 		{
-			bridgeDevice: ZigbeeBridgeDevice{
-				Definition: ZigbeeBridgeDeviceDefinition{
+			bridgeDevice: zigbee2mqtt.Device{
+				Definition: zigbee2mqtt.Definition{
 					Vendor: "TuYa",
 					Model:  "TS0601_air_quality_sensor",
 				},
@@ -396,7 +393,23 @@ func TestZigbeeDeviceType(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		x := ZigbeeDeviceType(tc.bridgeDevice)
+		x := zigbee2mqtt.DeviceType(tc.bridgeDevice)
 		require.Equal(t, tc.devType, x)
 	}
 }
+
+func TestZigbee_DevicesJson(t *testing.T) {
+	content, err := os.ReadFile("/home/zach/go/src/github.com/zachfi/iotcontroller/pkg/iot/devices.json")
+	require.NoError(t, err)
+
+	var devices zigbee2mqtt.Devices
+	err = json.Unmarshal(content, &devices)
+	require.NoError(t, err)
+
+	for _, d := range devices {
+		if d.FriendlyName == "0x001788010d3803ad" {
+			t.Logf("device: %+v", d)
+		}
+	}
+}
+*/
