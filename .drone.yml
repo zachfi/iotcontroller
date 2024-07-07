@@ -5,3 +5,10 @@ steps:
   - make test
   image: golang
   name: test
+- commands:
+  - make docker-build
+  image: zachfi/shell:latest
+  name: build-image
+  volumes:
+  - name: dockersock
+    path: /var/run/docker.sock
