@@ -5,7 +5,7 @@ local buildImage() = {
   image: image,
   commands:
     [
-      'make docker-build',
+      'sudo make docker-build',
     ],
   volumes+: [
     { name: 'dockersock', path: '/var/run/docker.sock' },

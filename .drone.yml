@@ -7,7 +7,7 @@ steps:
   image: golang
   name: test
 - commands:
-  - make docker-build
+  - sudo make docker-build
   image: zachfi/shell:latest
   name: build-image
   volumes:
@@ -15,6 +15,6 @@ steps:
     path: /var/run/docker.sock
 ---
 kind: signature
-hmac: 92b6c5f98a0b29d96585ba600c042d1237c8d6498ef8a6fb2151e126bdeccbe3
+hmac: f60c21b9df7812a3c51f5e22980788b0f6621acdc64df5d307f29197332de6b0
 
 ...

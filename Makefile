@@ -162,7 +162,7 @@ proto-grpc:
 	@buf lint
 	@buf generate
 
-.PHONY: drone
+.PHONY: drone drone-signature
 drone:
 	@drone jsonnet --format
 	@drone lint --trusted
