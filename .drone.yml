@@ -1,4 +1,5 @@
 ---
+depends_on: []
 kind: pipeline
 name: ci
 steps:
@@ -13,8 +14,12 @@ steps:
   volumes:
   - name: dockersock
     path: /var/run/docker.sock
+volumes:
+- host:
+    path: /var/run/docker.sock
+  name: dockersock
 ---
 kind: signature
-hmac: f60c21b9df7812a3c51f5e22980788b0f6621acdc64df5d307f29197332de6b0
+hmac: 8a3d73e5d57c8d8bca329c74c9f1f3c6639910e90d8fa3cca1b1ae8169d7181d
 
 ...

@@ -1,5 +1,17 @@
 local image = 'zachfi/shell:latest';
 
+
+local pipeline(name) = {
+  kind: 'pipeline',
+  name: name,
+  steps: [],
+  depends_on: [],
+  volumes: [
+    // { name: 'cache', temp: {} },
+    { name: 'dockersock', host: { path: '/var/run/docker.sock' } },
+  ],
+};
+
 local buildImage() = {
   name: 'build-image',
   image: image,
@@ -12,22 +24,21 @@ local buildImage() = {
   ],
 };
 
-{
-  local this = self,
+local test() = {
+  name: 'test',
+  image: 'golang',
+  commands: [
+    'make test',
+  ],
+};
 
-  kind: 'pipeline',
-  // type: 'kubernetes',
-  name: 'ci',
-  steps: [
-           {
-             name: 'test',
-             image: 'golang',
-             commands: [
-               'make test',
-             ],
-           },
-         ]
-         + [
-           buildImage(),
-         ],
-}
+[
+  (
+    pipeline('ci') {
+      steps: [
+        test(),
+        buildImage(),
+      ],
+    }
+  ),
+]
