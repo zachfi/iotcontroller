@@ -162,7 +162,13 @@ proto-grpc:
 	@buf lint
 	@buf generate
 
-.PHONY: drone
+.PHONY: drone drone-signature
 drone:
-	@drone jsonnet --format
-	@drone lint
+	@drone jsonnet --stream --format
+	@drone lint --trusted
+
+drone-signature:
+ifndef DRONE_TOKEN
+	$(error DRONE_TOKEN is not set, visit https://drone.zach.fi/account)
+endif
+	@DRONE_SERVER=https://drone.zach.fi drone sign --save zachfi/iotcontroller .drone.yml
