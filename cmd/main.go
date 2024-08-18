@@ -102,12 +102,12 @@ func main() {
 
 	a, err := app.New(*cfg, logger)
 	if err != nil {
-		slog.Error("msg", "failed to create app", "err", err)
+		slog.Error("failed to create app", "err", err)
 		os.Exit(1)
 	}
 
 	if err := a.Run(); err != nil {
-		slog.Error("msg", "failed to run App", "err", err)
+		slog.Error("failed to run App", "err", err)
 		os.Exit(1)
 	}
 }
