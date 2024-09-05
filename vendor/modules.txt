@@ -27,6 +27,8 @@ github.com/eclipse/paho.mqtt.golang/packets
 ## explicit; go 1.13
 github.com/emicklei/go-restful/v3
 github.com/emicklei/go-restful/v3/log
+# github.com/evanphx/json-patch v5.6.0+incompatible
+## explicit
 # github.com/evanphx/json-patch/v5 v5.9.0
 ## explicit; go 1.18
 github.com/evanphx/json-patch/v5
@@ -127,7 +129,6 @@ github.com/gorilla/mux
 github.com/gorilla/websocket
 # github.com/grafana/dskit v0.0.0-20231012002814-3b80e3b2a51c
 ## explicit; go 1.19
-github.com/grafana/dskit/backoff
 github.com/grafana/dskit/flagext
 github.com/grafana/dskit/grpcutil
 github.com/grafana/dskit/httpgrpc
@@ -136,20 +137,11 @@ github.com/grafana/dskit/instrument
 github.com/grafana/dskit/log
 github.com/grafana/dskit/middleware
 github.com/grafana/dskit/modules
-github.com/grafana/dskit/multierror
-github.com/grafana/dskit/runutil
 github.com/grafana/dskit/server
 github.com/grafana/dskit/services
 github.com/grafana/dskit/signals
 github.com/grafana/dskit/tracing
 github.com/grafana/dskit/user
-# github.com/grafana/e2e v0.1.1
-## explicit; go 1.18
-github.com/grafana/e2e
-# github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc
-## explicit; go 1.21
-github.com/grafana/regexp
-github.com/grafana/regexp/syntax
 # github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0
 ## explicit; go 1.20
 github.com/grpc-ecosystem/grpc-gateway/v2/internal/httprule
@@ -266,11 +258,6 @@ github.com/prometheus/exporter-toolkit/web
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/util
-# github.com/prometheus/prometheus v0.53.0
-## explicit; go 1.21
-github.com/prometheus/prometheus/model/labels
-github.com/prometheus/prometheus/prompb
-github.com/prometheus/prometheus/tsdb/errors
 # github.com/rivo/uniseg v0.2.0
 ## explicit; go 1.12
 github.com/rivo/uniseg
