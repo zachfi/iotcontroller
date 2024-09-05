@@ -13,7 +13,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.17.2
 	github.com/onsi/gomega v1.33.1
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.20.0
+	github.com/prometheus/client_golang v1.20.2
 	github.com/prometheus/common v0.58.0
 	github.com/stretchr/testify v1.9.0
 	github.com/zachfi/zkit v0.1.1-0.20231126224249-a1c7b36a51a6
