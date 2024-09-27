@@ -21,7 +21,6 @@ import (
 	"github.com/prometheus/common/version"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/zachfi/iotcontroller/modules/client"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
 	"github.com/zachfi/iotcontroller/modules/controller"
 	"github.com/zachfi/iotcontroller/modules/harvester"
@@ -55,7 +54,6 @@ type App struct {
 	conditioner *conditioner.Conditioner
 	// lights     *lights.Lights
 	mqttclient   *mqttclient.MQTTClient
-	client       *client.Client
 	weather      *weather.Weather
 	zonekeeper   *zonekeeper.ZoneKeeper
 	hookreceiver *hookreceiver.HookReceiver

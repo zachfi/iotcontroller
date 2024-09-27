@@ -6,12 +6,12 @@ import (
 	"strconv"
 
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotutil "github.com/zachfi/iotcontroller/pkg/iot/util"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 const (
@@ -26,7 +26,7 @@ type Ispindel struct {
 	kubeclient kubeclient.Client
 }
 
-func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, _ *grpc.ClientConn) (*Ispindel, error) {
+func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, _ iotv1proto.ZoneKeeperServiceClient) (*Ispindel, error) {
 	i := &Ispindel{
 		logger:     logger.With("router", RouteName),
 		tracer:     tracer,

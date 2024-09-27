@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
 
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -44,13 +43,13 @@ type Conditioner struct {
 	sched *schedule
 }
 
-func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, k kubeclient.Client) (*Conditioner, error) {
+func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeperServiceClient, k kubeclient.Client) (*Conditioner, error) {
 	c := &Conditioner{
 		cfg:    &cfg,
 		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 
-		zonekeeperClient: iotv1proto.NewZoneKeeperServiceClient(conn),
+		zonekeeperClient: zoneKeeperClient,
 		kubeClient:       k,
 
 		sched: &schedule{

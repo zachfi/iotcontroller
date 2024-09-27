@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
@@ -56,26 +55,26 @@ type Router struct {
 
 /* type RouteFunc func([]byte, ...interface{}) error */
 
-func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, conn *grpc.ClientConn) (*Router, error) {
+func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) (*Router, error) {
 	c := &Router{
 		cfg:              &cfg,
 		logger:           logger.With("module", module),
 		tracer:           otel.Tracer(module),
 		kubeclient:       kubeclient,
-		zonekeeperClient: iotv1proto.NewZoneKeeperServiceClient(conn),
+		zonekeeperClient: zonekeeperClient,
 		queue:            make(chan *iotv1proto.RouteRequest, 10000),
 		regexps:          make(map[string]*regexp.Regexp, 10),
 		routers:          make(map[RouteTypes]interface{}),
 	}
 
-	z2m, err := zigbee2mqtt.New(logger, c.tracer, kubeclient, conn)
+	z2m, err := zigbee2mqtt.New(logger, c.tracer, kubeclient, c.zonekeeperClient)
 	if err != nil {
 		return nil, err
 	}
 
 	c.routers[Zigbee2MQTT] = z2m
 
-	isp, err := ispindel.New(logger, c.tracer, kubeclient, conn)
+	isp, err := ispindel.New(logger, c.tracer, kubeclient, c.zonekeeperClient)
 	if err != nil {
 		return nil, err
 	}

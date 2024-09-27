@@ -2,15 +2,15 @@ package harvester
 
 import (
 	"flag"
+
+	"github.com/zachfi/iotcontroller/internal/common"
+	"github.com/zachfi/zkit/pkg/util"
 )
 
-type Config struct{}
+type Config struct {
+	RouterClient common.ClientConfig `yaml:"router_address,omitempty"`
+}
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
-	// f.StringVar(
-	// 	&cfg.ServerAddress,
-	// 	util.PrefixConfig(prefix, "server-address"),
-	// 	":9090",
-	// 	"The address of the server to connect to",
-	// )
+	cfg.RouterClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "router-client"), f)
 }
