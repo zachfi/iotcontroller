@@ -1,6 +1,6 @@
 output:
-  format: line-number
-
+  formats:
+    - format: colored-line-number
 linters:
   enable:
     # - asasalint
@@ -116,29 +116,24 @@ linters:
     # - wrapcheck
     # - wsl
     # - zerologlint
-
 linters-settings:
   errcheck:
     # path to a file containing a list of functions to exclude from checking
     # see https://github.com/kisielk/errcheck#excluding-functions for details
-    exclude: ./.errcheck-exclude
-
+    exclude-functions:
+    # - (github.com/go-kit/kit/log.Logger).Log
+    # - (github.com/go-kit/log.Logger).Log
   goimports:
     local-prefixes: 'github.com/grafana/mimir'
-
   errorlint:
     # Check for plain error comparisons.
     comparison: true
-
     # Do not check for plain type assertions and type switches.
     asserts: false
-
     # Do not check whether fmt.Errorf uses the %w verb for formatting errors.
     errorf: false
-
 run:
   timeout: 5m
-
   # Enable presets.
   # https://golangci-lint.run/usage/linters
   # Default: []

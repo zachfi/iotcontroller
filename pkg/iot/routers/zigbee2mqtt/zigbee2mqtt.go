@@ -11,7 +11,6 @@ import (
 	"github.com/zachfi/zkit/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
@@ -42,12 +41,12 @@ type Zigbee2Mqtt struct {
 	/* reportStream     telemetryv1proto.TelemetryService_TelemetryReportIOTDeviceClient */
 }
 
-func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, conn *grpc.ClientConn) (*Zigbee2Mqtt, error) {
+func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) (*Zigbee2Mqtt, error) {
 	z := &Zigbee2Mqtt{
 		logger:           logger.With("router", routeName),
 		tracer:           tracer,
 		kubeclient:       kubeclient,
-		zonekeeperClient: iotv1proto.NewZoneKeeperServiceClient(conn),
+		zonekeeperClient: zonekeeperClient,
 	}
 
 	return z, nil

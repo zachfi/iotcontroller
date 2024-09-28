@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 
-	"github.com/zachfi/iotcontroller/modules/client"
+	"github.com/zachfi/iotcontroller/internal/common"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
 	"github.com/zachfi/iotcontroller/modules/controller"
 	"github.com/zachfi/iotcontroller/modules/harvester"
@@ -31,7 +31,6 @@ import (
 const (
 	Server string = "server"
 
-	Client       string = "client"
 	EventClient  string = "eventclient"
 	Conditioner  string = "conditioner"
 	Controller   string = "controller"
@@ -42,14 +41,15 @@ const (
 	Weather      string = "weather"
 	ZoneKeeper   string = "zone-keeper"
 
-	All string = "all"
+	All      string = "all"
+	Core     string = "core"
+	Receiver string = "receiver"
 )
 
 func (a *App) setupModuleManager() error {
 	mm := modules.NewManager(kitlog.NewLogfmtLogger(os.Stderr))
 	mm.RegisterModule(Server, a.initServer, modules.UserInvisibleModule)
 
-	mm.RegisterModule(Client, a.initClient)
 	mm.RegisterModule(MQTTClient, a.initMqttClient)
 
 	mm.RegisterModule(Conditioner, a.initConditioner)
@@ -61,19 +61,20 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
 
 	mm.RegisterModule(All, nil)
+	mm.RegisterModule(Core, nil)
+	mm.RegisterModule(Receiver, nil)
 
 	deps := map[string][]string{
 		// Server:       nil,
 
-		Client:     {Server}, // GRPC client
 		MQTTClient: {Server}, // MQTT client
 		Controller: {Server}, // K8s client
 
-		Conditioner:  {Server, Client, Controller},
-		Harvester:    {Server, MQTTClient, Client, Router},
-		HookReceiver: {Server, Client, Conditioner},
-		Router:       {Server, Client, Controller},
-		Weather:      {Server, Client, Conditioner},
+		Conditioner:  {Server, Controller},
+		Harvester:    {Server, MQTTClient, Router},
+		HookReceiver: {Server},
+		Router:       {Server, Controller},
+		Weather:      {Server, Conditioner},
 		ZoneKeeper:   {Server, MQTTClient, Controller},
 
 		// Timer:      {Server},
@@ -86,6 +87,17 @@ func (a *App) setupModuleManager() error {
 			Router,
 			Weather,
 			ZoneKeeper,
+		},
+		Core: {
+			Conditioner,
+			Router,
+			ZoneKeeper,
+		},
+		Receiver: {
+			Controller,
+			Harvester,
+			HookReceiver,
+			Weather,
 		},
 	}
 
@@ -101,26 +113,35 @@ func (a *App) setupModuleManager() error {
 }
 
 func (a *App) initHookReceiver() (services.Service, error) {
-	h, err := hookreceiver.New(a.cfg.HookReceiver, a.logger, a.eventReceiverClient)
+	c, err := common.NewClientConn(a.cfg.HookReceiver.EventReceiverClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new client connection; %w", err)
+	}
+
+	m, err := hookreceiver.New(a.cfg.HookReceiver, a.logger, iotv1proto.NewEventReceiverServiceClient(c))
 	if err != nil {
 		return nil, err
 	}
 
-	a.Server.HTTP.Handle("/alerts", http.HandlerFunc(h.Handler)).Methods(http.MethodPost)
+	a.Server.HTTP.Handle("/alerts", http.HandlerFunc(m.Handler)).Methods(http.MethodPost)
 
-	a.hookreceiver = h
-	return h, nil
+	a.hookreceiver = m
+	return m, nil
 }
 
-func (a *App) initClient() (services.Service, error) {
-	c, err := client.New(a.cfg.Client, a.logger)
+func (a *App) initWeather() (services.Service, error) {
+	c, err := common.NewClientConn(a.cfg.HookReceiver.EventReceiverClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new client connection; %w", err)
+	}
+
+	m, err := weather.New(a.cfg.Weather, a.logger, iotv1proto.NewEventReceiverServiceClient(c))
 	if err != nil {
 		return nil, err
 	}
 
-	a.client = c
-	a.eventReceiverClient = iotv1proto.NewEventReceiverServiceClient(c.Conn())
-	return c, nil
+	a.weather = m
+	return m, nil
 }
 
 /* func (a *App) initTimer() (services.Service, error) { */
@@ -160,7 +181,12 @@ func (a *App) initController() (services.Service, error) {
 }
 
 func (a *App) initRouter() (services.Service, error) {
-	r, err := router.New(a.cfg.Router, a.logger, a.controller.Client(), a.client.Conn())
+	c, err := common.NewClientConn(a.cfg.Router.ZoneKeeperClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new client connection; %w", err)
+	}
+
+	r, err := router.New(a.cfg.Router, a.logger, a.controller.Client(), iotv1proto.NewZoneKeeperServiceClient(c))
 	if err != nil {
 		return nil, err
 	}
@@ -169,16 +195,6 @@ func (a *App) initRouter() (services.Service, error) {
 
 	a.router = r
 	return r, nil
-}
-
-func (a *App) initWeather() (services.Service, error) {
-	w, err := weather.New(a.cfg.Weather, a.logger, a.eventReceiverClient)
-	if err != nil {
-		return nil, err
-	}
-
-	a.weather = w
-	return w, nil
 }
 
 func (a *App) initZoneKeeper() (services.Service, error) {
@@ -194,25 +210,35 @@ func (a *App) initZoneKeeper() (services.Service, error) {
 }
 
 func (a *App) initHarvester() (services.Service, error) {
-	h, err := harvester.New(a.cfg.Harvester, a.logger, a.client.Conn(), a.mqttclient)
+	c, err := common.NewClientConn(a.cfg.Harvester.RouterClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new client connection; %w", err)
+	}
+
+	m, err := harvester.New(a.cfg.Harvester, a.logger, iotv1proto.NewRouteServiceClient(c), a.mqttclient)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create harvester")
 	}
 
-	a.harvester = h
-	return h, nil
+	a.harvester = m
+	return m, nil
 }
 
 func (a *App) initConditioner() (services.Service, error) {
-	c, err := conditioner.New(a.cfg.Conditioner, a.logger, a.client.Conn(), a.controller.Client())
+	c, err := common.NewClientConn(a.cfg.Conditioner.ZoneKeeperClient)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create harvester")
+		return nil, fmt.Errorf("failed to create new client connection; %w", err)
 	}
 
-	iotv1proto.RegisterEventReceiverServiceServer(a.Server.GRPC, c)
+	m, err := conditioner.New(a.cfg.Conditioner, a.logger, iotv1proto.NewZoneKeeperServiceClient(c), a.controller.Client())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create conditioner: %w", err)
+	}
 
-	a.conditioner = c
-	return c, nil
+	iotv1proto.RegisterEventReceiverServiceServer(a.Server.GRPC, m)
+
+	a.conditioner = m
+	return m, nil
 }
 
 func (a *App) initServer() (services.Service, error) {

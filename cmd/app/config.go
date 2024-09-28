@@ -13,7 +13,6 @@ import (
 	"github.com/zachfi/zkit/pkg/util"
 	"gopkg.in/yaml.v2"
 
-	"github.com/zachfi/iotcontroller/modules/client"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
 	"github.com/zachfi/iotcontroller/modules/controller"
 	"github.com/zachfi/iotcontroller/modules/harvester"
@@ -37,7 +36,6 @@ type Config struct {
 	Server server.Config `yaml:"server,omitempty"`
 
 	// Modules
-	Client       client.Config       `yaml:"client,omitempty"`
 	Conditioner  conditioner.Config  `yaml:"conditioner,omitempty"`
 	Controller   controller.Config   `yaml:"controller,omitempty"`
 	Harvester    harvester.Config    `yaml:"harvester,omitempty"`
@@ -63,8 +61,8 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.Tracing.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "tracing"), f)
 
 	// Modules
-	c.Client.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "client"), f)
 	c.Controller.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "controller"), f)
+	c.Conditioner.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "conditioner"), f)
 	c.Harvester.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "harvester"), f)
 	c.MQTTClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "mqttclient"), f)
 	c.Router.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "router"), f)

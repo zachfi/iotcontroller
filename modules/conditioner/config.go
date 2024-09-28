@@ -1,14 +1,16 @@
 package conditioner
 
-import "flag"
+import (
+	"flag"
 
-type Config struct{}
+	"github.com/zachfi/iotcontroller/internal/common"
+	"github.com/zachfi/zkit/pkg/util"
+)
+
+type Config struct {
+	ZoneKeeperClient common.ClientConfig `yaml:"zone_keeper_address,omitempty"`
+}
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
-	// f.StringVar(
-	// 	&cfg.ServerAddress,
-	// 	util.PrefixConfig(prefix, "server-address"),
-	// 	":9090",
-	// 	"The address of the server to connect to",
-	// )
+	cfg.ZoneKeeperClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "zone-keeper-client"), f)
 }

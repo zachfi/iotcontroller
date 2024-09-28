@@ -12,7 +12,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
 
 	"github.com/zachfi/zkit/pkg/tracing"
 
@@ -46,13 +45,13 @@ type Harvester struct {
 	mqttClient *mqttclient.MQTTClient
 }
 
-func New(cfg Config, logger *slog.Logger, conn *grpc.ClientConn, mqttClient *mqttclient.MQTTClient) (*Harvester, error) {
+func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceClient, mqttClient *mqttclient.MQTTClient) (*Harvester, error) {
 	h := &Harvester{
 		cfg:    &cfg,
 		logger: logger.With("module", module),
 		tracer: otel.Tracer(module),
 
-		routeClient: iotv1proto.NewRouteServiceClient(conn),
+		routeClient: routeClient,
 		mqttClient:  mqttClient,
 	}
 
