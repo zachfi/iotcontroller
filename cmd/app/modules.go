@@ -41,7 +41,9 @@ const (
 	Weather      string = "weather"
 	ZoneKeeper   string = "zone-keeper"
 
-	All string = "all"
+	All      string = "all"
+	Core     string = "core"
+	Receiver string = "receiver"
 )
 
 func (a *App) setupModuleManager() error {
@@ -59,6 +61,8 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
 
 	mm.RegisterModule(All, nil)
+	mm.RegisterModule(Core, nil)
+	mm.RegisterModule(Receiver, nil)
 
 	deps := map[string][]string{
 		// Server:       nil,
@@ -83,6 +87,17 @@ func (a *App) setupModuleManager() error {
 			Router,
 			Weather,
 			ZoneKeeper,
+		},
+		Core: {
+			Conditioner,
+			Router,
+			ZoneKeeper,
+		},
+		Receiver: {
+			Controller,
+			Harvester,
+			HookReceiver,
+			Weather,
 		},
 	}
 
