@@ -19,7 +19,7 @@ require (
 	github.com/zachfi/zkit v0.1.1-0.20231126224249-a1c7b36a51a6
 	github.com/zachfi/znet v0.32.16
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.53.0
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.53.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.56.0
 	go.opentelemetry.io/otel v1.31.0
 	go.opentelemetry.io/otel/trace v1.31.0
 	google.golang.org/grpc v1.65.0
