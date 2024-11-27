@@ -64,6 +64,7 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.Controller.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "controller"), f)
 	c.Conditioner.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "conditioner"), f)
 	c.Harvester.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "harvester"), f)
+	c.HookReceiver.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "hookreceiver"), f)
 	c.MQTTClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "mqttclient"), f)
 	c.Router.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "router"), f)
 	c.Weather.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "weather"), f)
