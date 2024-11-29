@@ -11,8 +11,11 @@ local pipeline(name) = {
     { name: 'dockersock', host: { path: '/var/run/docker.sock' } },
   ],
   trigger: {
-    event: ['pull_request'],
-    action: ['opened'],
+    ref: [
+      'refs/heads/main',
+      'refs/heads/dependabot/**',
+      'refs/tags/v*',
+    ],
   },
 };
 

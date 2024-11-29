@@ -15,16 +15,16 @@ steps:
   - name: dockersock
     path: /var/run/docker.sock
 trigger:
-  action:
-  - opened
-  event:
-  - pull_request
+  ref:
+  - refs/heads/main
+  - refs/heads/dependabot/**
+  - refs/tags/v*
 volumes:
 - host:
     path: /var/run/docker.sock
   name: dockersock
 ---
 kind: signature
-hmac: 5d61b339a4851bbfee37cf44609f7c969453f0f2315fd84d8b0a8d8f9dac4ea3
+hmac: c9516590ac7b912692767ebaaa999c684f21f74aa901b8e7a27696b3e667f7da
 
 ...
