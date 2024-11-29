@@ -10,6 +10,10 @@ local pipeline(name) = {
     // { name: 'cache', temp: {} },
     { name: 'dockersock', host: { path: '/var/run/docker.sock' } },
   ],
+  trigger: {
+    event: ['pull_request'],
+    action: ['opened'],
+  },
 };
 
 local buildImage() = {

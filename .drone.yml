@@ -14,12 +14,17 @@ steps:
   volumes:
   - name: dockersock
     path: /var/run/docker.sock
+trigger:
+  action:
+  - opened
+  event:
+  - pull_request
 volumes:
 - host:
     path: /var/run/docker.sock
   name: dockersock
 ---
 kind: signature
-hmac: 8a3d73e5d57c8d8bca329c74c9f1f3c6639910e90d8fa3cca1b1ae8169d7181d
+hmac: 5d61b339a4851bbfee37cf44609f7c969453f0f2315fd84d8b0a8d8f9dac4ea3
 
 ...
