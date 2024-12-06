@@ -11,7 +11,7 @@ require (
 	github.com/grafana/dskit v0.0.0-20231012002814-3b80e3b2a51c
 	github.com/jedib0t/go-pretty/v6 v6.6.2
 	github.com/onsi/ginkgo/v2 v2.22.0
-	github.com/onsi/gomega v1.34.2
+	github.com/onsi/gomega v1.36.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/common v0.58.0
