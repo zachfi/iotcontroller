@@ -14,6 +14,13 @@ local pipeline(name) = {
     ref: [
       'refs/heads/main',
       'refs/heads/dependabot/**',
+    ],
+  },
+};
+
+local withPipelineTags() = {
+  trigger+: {
+    ref+: [
       'refs/tags/v*',
     ],
   },
@@ -39,6 +46,35 @@ local test() = {
   ],
 };
 
+local step(name) = {
+  name: name,
+  image: 'zachfi/build-image',
+  pull: 'always',
+  commands: [],
+};
+
+local make(target) = step(target) {
+  commands: ['make %s' % target],
+};
+
+
+local withGithub() = {
+  environment+: {
+    GITHUB_TOKEN: {
+      from_secret: 'GITHUB_TOKEN',
+    },
+  },
+};
+
+local withTags() = {
+  when+: {
+    ref+: [
+      'refs/tags/v*',
+    ],
+  },
+};
+
+
 [
   (
     pipeline('ci') {
@@ -46,6 +82,17 @@ local test() = {
         test(),
         buildImage(),
       ],
+    }
+  ),
+  (
+    pipeline('release')
+    + withPipelineTags() {
+      steps:
+        [
+          make('release')
+          + withGithub()
+          + withTags(),
+        ],
     }
   ),
 ]

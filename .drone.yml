@@ -18,6 +18,30 @@ trigger:
   ref:
   - refs/heads/main
   - refs/heads/dependabot/**
+volumes:
+- host:
+    path: /var/run/docker.sock
+  name: dockersock
+---
+depends_on: []
+kind: pipeline
+name: release
+steps:
+- commands:
+  - make release
+  environment:
+    GITHUB_TOKEN:
+      from_secret: GITHUB_TOKEN
+  image: zachfi/build-image
+  name: release
+  pull: always
+  when:
+    ref:
+    - refs/tags/v*
+trigger:
+  ref:
+  - refs/heads/main
+  - refs/heads/dependabot/**
   - refs/tags/v*
 volumes:
 - host:
@@ -25,6 +49,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: c9516590ac7b912692767ebaaa999c684f21f74aa901b8e7a27696b3e667f7da
+hmac: 9ada27a37f6dcedfc1ac8f48226c21d91187403e237068bfc843083125d414e7
 
 ...
