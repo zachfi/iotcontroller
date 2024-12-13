@@ -71,7 +71,7 @@ func (a *App) setupModuleManager() error {
 		Controller: {Server}, // K8s client
 
 		Conditioner:  {Server, Controller},
-		Harvester:    {Server, MQTTClient, Router},
+		Harvester:    {Server, MQTTClient},
 		HookReceiver: {Server},
 		Router:       {Server, Controller},
 		Weather:      {Server, Conditioner},
