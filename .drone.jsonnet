@@ -33,7 +33,6 @@ local buildImage() = {
   when: {
     ref: [
       'refs/heads/main',
-      'refs/heads/**',
     ],
   },
   commands:

@@ -14,6 +14,9 @@ steps:
   volumes:
   - name: dockersock
     path: /var/run/docker.sock
+  when:
+    ref:
+    - refs/heads/main
 trigger:
   ref:
   - refs/heads/main
@@ -48,6 +51,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: d8b21b1c28ee60b3911b26b86fd17b4d24ca9d0e800d0316784f33b48e5ad6a4
+hmac: 453872ae5a35312febc4366ba4500e2a11354d5336f96d67c10924519627600e
 
 ...
