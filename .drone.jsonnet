@@ -14,6 +14,7 @@ local pipeline(name) = {
     ref: [
       'refs/heads/main',
       'refs/heads/dependabot/**',
+      'refs/pull/*/head',
     ],
   },
 };
@@ -29,6 +30,11 @@ local withPipelineOnlyTags() = {
 local buildImage() = {
   name: 'build-image',
   image: image,
+  when: {
+    ref: [
+      'refs/heads/main',
+    ],
+  },
   commands:
     [
       'sudo make docker-build',
@@ -73,7 +79,6 @@ local withTags() = {
     ],
   },
 };
-
 
 [
   (
