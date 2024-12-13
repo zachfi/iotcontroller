@@ -14,6 +14,7 @@ local pipeline(name) = {
     ref: [
       'refs/heads/main',
       'refs/heads/dependabot/**',
+      'refs/pull/*/head',
     ],
   },
 };
@@ -73,7 +74,6 @@ local withTags() = {
     ],
   },
 };
-
 
 [
   (

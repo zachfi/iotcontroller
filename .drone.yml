@@ -18,6 +18,7 @@ trigger:
   ref:
   - refs/heads/main
   - refs/heads/dependabot/**
+  - refs/pull/*/head
 volumes:
 - host:
     path: /var/run/docker.sock
@@ -47,6 +48,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 6cd264b3f3b86a2f70aa2a73fca84800961bab609c6401f8430043126be8649d
+hmac: d8b21b1c28ee60b3911b26b86fd17b4d24ca9d0e800d0316784f33b48e5ad6a4
 
 ...
