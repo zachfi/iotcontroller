@@ -18,7 +18,7 @@ local pipeline(name) = {
   },
 };
 
-local withPipelineTags() = {
+local withPipelineOnlyTags() = {
   trigger+: {
     ref: [
       'refs/tags/v*',
@@ -86,7 +86,7 @@ local withTags() = {
   ),
   (
     pipeline('release')
-    + withPipelineTags() {
+    + withPipelineOnlyTags() {
       steps:
         [
           make('release')
