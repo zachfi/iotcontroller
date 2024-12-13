@@ -30,6 +30,12 @@ local withPipelineOnlyTags() = {
 local buildImage() = {
   name: 'build-image',
   image: image,
+  when: {
+    ref: [
+      'refs/heads/main',
+      'refs/heads/**',
+    ],
+  },
   commands:
     [
       'sudo make docker-build',
