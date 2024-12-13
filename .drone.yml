@@ -40,8 +40,6 @@ steps:
     - refs/tags/v*
 trigger:
   ref:
-  - refs/heads/main
-  - refs/heads/dependabot/**
   - refs/tags/v*
 volumes:
 - host:
@@ -49,6 +47,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 9ada27a37f6dcedfc1ac8f48226c21d91187403e237068bfc843083125d414e7
+hmac: 6cd264b3f3b86a2f70aa2a73fca84800961bab609c6401f8430043126be8649d
 
 ...

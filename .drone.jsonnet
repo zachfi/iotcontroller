@@ -20,7 +20,7 @@ local pipeline(name) = {
 
 local withPipelineTags() = {
   trigger+: {
-    ref+: [
+    ref: [
       'refs/tags/v*',
     ],
   },
