@@ -38,6 +38,7 @@ local buildImage() = {
   commands:
     [
       'sudo make docker-build',
+      'sudo make docker-push',
     ],
   volumes+: [
     { name: 'dockersock', path: '/var/run/docker.sock' },
