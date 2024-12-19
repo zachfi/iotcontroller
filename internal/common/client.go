@@ -31,9 +31,9 @@ func NewClientConn(cfg ClientConfig) (*grpc.ClientConn, error) {
 	var err error
 
 	opts := []grpc.DialOption{
+		// TODO: implement optional secure connection
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
-		grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor()),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}
 
 	conn, err := grpc.NewClient(cfg.ServerAddress, opts...)
