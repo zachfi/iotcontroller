@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sync"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
@@ -83,18 +82,13 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 		_, span := h.tracer.Start(
 			context.Background(),
 			"Harvester.messageFunc",
-			trace.WithSpanKind(trace.SpanKindClient),
+			trace.WithSpanKind(trace.SpanKindConsumer),
 		)
 		defer func() { _ = tracing.ErrHandler(span, err, "harvester mqtt message failed", h.logger) }()
 
 		harvesterMessageTotal.WithLabelValues().Inc()
 
-		wg := sync.WaitGroup{}
-
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
-
 			routeReq := &iotv1proto.RouteRequest{
 				Path:    msg.Topic(),
 				Message: msg.Payload(),
@@ -106,8 +100,6 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 				h.logger.Error("failed to send on routeStream", "err", routeErr)
 			}
 		}()
-
-		wg.Wait()
 	}
 }
 
