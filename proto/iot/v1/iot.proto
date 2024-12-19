@@ -18,6 +18,7 @@ message UpdateDeviceRequest {
   string device = 1;
 }
 
+// TODO: implement
 service IOTService {
   rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
 }
