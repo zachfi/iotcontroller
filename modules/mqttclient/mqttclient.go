@@ -2,6 +2,7 @@ package mqttclient
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -46,6 +47,13 @@ func New(cfg Config, logger *slog.Logger) (*MQTTClient, error) {
 
 func (m *MQTTClient) Client() mqtt.Client {
 	return m.client
+}
+
+func (m *MQTTClient) CheckHealth() error {
+	if m.client == nil || !m.client.IsConnected() {
+		return fmt.Errorf("mqtt client is not connected")
+	}
+	return nil
 }
 
 func (m *MQTTClient) starting(ctx context.Context) error {
