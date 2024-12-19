@@ -89,6 +89,17 @@ local withGithub() = {
   },
 };
 
+local withDockerHub() = {
+  environment+: {
+    DOCKER_PASSWORD: {
+      from_secret: 'DOCKER_PASSWORD',
+    },
+    DOCKER_USERNAME: {
+      from_secret: 'DOCKER_USERNAME',
+    },
+  },
+};
+
 local withTags() = {
   when+: {
     ref+: [
@@ -103,7 +114,8 @@ local withTags() = {
       steps: [
         test(),
         buildImage(),
-        pushImage(),
+        pushImage()
+        + withDockerHub(),
       ],
     }
   ),

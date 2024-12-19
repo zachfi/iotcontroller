@@ -19,6 +19,11 @@ steps:
     - refs/heads/main
 - commands:
   - sudo make docker-push
+  environment:
+    DOCKER_PASSWORD:
+      from_secret: DOCKER_PASSWORD
+    DOCKER_USERNAME:
+      from_secret: DOCKER_USERNAME
   image: zachfi/shell:latest
   name: push-image
   volumes:
@@ -61,6 +66,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 8414bd1f4c889f7bf2fccfd1bf95650be3c8e8cfd61edccfa68677c9f36cbcb1
+hmac: 4ab90dd141875965b2fdc70d000f09fc80b61fde170614ac277fc36a8b37cb1d
 
 ...
