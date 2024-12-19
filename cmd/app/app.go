@@ -103,7 +103,10 @@ func (a *App) Run() error {
 	a.Server.HTTP.Path("/ready").Handler(a.readyHandler(sm)).Methods(http.MethodGet)
 	a.Server.HTTP.Path("/status").Handler(a.statusHandler()).Methods(http.MethodGet)
 	a.Server.HTTP.Path("/status/{endpoint}").Handler(a.statusHandler()).Methods(http.MethodGet)
-	grpc_health_v1.RegisterHealthServer(a.Server.GRPC, grpcutil.NewHealthCheck(sm))
+
+	grpc_health_v1.RegisterHealthServer(a.Server.GRPC,
+		grpcutil.NewHealthCheck(sm),
+	)
 
 	// Listen for events from this manager, and log them.
 	healthy := func() { a.logger.Info("started", "app", appName) }
@@ -164,6 +167,12 @@ func (a *App) readyHandler(sm *services.Manager) http.HandlerFunc {
 		// 		http.Error(w, "Ingester no ready: "+err.Error(), http.StatusServiceUnavailable)
 		// 	}
 		// }
+
+		if a.mqttclient != nil {
+			if err := a.mqttclient.CheckHealth(); err != nil {
+				http.Error(w, "MQTTClient not ready: "+err.Error(), http.StatusServiceUnavailable)
+			}
+		}
 
 		http.Error(w, "ready", http.StatusOK)
 	}
