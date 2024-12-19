@@ -38,6 +38,22 @@ local buildImage() = {
   commands:
     [
       'sudo make docker-build',
+    ],
+  volumes+: [
+    { name: 'dockersock', path: '/var/run/docker.sock' },
+  ],
+};
+
+local pushImage() = {
+  name: 'push-image',
+  image: image,
+  when: {
+    ref: [
+      'refs/heads/main',
+    ],
+  },
+  commands:
+    [
       'sudo make docker-push',
     ],
   volumes+: [
@@ -87,6 +103,7 @@ local withTags() = {
       steps: [
         test(),
         buildImage(),
+        pushImage(),
       ],
     }
   ),

@@ -17,6 +17,16 @@ steps:
   when:
     ref:
     - refs/heads/main
+- commands:
+  - sudo make docker-push
+  image: zachfi/shell:latest
+  name: push-image
+  volumes:
+  - name: dockersock
+    path: /var/run/docker.sock
+  when:
+    ref:
+    - refs/heads/main
 trigger:
   ref:
   - refs/heads/main
@@ -51,6 +61,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 453872ae5a35312febc4366ba4500e2a11354d5336f96d67c10924519627600e
+hmac: 8414bd1f4c889f7bf2fccfd1bf95650be3c8e8cfd61edccfa68677c9f36cbcb1
 
 ...
