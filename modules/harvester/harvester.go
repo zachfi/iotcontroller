@@ -104,17 +104,18 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 }
 
 func (h *Harvester) running(ctx context.Context) error {
-	onMessageReceived := h.messageFunc(ctx)
+	var (
+		onMessageReceived = h.messageFunc(ctx)
+		token             = h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
+	)
 
-	go func() {
-		token := h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
-		token.Wait()
-		if token.Error() != nil {
-			h.logger.Error("subscribe error", "err", token.Error())
-		}
-	}()
+	token.Wait()
 
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-token.Done():
+		return token.Error()
+	}
 
 	return nil
 }
