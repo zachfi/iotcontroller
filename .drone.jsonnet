@@ -35,10 +35,9 @@ local buildImage() = {
       'refs/heads/main',
     ],
   },
-  commands:
-    [
-      'sudo make docker-build',
-    ],
+  commands: [
+    'sudo make docker-build registry=reg.dist.svc.cluster.znet:5000',
+  ],
   volumes+: [
     { name: 'dockersock', path: '/var/run/docker.sock' },
   ],
@@ -54,7 +53,7 @@ local pushImage() = {
   },
   commands:
     [
-      'sudo make docker-push',
+      'sudo make docker-push registry=reg.dist.svc.cluster.znet:5000',
     ],
   volumes+: [
     { name: 'dockersock', path: '/var/run/docker.sock' },

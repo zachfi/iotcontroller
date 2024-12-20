@@ -76,11 +76,20 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: test ## Build docker image with the manager.
+ifneq ($(registry),)
+	docker build -t $(registry)/${IMG} .
+else
 	docker build -t ${IMG} .
+endif
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
+ifneq ($(registry),)
+	docker push $(registry)/${IMG}
+else
 	docker push ${IMG}
+endif
+
 
 # PLATFORMS defines the target platforms for  the manager image be build to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:

@@ -8,7 +8,7 @@ steps:
   image: golang
   name: test
 - commands:
-  - sudo make docker-build
+  - sudo make docker-build registry=reg.dist.svc.cluster.znet:5000
   image: zachfi/shell:latest
   name: build-image
   volumes:
@@ -18,7 +18,7 @@ steps:
     ref:
     - refs/heads/main
 - commands:
-  - sudo make docker-push
+  - sudo make docker-push registry=reg.dist.svc.cluster.znet:5000
   environment:
     DOCKER_PASSWORD:
       from_secret: DOCKER_PASSWORD
@@ -66,6 +66,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 4ab90dd141875965b2fdc70d000f09fc80b61fde170614ac277fc36a8b37cb1d
+hmac: 2305e4c8ad2e5f9d2be3b7446b112615cfb23f48dac68e4b356be96ab402a79f
 
 ...
