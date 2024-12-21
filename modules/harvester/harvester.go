@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
@@ -76,45 +77,58 @@ func (h *Harvester) starting(ctx context.Context) error {
 	return nil
 }
 
-func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
-	return func(_ mqtt.Client, msg mqtt.Message) {
-		var err error
-		_, span := h.tracer.Start(
-			context.Background(),
-			"Harvester.messageFunc",
-			trace.WithSpanKind(trace.SpanKindConsumer),
-		)
-		defer func() { _ = tracing.ErrHandler(span, err, "harvester mqtt message failed", h.logger) }()
+func (h *Harvester) running(ctx context.Context) error {
+	var err error
 
-		harvesterMessageTotal.WithLabelValues().Inc()
-
-		go func() {
-			routeReq := &iotv1proto.RouteRequest{
-				Path:    msg.Topic(),
-				Message: msg.Payload(),
-			}
-
-			routeErr := h.routeStream.Send(routeReq)
-			if routeErr != nil {
-				harvesterMessageErrors.WithLabelValues().Inc()
-				h.logger.Error("failed to send on routeStream", "err", routeErr)
-			}
-		}()
+	for {
+		err = h.run(ctx)
+		if err != nil {
+			return err
+		}
 	}
 }
 
-func (h *Harvester) running(ctx context.Context) error {
+// An error is returned only when we should exit.
+func (h *Harvester) run(ctx context.Context) error {
 	var (
 		onMessageReceived = h.messageFunc(ctx)
-		token             = h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
+		token             mqtt.Token
+		timeout           = 30 * time.Second
+		err               error
+		routeStream       iotv1proto.RouteService_RouteClient
 	)
+	token = h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
 
-	token.Wait()
+	if !token.WaitTimeout(timeout) {
+		h.logger.Error("failed to subscribe to topic #")
+		return nil
+	}
+
+	<-token.Done()
+	if token.Error() != nil {
+		h.logger.Error("token failed on topic #", "err", err)
+		return nil
+	}
 
 	select {
 	case <-ctx.Done():
-	case <-token.Done():
-		return token.Error()
+		return ctx.Err()
+	case <-h.routeStream.Context().Done():
+
+		err = h.routeStream.CloseSend()
+		if err != nil {
+			h.logger.Error("failed to close route stream", "err", err)
+			return nil
+		}
+
+		h.logger.Info("route stream closed, reconnecting")
+		routeStream, err = h.routeClient.Route(ctx)
+		if err != nil {
+			h.logger.Error("route stream failed", "err", err)
+			return nil
+		}
+
+		h.routeStream = routeStream
 	}
 
 	return nil
@@ -138,4 +152,31 @@ func (h *Harvester) stopping(_ error) error {
 	}
 
 	return nil
+}
+
+func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
+	return func(_ mqtt.Client, msg mqtt.Message) {
+		var err error
+		_, span := h.tracer.Start(
+			context.Background(),
+			"Harvester.messageFunc",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+		)
+		defer func() { _ = tracing.ErrHandler(span, err, "harvester mqtt message failed", h.logger) }()
+
+		harvesterMessageTotal.WithLabelValues().Inc()
+
+		go func() {
+			routeReq := &iotv1proto.RouteRequest{
+				Path:    msg.Topic(),
+				Message: msg.Payload(),
+			}
+
+			if routeErr := h.routeStream.Send(routeReq); routeErr != nil {
+				harvesterMessageErrors.WithLabelValues().Inc()
+
+				h.logger.Error("failed to send on routeStream", "err", routeErr)
+			}
+		}()
+	}
 }
