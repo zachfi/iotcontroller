@@ -1,14 +1,22 @@
 package iot
 
 import (
+	"fmt"
 	"log/slog"
+	"math/rand"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+const clientPrefix = "iotcontroller"
+
 func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
-	var mqttClient mqtt.Client
+	var (
+		mqttClient mqtt.Client
+		src        = rand.New(rand.NewSource(time.Now().UnixNano()))
+		rnd        = rand.New(src)
+	)
 
 	mqttOpts := mqtt.NewClientOptions()
 	mqttOpts.AddBroker(cfg.URL)
@@ -18,6 +26,7 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 	mqttOpts.SetConnectRetryInterval(3 * time.Second)
 	mqttOpts.SetOrderMatters(false)
 	mqttOpts.SetKeepAlive(10 * time.Second)
+	mqttOpts.SetClientID(fmt.Sprintf("%s-%x", clientPrefix, rnd.Uint64()))
 
 	if cfg.Username != "" && cfg.Password != "" {
 		mqttOpts.SetUsername(cfg.Username)
