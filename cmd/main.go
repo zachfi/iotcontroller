@@ -100,7 +100,7 @@ func main() {
 	}
 	defer shutdownTracer()
 
-	a, err := app.New(*cfg, logger)
+	a, err := app.New(*cfg, logger, handler)
 	if err != nil {
 		slog.Error("failed to create app", "err", err)
 		os.Exit(1)

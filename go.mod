@@ -6,6 +6,7 @@ require (
 	github.com/briandowns/openweathermap v0.21.0
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/go-kit/log v0.2.1
+	github.com/go-logr/logr v1.4.2
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
 	github.com/gorilla/mux v1.8.1
 	github.com/grafana/dskit v0.0.0-20231012002814-3b80e3b2a51c
@@ -44,7 +45,6 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/go-logr/logr"
 	"github.com/grafana/dskit/services"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
@@ -15,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -28,8 +30,9 @@ type Controller struct {
 
 	cfg *Config
 
-	logger *slog.Logger
-	tracer trace.Tracer
+	logger     *slog.Logger
+	logHandler slog.Handler
+	tracer     trace.Tracer
 
 	mgr manager.Manager
 }
@@ -43,11 +46,12 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
-func New(cfg Config, logger *slog.Logger) (*Controller, error) {
+func New(cfg Config, logger *slog.Logger, logHandler slog.Handler) (*Controller, error) {
 	c := &Controller{
-		cfg:    &cfg,
-		logger: logger.With("module", "controller"),
-		tracer: otel.Tracer("controller"),
+		cfg:        &cfg,
+		logger:     logger.With("module", "controller"),
+		logHandler: logHandler,
+		tracer:     otel.Tracer("controller"),
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
@@ -89,8 +93,12 @@ func New(cfg Config, logger *slog.Logger) (*Controller, error) {
 	return c, nil
 }
 
-func (c *Controller) starting(ctx context.Context) error {
+func (c *Controller) starting(_ context.Context) error {
 	var err error
+
+	if c.logHandler != nil {
+		ctrlruntimelog.SetLogger(logr.FromSlogHandler(c.logHandler))
+	}
 
 	deviceController := &controller.DeviceReconciler{
 		Client: c.mgr.GetClient(),

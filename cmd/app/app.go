@@ -46,7 +46,8 @@ type App struct {
 
 	Server *server.Server
 
-	logger *slog.Logger
+	logger     *slog.Logger
+	logHandler slog.Handler // Used to translate from slog to logr
 
 	// Modules.
 	controller  *controller.Controller
@@ -66,10 +67,11 @@ type App struct {
 	serviceMap    map[string]services.Service
 }
 
-func New(cfg Config, logger *slog.Logger) (*App, error) {
+func New(cfg Config, logger *slog.Logger, logHandler slog.Handler) (*App, error) {
 	a := &App{
-		cfg:    cfg,
-		logger: logger,
+		cfg:        cfg,
+		logger:     logger,
+		logHandler: logHandler,
 	}
 
 	if a.cfg.Target == "" {

@@ -171,7 +171,7 @@ func (a *App) initMqttClient() (services.Service, error) {
 }
 
 func (a *App) initController() (services.Service, error) {
-	c, err := controller.New(a.cfg.Controller, a.logger)
+	c, err := controller.New(a.cfg.Controller, a.logger, a.logHandler)
 	if err != nil {
 		return nil, err
 	}
