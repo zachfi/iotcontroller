@@ -10,7 +10,7 @@ require (
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
 	github.com/gorilla/mux v1.8.1
 	github.com/grafana/dskit v0.0.0-20231012002814-3b80e3b2a51c
-	github.com/jedib0t/go-pretty/v6 v6.6.2
+	github.com/jedib0t/go-pretty/v6 v6.6.5
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
 	github.com/pkg/errors v0.9.1
