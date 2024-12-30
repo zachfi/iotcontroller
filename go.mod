@@ -3,7 +3,7 @@ module github.com/zachfi/iotcontroller
 go 1.23.0
 
 require (
-	github.com/briandowns/openweathermap v0.21.0
+	github.com/briandowns/openweathermap v0.21.1
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/go-kit/log v0.2.1
 	github.com/go-logr/logr v1.4.2
