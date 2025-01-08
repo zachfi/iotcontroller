@@ -14,8 +14,8 @@ func TestCore(t *testing.T) {
 	defer s.Close()
 
 	const configMosquitto = "util/mosquitto.conf"
-	tmplConfig := map[string]any{"": nil}
-	_, err = util.CopyTemplateToSharedDir(s, configMosquitto, "mosquitto.conf", tmplConfig)
+	// tmplConfig := map[string]any{"": nil}
+	_, err = util.CopyTemplateToSharedDir(s, configMosquitto, "mosquitto.conf", nil)
 	require.NoError(t, err)
 
 	mqtt := util.NewMQTTServer("mqtt")
