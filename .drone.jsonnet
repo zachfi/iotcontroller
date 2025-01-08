@@ -69,7 +69,7 @@ local test() = {
   ],
 };
 
-local step(name, image='zachfi/build-image') = {
+local step(name, image='%s/zachfi/build-image' % registry) = {
   name: name,
   image: image,
   pull: 'always',

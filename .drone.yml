@@ -9,7 +9,7 @@ steps:
   name: test
 - commands:
   - make test-e2e
-  image: zachfi/build-image
+  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: test-e2e
   pull: always
 - commands:
@@ -56,7 +56,7 @@ steps:
   environment:
     GITHUB_TOKEN:
       from_secret: GITHUB_TOKEN
-  image: zachfi/build-image
+  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: release
   pull: always
   when:
@@ -71,6 +71,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 19b24299f9daf38f69065f26ce73a32ec19ba8c13d2b0ca281f0c7466b235c5d
+hmac: 54047c8c4aa7466e624eada6c078e22366d8599c38c1768df7b46852e2a945c1
 
 ...
