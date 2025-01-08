@@ -1,4 +1,5 @@
-local image = 'zachfi/shell:latest';
+// local image = 'zachfi/shell:latest';
+local registry = 'reg.dist.svc.cluster.znet:5000';
 
 local pipeline(name) = {
   kind: 'pipeline',
@@ -26,7 +27,13 @@ local withPipelineOnlyTags() = {
   },
 };
 
-local buildImage() = {
+local withStepDockerSock() = {
+  volumes+: [
+    { name: 'dockersock', path: '/var/run/docker.sock' },
+  ],
+};
+
+local buildImage(image='zachfi/build-image') = withStepDockerSock() {
   name: 'build-image',
   image: image,
   when: {
@@ -35,14 +42,12 @@ local buildImage() = {
     ],
   },
   commands: [
-    'sudo make docker-build registry=reg.dist.svc.cluster.znet:5000',
-  ],
-  volumes+: [
-    { name: 'dockersock', path: '/var/run/docker.sock' },
+    'sudo make docker-build registry=%s' % registry,
   ],
 };
 
-local pushImage() = {
+
+local pushImage(image='zachfi/build-image') = withStepDockerSock() {
   name: 'push-image',
   image: image,
   when: {
@@ -52,11 +57,8 @@ local pushImage() = {
   },
   commands:
     [
-      'sudo make docker-push registry=reg.dist.svc.cluster.znet:5000',
+      'sudo make docker-push registry=%s' % registry,
     ],
-  volumes+: [
-    { name: 'dockersock', path: '/var/run/docker.sock' },
-  ],
 };
 
 local test() = {
@@ -67,9 +69,9 @@ local test() = {
   ],
 };
 
-local step(name) = {
+local step(name, image='zachfi/build-image') = {
   name: name,
-  image: 'zachfi/build-image',
+  image: image,
   pull: 'always',
   commands: [],
 };

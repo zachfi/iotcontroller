@@ -16,6 +16,13 @@ endif
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+ALL_SRC := $(shell find . -name '*.go' \
+								-not -path './vendor*/*' \
+								-not -path './integration/*' \
+                                -type f | sort)
+
+ALL_PKGS := $(shell go list $(sort $(dir $(ALL_SRC))))
+
 .PHONY: all
 all: build
 
@@ -56,7 +63,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -race -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $(ALL_PKGS) -race -coverprofile cover.out
 
 test-e2e: docker-build
 	go test -v ./integration/e2e

@@ -14,7 +14,7 @@ steps:
   pull: always
 - commands:
   - sudo make docker-build registry=reg.dist.svc.cluster.znet:5000
-  image: zachfi/shell:latest
+  image: zachfi/build-image
   name: build-image
   volumes:
   - name: dockersock
@@ -29,7 +29,7 @@ steps:
       from_secret: DOCKER_PASSWORD
     DOCKER_USERNAME:
       from_secret: DOCKER_USERNAME
-  image: zachfi/shell:latest
+  image: zachfi/build-image
   name: push-image
   volumes:
   - name: dockersock
@@ -71,6 +71,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 6aab5d80c8884b544b9457971ca3b4facd1846e6ec696fcd42248e29166b931f
+hmac: 19b24299f9daf38f69065f26ce73a32ec19ba8c13d2b0ca281f0c7466b235c5d
 
 ...
