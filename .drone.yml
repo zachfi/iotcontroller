@@ -12,6 +12,9 @@ steps:
   image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: test-e2e
   pull: always
+  volumes:
+  - name: dockersock
+    path: /var/run/docker.sock
 - commands:
   - sudo make docker-build registry=reg.dist.svc.cluster.znet:5000
   image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
@@ -71,6 +74,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: bc94205a1cadfa003e401bc93958edb765ed79643b18fae26ebc891ff476d6a7
+hmac: bff3c5795bb6e2bef88f910e6f975cc0c923a37dc85e0c95de3a22310e83abfb
 
 ...
