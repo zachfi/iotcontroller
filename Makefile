@@ -65,7 +65,7 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $(ALL_PKGS) -race -coverprofile cover.out
 
-test-e2e: docker-build
+test-e2e: generate docker-build
 	go test -v ./integration/e2e
 
 ##@ Build
