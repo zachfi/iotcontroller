@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"testing"
+	"time"
 
 	"github.com/grafana/e2e"
 	"github.com/stretchr/testify/require"
@@ -21,4 +22,6 @@ func TestCore(t *testing.T) {
 	mqtt := util.NewMQTTServer("mqtt")
 	require.NotNil(t, mqtt)
 	require.NoError(t, s.StartAndWaitReady(mqtt))
+
+	time.Sleep(1000)
 }
