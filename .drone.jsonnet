@@ -1,4 +1,4 @@
-local image = 'zachfi/shell:latest';
+local image = 'zachfi/build-image:latest';
 
 
 local pipeline(name) = {
@@ -62,7 +62,7 @@ local pushImage() = {
 
 local test() = {
   name: 'test',
-  image: 'golang',
+  image: image,
   commands: [
     'make test',
   ],
@@ -70,7 +70,7 @@ local test() = {
 
 local step(name) = {
   name: name,
-  image: 'zachfi/build-image',
+  image: image,
   pull: 'always',
   commands: [],
 };

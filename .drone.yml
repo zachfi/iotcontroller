@@ -5,11 +5,11 @@ name: ci
 steps:
 - commands:
   - make test
-  image: golang
+  image: zachfi/build-image:latest
   name: test
 - commands:
   - sudo make docker-build registry=reg.dist.svc.cluster.znet:5000
-  image: zachfi/shell:latest
+  image: zachfi/build-image:latest
   name: build-image
   volumes:
   - name: dockersock
@@ -24,7 +24,7 @@ steps:
       from_secret: DOCKER_PASSWORD
     DOCKER_USERNAME:
       from_secret: DOCKER_USERNAME
-  image: zachfi/shell:latest
+  image: zachfi/build-image:latest
   name: push-image
   volumes:
   - name: dockersock
@@ -51,7 +51,7 @@ steps:
   environment:
     GITHUB_TOKEN:
       from_secret: GITHUB_TOKEN
-  image: zachfi/build-image
+  image: zachfi/build-image:latest
   name: release
   pull: always
   when:
@@ -66,6 +66,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: 2305e4c8ad2e5f9d2be3b7446b112615cfb23f48dac68e4b356be96ab402a79f
+hmac: e21e83649b884e554caa22fa98e5b7caba6621812892cb24dcb299d42a660d3e
 
 ...
