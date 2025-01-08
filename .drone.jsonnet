@@ -1,5 +1,4 @@
-local image = 'zachfi/build-image:latest';
-
+local image = 'zachfi/shell:latest';
 
 local pipeline(name) = {
   kind: 'pipeline',
@@ -62,7 +61,7 @@ local pushImage() = {
 
 local test() = {
   name: 'test',
-  image: image,
+  image: 'golang',
   commands: [
     'make test',
   ],
@@ -70,7 +69,7 @@ local test() = {
 
 local step(name) = {
   name: name,
-  image: image,
+  image: 'zachfi/build-image',
   pull: 'always',
   commands: [],
 };
@@ -78,7 +77,6 @@ local step(name) = {
 local make(target) = step(target) {
   commands: ['make %s' % target],
 };
-
 
 local withGithub() = {
   environment+: {
@@ -112,6 +110,7 @@ local withTags() = {
     pipeline('ci') {
       steps: [
         test(),
+        make('test-e2e'),
         buildImage(),
         pushImage()
         + withDockerHub(),
