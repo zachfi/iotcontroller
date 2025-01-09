@@ -2,6 +2,13 @@
 depends_on: []
 kind: pipeline
 name: ci
+services:
+- image: docker:dind
+  name: docker
+  privileged: true
+  volumes:
+  - name: dockersock
+    path: /var/run
 steps:
 - commands:
   - make test
@@ -14,14 +21,14 @@ steps:
   pull: always
   volumes:
   - name: dockersock
-    path: /var/run/docker.sock
+    path: /var/run
 - commands:
   - sudo make docker-build registry=reg.dist.svc.cluster.znet:5000
   image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: build-image
   volumes:
   - name: dockersock
-    path: /var/run/docker.sock
+    path: /var/run
   when:
     ref:
     - refs/heads/main
@@ -36,7 +43,7 @@ steps:
   name: push-image
   volumes:
   - name: dockersock
-    path: /var/run/docker.sock
+    path: /var/run
   when:
     ref:
     - refs/heads/main
@@ -74,6 +81,6 @@ volumes:
   name: dockersock
 ---
 kind: signature
-hmac: bff3c5795bb6e2bef88f910e6f975cc0c923a37dc85e0c95de3a22310e83abfb
+hmac: ee1ba251e5abdf8599b02ecd129b599a599c6c2e52d691d48131aa8405cedfa1
 
 ...

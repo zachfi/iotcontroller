@@ -30,7 +30,8 @@ local withPipelineOnlyTags() = {
 
 local withStepDockerSock() = {
   volumes+: [
-    { name: 'dockersock', path: '/var/run/docker.sock' },
+    // { name: 'dockersock', path: '/var/run/docker.sock' },
+    { name: 'dockersock', path: '/var/run' },
   ],
 };
 
@@ -118,6 +119,14 @@ local withTags() = {
         buildImage(),
         pushImage()
         + withDockerHub(),
+      ],
+      services: [
+        {
+          name: 'docker',
+          image: 'docker:dind',
+          privileged: true,
+        }
+        + withStepDockerSock(),
       ],
     }
   ),
