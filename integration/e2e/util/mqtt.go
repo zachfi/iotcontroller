@@ -13,7 +13,8 @@ func NewMQTTServer(name string) *e2e.ConcreteService {
 		name,
 		mqttImage,
 		// e2e.NewCommand("mosquitto", "-c", "/mosquitto/config/mosquitto.conf"),
-		e2e.NewCommand("mosquitto", "-c", "/shared/mosquitto.conf"),
+		e2e.NewCommand("sleep", "1000"),
+		// e2e.NewCommand("mosquitto", "-c", "/shared/mosquitto.conf"),
 		e2e.NewTCPReadinessProbe(port),
 		port,
 	)
