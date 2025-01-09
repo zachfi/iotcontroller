@@ -8,8 +8,8 @@ local pipeline(name) = {
   steps: [],
   depends_on: [],
   volumes: [
-    // { name: 'cache', temp: {} },
-    { name: 'dockersock', host: { path: '/var/run/docker.sock' } },
+    { name: 'dockersock', temp: {} },
+    // { name: 'dockersock', host: { path: '/var/run/docker.sock' } },
   ],
   trigger: {
     ref: [

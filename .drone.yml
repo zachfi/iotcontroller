@@ -53,9 +53,8 @@ trigger:
   - refs/heads/dependabot/**
   - refs/pull/*/head
 volumes:
-- host:
-    path: /var/run/docker.sock
-  name: dockersock
+- name: dockersock
+  temp: {}
 ---
 depends_on: []
 kind: pipeline
@@ -76,11 +75,10 @@ trigger:
   ref:
   - refs/tags/v*
 volumes:
-- host:
-    path: /var/run/docker.sock
-  name: dockersock
+- name: dockersock
+  temp: {}
 ---
 kind: signature
-hmac: ee1ba251e5abdf8599b02ecd129b599a599c6c2e52d691d48131aa8405cedfa1
+hmac: 38e32cd4b4867cb5663957b6351024579dafc23e64455eb9dbd3ad287a6f2154
 
 ...
