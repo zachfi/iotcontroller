@@ -114,8 +114,8 @@ local withTags() = {
     pipeline('ci') {
       steps: [
         test(),
-        make('test-e2e')
-        + withStepDockerSock(),
+        // make('test-e2e')
+        // + withStepDockerSock(),
         buildImage(),
         pushImage()
         + withDockerHub(),

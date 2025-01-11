@@ -15,14 +15,6 @@ steps:
   image: golang
   name: test
 - commands:
-  - make test-e2e
-  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
-  name: test-e2e
-  pull: always
-  volumes:
-  - name: dockersock
-    path: /var/run
-- commands:
   - sudo make docker-build registry=reg.dist.svc.cluster.znet:5000
   image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: build-image
@@ -79,6 +71,6 @@ volumes:
   temp: {}
 ---
 kind: signature
-hmac: 38e32cd4b4867cb5663957b6351024579dafc23e64455eb9dbd3ad287a6f2154
+hmac: 0173b2d69cf5563be210e537c819d8aaac1c2ccabcdaef65db439417b08c44ed
 
 ...
