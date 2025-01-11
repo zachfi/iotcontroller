@@ -57,7 +57,9 @@ func (m *MQTTClient) CheckHealth() error {
 }
 
 func (m *MQTTClient) starting(ctx context.Context) error {
+	m.logger.Info("connecting to MQTT broker", "broker", m.cfg.MQTT.URL)
 	token := m.client.Connect()
+	m.logger.Debug("waiting for MQTT connection")
 	token.Wait()
 
 	err := token.Error()
@@ -83,6 +85,8 @@ func (m *MQTTClient) running(ctx context.Context) error {
 				continue
 			}
 
+			m.logger.Info("MQTT client is not connected")
+
 			client, err = iot.NewMQTTClient(m.cfg.MQTT, m.logger)
 			if err != nil {
 				return err
@@ -93,6 +97,7 @@ func (m *MQTTClient) running(ctx context.Context) error {
 }
 
 func (m *MQTTClient) stopping(_ error) error {
+	m.logger.Info("disconnecting from MQTT broker")
 	if m.client != nil {
 		m.client.Disconnect(100)
 	}
