@@ -2,6 +2,13 @@
 depends_on: []
 kind: pipeline
 name: ci
+services:
+- image: docker:dind
+  name: docker
+  privileged: true
+  volumes:
+  - name: dockersock
+    path: /var/run
 steps:
 - commands:
   - make test
@@ -9,11 +16,11 @@ steps:
   name: test
 - commands:
   - sudo make docker-build registry=reg.dist.svc.cluster.znet:5000
-  image: zachfi/shell:latest
+  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: build-image
   volumes:
   - name: dockersock
-    path: /var/run/docker.sock
+    path: /var/run
   when:
     ref:
     - refs/heads/main
@@ -24,11 +31,11 @@ steps:
       from_secret: DOCKER_PASSWORD
     DOCKER_USERNAME:
       from_secret: DOCKER_USERNAME
-  image: zachfi/shell:latest
+  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: push-image
   volumes:
   - name: dockersock
-    path: /var/run/docker.sock
+    path: /var/run
   when:
     ref:
     - refs/heads/main
@@ -38,9 +45,8 @@ trigger:
   - refs/heads/dependabot/**
   - refs/pull/*/head
 volumes:
-- host:
-    path: /var/run/docker.sock
-  name: dockersock
+- name: dockersock
+  temp: {}
 ---
 depends_on: []
 kind: pipeline
@@ -51,7 +57,7 @@ steps:
   environment:
     GITHUB_TOKEN:
       from_secret: GITHUB_TOKEN
-  image: zachfi/build-image
+  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
   name: release
   pull: always
   when:
@@ -61,11 +67,10 @@ trigger:
   ref:
   - refs/tags/v*
 volumes:
-- host:
-    path: /var/run/docker.sock
-  name: dockersock
+- name: dockersock
+  temp: {}
 ---
 kind: signature
-hmac: 2305e4c8ad2e5f9d2be3b7446b112615cfb23f48dac68e4b356be96ab402a79f
+hmac: 0173b2d69cf5563be210e537c819d8aaac1c2ccabcdaef65db439417b08c44ed
 
 ...
