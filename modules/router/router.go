@@ -178,6 +178,7 @@ func (r *Router) routeReceiver(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			r.logger.Debug("router context canceled")
 			return
 		case req = <-r.queue:
 
