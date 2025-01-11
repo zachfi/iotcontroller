@@ -140,7 +140,7 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 			ispindel/brewHydroBlack/RSSI -91
 		*/
 	default:
-		r.logger.Info("unhandled route", "path", path)
+		r.logger.Debug("unhandled route", "path", path)
 		metricUnhandledRoute.WithLabelValues(path).Inc()
 	}
 
