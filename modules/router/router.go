@@ -164,8 +164,8 @@ func (r *Router) Route(stream iotv1proto.RouteService_RouteServer) error {
 			return err
 		}
 
-		r.queue <- req
 		metricQueueLength.With(prometheus.Labels{}).Set(float64(len(r.queue)))
+		r.queue <- req
 	}
 }
 
