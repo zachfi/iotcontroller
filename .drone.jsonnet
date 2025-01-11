@@ -44,7 +44,7 @@ local buildImage(image=defaultImage) = withStepDockerSock() {
     ],
   },
   commands: [
-    'sudo make docker-build registry=%s' % registry,
+    'make docker-build registry=%s' % registry,
   ],
 };
 
@@ -59,7 +59,7 @@ local pushImage(image=defaultImage) = withStepDockerSock() {
   },
   commands:
     [
-      'sudo make docker-push registry=%s' % registry,
+      'make docker-push registry=%s' % registry,
     ],
 };
 
