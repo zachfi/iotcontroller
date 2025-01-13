@@ -20,8 +20,18 @@ func TestCore(t *testing.T) {
 	require.NoError(t, err)
 
 	mqtt := util.NewMQTTServer("mqtt")
+	mqtt.SetPrivileged(true)
 	require.NotNil(t, mqtt)
-	require.NoError(t, s.StartAndWaitReady(mqtt))
+
+	// kind := util.NewKindCluster("kind")
+	// kind.SetPrivileged(true)
+	// require.NotNil(t, kind)
+
+	k3d := util.NewK3dCluster("k3d")
+	k3d.SetPrivileged(true)
+	require.NotNil(t, k3d)
+
+	require.NoError(t, s.StartAndWaitReady(mqtt, k3d))
 
 	time.Sleep(1000)
 }
