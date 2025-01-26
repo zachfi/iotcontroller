@@ -149,22 +149,27 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 
 func (r *Router) Route(stream iotv1proto.RouteService_RouteServer) error {
 	for {
+
+		ctx := stream.Context()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		metricQueueLength.With(prometheus.Labels{}).Set(float64(len(r.queue)))
+
 		req, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			// Close the connection and return the response to the client
-			return stream.SendAndClose(&iotv1proto.RouteResponse{})
-		}
-
-		if errors.Is(err, context.Canceled) {
 			return nil
 		}
 
 		if err != nil {
 			r.logger.Error("stream error", "err", err)
-			return err
+			continue
 		}
 
-		metricQueueLength.With(prometheus.Labels{}).Set(float64(len(r.queue)))
 		r.queue <- req
 	}
 }
