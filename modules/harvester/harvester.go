@@ -3,7 +3,9 @@ package harvester
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -43,6 +45,8 @@ type Harvester struct {
 	routeStream iotv1proto.RouteService_RouteClient
 
 	mqttClient *mqttclient.MQTTClient
+
+	mu sync.RWMutex
 }
 
 func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceClient, mqttClient *mqttclient.MQTTClient) (*Harvester, error) {
@@ -67,20 +71,33 @@ func (h *Harvester) starting(ctx context.Context) error {
 	// bind address and not the k8s service.
 	/* if h.cfg.Target == All { } */
 
-	routeStream, err := h.routeClient.Route(ctx)
-	if err != nil {
-		return err
-	}
-
-	h.routeStream = routeStream
+	// TODO: wait for the mqtt client to be haelthy before proceeding
+	// h.mqttClient.CheckHealth()
 
 	return nil
 }
 
 func (h *Harvester) running(ctx context.Context) error {
-	var err error
+	var (
+		err    error
+		stream iotv1proto.RouteService_RouteClient
+	)
 
 	for {
+		if err = ctx.Err(); err != nil {
+			return nil
+		}
+
+		stream, err = h.routeClient.Route(ctx)
+		if err != nil {
+			h.logger.Error("stream Route failed, will retry", "err", err)
+			continue
+		}
+
+		h.mu.Lock()
+		h.routeStream = stream
+		h.mu.Unlock()
+
 		err = h.run(ctx)
 		if err != nil {
 			return err
@@ -95,43 +112,32 @@ func (h *Harvester) run(ctx context.Context) error {
 		token             mqtt.Token
 		timeout           = 30 * time.Second
 		err               error
-		routeStream       iotv1proto.RouteService_RouteClient
 	)
+
+	token = h.mqttClient.Client().Unsubscribe("#")
+
+	err = handleToken(token, "unsubscribe on #", timeout)
+	if err != nil {
+		return err
+	}
+
 	token = h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
-
-	if !token.WaitTimeout(timeout) {
-		h.logger.Error("failed to subscribe to topic #")
-		return nil
+	err = handleToken(token, "subscribe on #", timeout)
+	if err != nil {
+		return err
 	}
 
-	<-token.Done()
-	if token.Error() != nil {
-		h.logger.Error("token failed on topic #", "err", err)
-		return nil
-	}
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-h.routeStream.Context().Done():
-
-		err = h.routeStream.CloseSend()
-		if err != nil {
-			h.logger.Error("failed to close route stream", "err", err)
+	for {
+		select {
+		case <-ctx.Done():
 			return nil
+		case <-h.routeStream.Context().Done():
+			err = h.routeStream.CloseSend()
+			if err != nil {
+				return fmt.Errorf("failed to close route stream: %w", err)
+			}
 		}
-
-		h.logger.Info("route stream closed, reconnecting")
-		routeStream, err = h.routeClient.Route(ctx)
-		if err != nil {
-			h.logger.Error("route stream failed", "err", err)
-			return nil
-		}
-
-		h.routeStream = routeStream
 	}
-
-	return nil
 }
 
 func (h *Harvester) stopping(_ error) error {
@@ -172,6 +178,8 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 				Message: msg.Payload(),
 			}
 
+			h.mu.RLock()
+			defer h.mu.Unlock()
 			if routeErr := h.routeStream.Send(routeReq); routeErr != nil {
 				harvesterMessageErrors.WithLabelValues().Inc()
 
@@ -179,4 +187,17 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 			}
 		}()
 	}
+}
+
+func handleToken(token mqtt.Token, msg string, timeout time.Duration) error {
+	if !token.WaitTimeout(timeout) {
+		return fmt.Errorf("%s failed", msg)
+	}
+
+	<-token.Done()
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("%s failed: %w", msg, err)
+	}
+
+	return nil
 }
