@@ -179,7 +179,7 @@ func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
 			}
 
 			h.mu.RLock()
-			defer h.mu.Unlock()
+			defer h.mu.RUnlock()
 			if routeErr := h.routeStream.Send(routeReq); routeErr != nil {
 				harvesterMessageErrors.WithLabelValues().Inc()
 
