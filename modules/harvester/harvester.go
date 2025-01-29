@@ -114,15 +114,15 @@ func (h *Harvester) run(ctx context.Context) error {
 		err               error
 	)
 
-	token = h.mqttClient.Client().Unsubscribe("#")
+	token = h.mqttClient.Unsubscribe()
 
-	err = handleToken(token, "unsubscribe on #", timeout)
+	err = handleToken(token, "unsubscribe", timeout)
 	if err != nil {
 		return err
 	}
 
-	token = h.mqttClient.Client().Subscribe("#", 0, onMessageReceived)
-	err = handleToken(token, "subscribe on #", timeout)
+	token = h.mqttClient.Subscribe(onMessageReceived)
+	err = handleToken(token, "subscribe", timeout)
 	if err != nil {
 		return err
 	}
@@ -132,10 +132,7 @@ func (h *Harvester) run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-h.routeStream.Context().Done():
-			err = h.routeStream.CloseSend()
-			if err != nil {
-				return fmt.Errorf("failed to close route stream: %w", err)
-			}
+			return nil
 		}
 	}
 }
@@ -160,30 +157,38 @@ func (h *Harvester) stopping(_ error) error {
 	return nil
 }
 
-func (h *Harvester) messageFunc(_ context.Context) mqtt.MessageHandler {
+func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
 	return func(_ mqtt.Client, msg mqtt.Message) {
-		var err error
 		_, span := h.tracer.Start(
-			context.Background(),
+			ctx,
 			"Harvester.messageFunc",
 			trace.WithSpanKind(trace.SpanKindConsumer),
 		)
-		defer func() { _ = tracing.ErrHandler(span, err, "harvester mqtt message failed", h.logger) }()
+		defer func() { _ = tracing.ErrHandler(span, nil, "harvester mqtt message failed", h.logger) }()
 
 		harvesterMessageTotal.WithLabelValues().Inc()
 
 		go func() {
+			var routeErr error
+
+			_, funcSpan := h.tracer.Start(
+				ctx,
+				"Harvester.messageFunc.func",
+				trace.WithSpanKind(trace.SpanKindClient),
+			)
+			h.mu.RLock()
+			defer func() {
+				funcSpan.AddEvent("completed")
+				_ = tracing.ErrHandler(funcSpan, routeErr, "mqtt func message failed", h.logger)
+				h.mu.RUnlock()
+			}()
 			routeReq := &iotv1proto.RouteRequest{
 				Path:    msg.Topic(),
 				Message: msg.Payload(),
 			}
 
-			h.mu.RLock()
-			defer h.mu.RUnlock()
-			if routeErr := h.routeStream.Send(routeReq); routeErr != nil {
+			if routeErr = h.routeStream.Send(routeReq); routeErr != nil {
 				harvesterMessageErrors.WithLabelValues().Inc()
-
-				h.logger.Error("failed to send on routeStream", "err", routeErr)
 			}
 		}()
 	}

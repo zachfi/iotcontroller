@@ -45,14 +45,23 @@ func New(cfg Config, logger *slog.Logger) (*MQTTClient, error) {
 	return m, nil
 }
 
-func (m *MQTTClient) Client() mqtt.Client {
-	return m.client
+func (m *MQTTClient) Unsubscribe() mqtt.Token {
+	return m.client.Unsubscribe(m.cfg.MQTT.Topic)
+}
+
+func (m *MQTTClient) Subscribe(f mqtt.MessageHandler) mqtt.Token {
+	return m.client.Subscribe(m.cfg.MQTT.Topic, 0, f)
+}
+
+func (m *MQTTClient) Publish(topic string, qos byte, retained bool, payload interface{}) mqtt.Token {
+	return m.client.Publish(topic, qos, retained, payload)
 }
 
 func (m *MQTTClient) CheckHealth() error {
 	if m.client == nil || !m.client.IsConnected() {
 		return fmt.Errorf("mqtt client is not connected")
 	}
+
 	return nil
 }
 
@@ -73,25 +82,16 @@ func (m *MQTTClient) starting(ctx context.Context) error {
 func (m *MQTTClient) running(ctx context.Context) error {
 	t := time.NewTicker(10 * time.Second)
 
-	client := m.client
-	var err error
-
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
-			if client != nil && client.IsConnected() {
+			if m.client != nil && m.client.IsConnected() {
 				continue
 			}
 
 			m.logger.Info("MQTT client is not connected")
-
-			client, err = iot.NewMQTTClient(m.cfg.MQTT, m.logger)
-			if err != nil {
-				return err
-			}
-			m.client = client
 		}
 	}
 }

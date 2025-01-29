@@ -66,7 +66,7 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kub
 	z := &ZoneKeeper{
 		cfg:        &cfg,
 		logger:     logger.With("module", module),
-		tracer:     otel.Tracer(module),
+		tracer:     otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
 		mqttclient: mqttclient,
 		kubeclient: kubeclient,
 		zones:      make(map[string]*iot.Zone),
@@ -379,7 +379,7 @@ func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 }
 
 func (z *ZoneKeeper) starting(ctx context.Context) error {
-	zigbeeHandler, err := zigbee.New(z.mqttclient.Client(), z.logger, z.tracer)
+	zigbeeHandler, err := zigbee.New(z.mqttclient.Publish, z.logger, z.tracer)
 	if err != nil {
 		return err
 	}

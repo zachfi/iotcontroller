@@ -19,4 +19,10 @@ var (
 		Namespace: metricsNamespace,
 		Help:      "The total number of notice calls that include an unhandled object ID.",
 	}, []string{"route"})
+
+	metricMessagesReceived = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name:      "router_messages_received",
+		Namespace: metricsNamespace,
+		Help:      "The number of messages received by the router",
+	}, []string{})
 )

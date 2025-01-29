@@ -3,7 +3,6 @@ package zigbee
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -19,31 +18,29 @@ import (
 const defaultTransitionTime = 0.8
 
 var (
-	_ iot.Handler = ZigbeeHandler{}
+	_ iot.Handler = Handler{}
 
 	defaultConfirmTimout = time.Second * 3
 )
 
-type ZigbeeHandler struct {
-	mqttClient mqtt.Client
+type Handler struct {
+	publish publishFunc
 
 	logger *slog.Logger
 	tracer trace.Tracer
 }
 
-func New(mqttClient mqtt.Client, logger *slog.Logger, tracer trace.Tracer) (*ZigbeeHandler, error) {
-	if mqttClient == nil {
-		return nil, fmt.Errorf("mqttClient cannot be nil")
-	}
+type publishFunc func(topic string, qos byte, retained bool, payload interface{}) mqtt.Token
 
-	return &ZigbeeHandler{
-		mqttClient: mqttClient,
-		logger:     logger.With("handler", "zigbee"),
-		tracer:     tracer,
+func New(f publishFunc, logger *slog.Logger, tracer trace.Tracer) (*Handler, error) {
+	return &Handler{
+		publish: f,
+		logger:  logger.With("handler", "zigbee"),
+		tracer:  tracer,
 	}, nil
 }
 
-func (h ZigbeeHandler) On(ctx context.Context, device *iotv1proto.Device) error {
+func (h Handler) On(ctx context.Context, device *iotv1proto.Device) error {
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/On", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
@@ -55,7 +52,7 @@ func (h ZigbeeHandler) On(ctx context.Context, device *iotv1proto.Device) error 
 	return h.send(ctx, span, msg)
 }
 
-func (h ZigbeeHandler) Off(ctx context.Context, device *iotv1proto.Device) error {
+func (h Handler) Off(ctx context.Context, device *iotv1proto.Device) error {
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/Off", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
@@ -68,7 +65,7 @@ func (h ZigbeeHandler) Off(ctx context.Context, device *iotv1proto.Device) error
 	return h.send(ctx, span, msg)
 }
 
-func (h ZigbeeHandler) Alert(ctx context.Context, device *iotv1proto.Device) error {
+func (h Handler) Alert(ctx context.Context, device *iotv1proto.Device) error {
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/Alert", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
@@ -81,7 +78,7 @@ func (h ZigbeeHandler) Alert(ctx context.Context, device *iotv1proto.Device) err
 	return h.send(ctx, span, msg)
 }
 
-func (h ZigbeeHandler) SetBrightness(ctx context.Context, device *iotv1proto.Device, brightness uint8) error {
+func (h Handler) SetBrightness(ctx context.Context, device *iotv1proto.Device, brightness uint8) error {
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/SetBrightness", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
@@ -95,7 +92,7 @@ func (h ZigbeeHandler) SetBrightness(ctx context.Context, device *iotv1proto.Dev
 	return h.send(ctx, span, msg)
 }
 
-func (h ZigbeeHandler) SetColor(ctx context.Context, device *iotv1proto.Device, hex string) error {
+func (h Handler) SetColor(ctx context.Context, device *iotv1proto.Device, hex string) error {
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/SetColor", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
@@ -106,7 +103,7 @@ func (h ZigbeeHandler) SetColor(ctx context.Context, device *iotv1proto.Device, 
 	return h.send(ctx, span, newMessage(device).withColor(hex))
 }
 
-func (h ZigbeeHandler) RandomColor(ctx context.Context, device *iotv1proto.Device, hex []string) error {
+func (h Handler) RandomColor(ctx context.Context, device *iotv1proto.Device, hex []string) error {
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/RandomColor", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
@@ -120,7 +117,7 @@ func (h ZigbeeHandler) RandomColor(ctx context.Context, device *iotv1proto.Devic
 	return h.send(ctx, span, msg)
 }
 
-func (h ZigbeeHandler) SetColorTemp(ctx context.Context, device *iotv1proto.Device, temp int32) error {
+func (h Handler) SetColorTemp(ctx context.Context, device *iotv1proto.Device, temp int32) error {
 	_, span := h.tracer.Start(ctx, "ZigbeeHandler/SetColorTemp", trace.WithAttributes(
 		attribute.String("device_name", device.Name),
 		attribute.String("device_type", device.Type.String()),
@@ -134,14 +131,16 @@ func (h ZigbeeHandler) SetColorTemp(ctx context.Context, device *iotv1proto.Devi
 	return h.send(ctx, span, msg)
 }
 
-func (h ZigbeeHandler) send(ctx context.Context, span trace.Span, msg *message) error {
+// func (mqtt.Client) Publish(topic string, qos byte, retained bool, payload interface{}) mqtt.Token
+
+func (h Handler) send(_ context.Context, span trace.Span, msg *message) error {
 	m, err := json.Marshal(msg.msg)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
-	t := h.mqttClient.Publish(msg.topic, byte(0), false, string(m))
+	t := h.publish(msg.topic, byte(0), false, string(m))
 	t.WaitTimeout(defaultConfirmTimout)
 	return errHandler(span, t.Error())
 }
