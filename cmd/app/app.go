@@ -190,6 +190,7 @@ func (a *App) statusHandler() http.HandlerFunc {
 			"endpoints":   a.writeStatusEndpoints,
 			"services":    a.writeStatusServices,
 			"conditioner": a.writeStatusConditioner,
+			"mqttclient":  a.writeStatusMqttClient,
 		}
 
 		wrapStatus := func(endpoint string) {
@@ -211,6 +212,7 @@ func (a *App) statusHandler() http.HandlerFunc {
 			wrapStatus("services")
 			wrapStatus("endpoints")
 			wrapStatus("conditioner")
+			wrapStatus("mqttclient")
 		}
 
 		w.Header().Set("Content-Type", "text/plain")
@@ -324,6 +326,23 @@ func (a *App) writeStatusServices(w io.Writer) error {
 			{name, service.State(), e},
 		})
 	}
+
+	x.AppendSeparator()
+	x.Render()
+
+	return nil
+}
+
+func (a *App) writeStatusMqttClient(w io.Writer) error {
+	x := table.NewWriter()
+	x.SetOutputMirror(w)
+	x.AppendHeader(table.Row{"name", "status"})
+
+	x.AppendRow(
+		table.Row{
+			"mqtt", a.mqttclient.CheckHealth(),
+		},
+	)
 
 	x.AppendSeparator()
 	x.Render()

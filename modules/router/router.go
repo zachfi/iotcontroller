@@ -9,10 +9,13 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/gogo/status"
 	"github.com/grafana/dskit/services"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/codes"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
@@ -59,7 +62,7 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 	c := &Router{
 		cfg:              &cfg,
 		logger:           logger.With("module", module),
-		tracer:           otel.Tracer(module),
+		tracer:           otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
 		kubeclient:       kubeclient,
 		zonekeeperClient: zonekeeperClient,
 		queue:            make(chan *iotv1proto.RouteRequest, 10000),
@@ -96,7 +99,7 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 	)
 
 	ctx, span := r.tracer.Start(ctx, "Router.Send")
-	defer tracing.ErrHandler(span, err, "router send faield", r.logger)
+	defer tracing.ErrHandler(span, err, "router send failed", r.logger)
 
 	switch {
 	// Zigbee routes
@@ -148,9 +151,13 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 }
 
 func (r *Router) Route(stream iotv1proto.RouteService_RouteServer) error {
-	for {
+	var (
+		ctx = stream.Context()
+		req *iotv1proto.RouteRequest
+		err error
+	)
 
-		ctx := stream.Context()
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -159,16 +166,22 @@ func (r *Router) Route(stream iotv1proto.RouteService_RouteServer) error {
 
 		metricQueueLength.With(prometheus.Labels{}).Set(float64(len(r.queue)))
 
-		req, err := stream.Recv()
+		req, err = stream.Recv()
 		if errors.Is(err, io.EOF) {
 			// Close the connection and return the response to the client
 			return nil
 		}
 
 		if err != nil {
+			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+				return nil
+			}
+
 			r.logger.Error("stream error", "err", err)
 			continue
 		}
+
+		metricMessagesReceived.With(prometheus.Labels{}).Inc()
 
 		r.queue <- req
 	}
@@ -180,6 +193,8 @@ func (r *Router) routeReceiver(ctx context.Context) {
 		bg  = boundedwaitgroup.New(r.cfg.ReportConcurrency)
 	)
 
+	// TODO: measure the number of active workers to determine if we need to raise the limit.
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -189,11 +204,11 @@ func (r *Router) routeReceiver(ctx context.Context) {
 
 			bg.Add(1)
 			go func() {
-				bg.Done()
+				defer bg.Done()
 
-				ctx, span := r.tracer.Start(context.Background(), "Router.routeReceiver", trace.WithSpanKind(trace.SpanKindServer))
-				err := r.Send(ctx, req.Path, req.Message)
-				tracing.ErrHandler(span, err, "route failed", r.logger)
+				spanCtx, span := r.tracer.Start(context.Background(), "Router.routeReceiver", trace.WithSpanKind(trace.SpanKindServer))
+				err := r.Send(spanCtx, req.Path, req.Message)
+				_ = tracing.ErrHandler(span, err, "route failed", r.logger)
 			}()
 		}
 	}

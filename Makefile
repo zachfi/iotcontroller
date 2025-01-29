@@ -1,6 +1,8 @@
+# version number
+VERSION=$(shell ./tools/image-tag | cut -d, -f 1)
 
 # Image URL to use all building/pushing image targets
-IMG ?= zachfi/iotcontroller:latest
+IMG ?= zachfi/iotcontroller:$(VERSION)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.28.0
 

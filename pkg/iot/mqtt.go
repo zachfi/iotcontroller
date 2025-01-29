@@ -18,15 +18,29 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 		rnd        = rand.New(src)
 	)
 
+	onLost := func(_ mqtt.Client, err error) {
+		logger.Error("mqtt connection lost", "err", err)
+	}
+
+	onReconnect := func(_ mqtt.Client, _ *mqtt.ClientOptions) {
+		logger.Info("mqtt reconnecting")
+	}
+
 	mqttOpts := mqtt.NewClientOptions()
 	mqttOpts.AddBroker(cfg.URL)
+	// mqttOpts.SetAutoReconnect(true) // default true
 	mqttOpts.SetCleanSession(true)
-	mqttOpts.SetAutoReconnect(true)
-	mqttOpts.SetConnectRetry(true)
-	mqttOpts.SetConnectRetryInterval(3 * time.Second)
-	mqttOpts.SetOrderMatters(false)
-	mqttOpts.SetKeepAlive(10 * time.Second)
 	mqttOpts.SetClientID(fmt.Sprintf("%s-%x", clientPrefix, rnd.Uint64()))
+	mqttOpts.SetConnectionLostHandler(onLost)
+	// mqttOpts.SetConnectRetryInterval(3 * time.Second)
+	// mqttOpts.SetConnectRetry(true) // default is false, unsure how this plays with the autoreconnect true above
+	mqttOpts.SetConnectTimeout(10 * time.Second)
+	mqttOpts.SetKeepAlive(10 * time.Second)
+	mqttOpts.SetMaxReconnectInterval(time.Minute)
+	mqttOpts.SetOrderMatters(false)
+	mqttOpts.SetReconnectingHandler(onReconnect)
+
+	mqttOpts.SetWriteTimeout(5 * time.Second)
 
 	if cfg.Username != "" && cfg.Password != "" {
 		mqttOpts.SetUsername(cfg.Username)
@@ -35,11 +49,14 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 
 	mqttClient = mqtt.NewClient(mqttOpts)
 
-	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
-		logger.Error("mqtt connection failed", "err", token.Error())
-	} else {
-		logger.Debug("mqtt connected", "url", cfg.URL)
+	token := mqttClient.Connect()
+	token.Wait()
+
+	if err := token.Error(); err != nil {
+		return nil, err
 	}
+
+	logger.Debug("mqtt connected", "url", cfg.URL)
 
 	return mqttClient, nil
 }
