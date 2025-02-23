@@ -1,9 +1,11 @@
 package iot
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net/url"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -18,6 +20,10 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 		rnd        = rand.New(src)
 	)
 
+	onConnected := func(_ mqtt.Client) {
+		logger.Error("mqtt connected")
+	}
+
 	onLost := func(_ mqtt.Client, err error) {
 		logger.Error("mqtt connection lost", "err", err)
 	}
@@ -26,19 +32,28 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 		logger.Info("mqtt reconnecting")
 	}
 
+	onConnect := func(broker *url.URL, tlsCfg *tls.Config) *tls.Config {
+		logger.Info("mqtt connecting", "broker", broker)
+		return tlsCfg
+	}
+
 	mqttOpts := mqtt.NewClientOptions()
+
+	mqttOpts.SetOnConnectHandler(onConnected)
+	mqttOpts.SetConnectionLostHandler(onLost)
+	mqttOpts.SetReconnectingHandler(onReconnect)
+	mqttOpts.SetConnectionAttemptHandler(onConnect)
+
 	mqttOpts.AddBroker(cfg.URL)
 	// mqttOpts.SetAutoReconnect(true) // default true
 	mqttOpts.SetCleanSession(true)
 	mqttOpts.SetClientID(fmt.Sprintf("%s-%x", clientPrefix, rnd.Uint64()))
-	mqttOpts.SetConnectionLostHandler(onLost)
 	// mqttOpts.SetConnectRetryInterval(3 * time.Second)
 	// mqttOpts.SetConnectRetry(true) // default is false, unsure how this plays with the autoreconnect true above
 	mqttOpts.SetConnectTimeout(10 * time.Second)
 	mqttOpts.SetKeepAlive(10 * time.Second)
 	mqttOpts.SetMaxReconnectInterval(time.Minute)
 	mqttOpts.SetOrderMatters(false)
-	mqttOpts.SetReconnectingHandler(onReconnect)
 
 	mqttOpts.SetWriteTimeout(5 * time.Second)
 
