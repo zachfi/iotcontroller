@@ -299,6 +299,11 @@ func (a *App) initServer() (services.Service, error) {
 		case <-ctx.Done():
 			return nil
 		case err := <-serverDone:
+
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+
 			if err != nil {
 				return err
 			}
