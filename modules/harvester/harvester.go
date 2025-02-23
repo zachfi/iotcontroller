@@ -2,7 +2,6 @@ package harvester
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -138,20 +137,11 @@ func (h *Harvester) run(ctx context.Context) error {
 }
 
 func (h *Harvester) stopping(_ error) error {
-	var (
-		err  error
-		errs []error
-	)
-
 	if h.routeStream != nil {
-		_, err = h.routeStream.CloseAndRecv()
+		err := h.routeStream.CloseSend()
 		if err != nil {
-			errs = append(errs, err)
+			return err
 		}
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
 	}
 
 	return nil
