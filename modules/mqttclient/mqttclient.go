@@ -80,7 +80,11 @@ func (m *MQTTClient) starting(ctx context.Context) error {
 }
 
 func (m *MQTTClient) running(ctx context.Context) error {
-	t := time.NewTicker(10 * time.Second)
+	var (
+		t           = time.NewTicker(10 * time.Second)
+		failures    = 0
+		maxFailures = 3
+	)
 
 	for {
 		select {
@@ -88,7 +92,14 @@ func (m *MQTTClient) running(ctx context.Context) error {
 			return nil
 		case <-t.C:
 			if m.client != nil && m.client.IsConnected() {
+				failures = 0
 				continue
+			}
+
+			failures++
+
+			if failures > maxFailures {
+				return fmt.Errorf("failed to reconnect to MQTT broker after %d attempts", maxFailures)
 			}
 
 			m.logger.Info("MQTT client is not connected")
