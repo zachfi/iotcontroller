@@ -70,12 +70,14 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 	s.Lock()
 	defer s.Unlock()
 
+	// cancel and clear out the previous events
 	if v, ok := s.events[name]; ok {
 		if matched(v.req, req) && t.Equal(v.t) {
 			return
 		}
 
 		v.cancel()
+		delete(s.events, name)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
