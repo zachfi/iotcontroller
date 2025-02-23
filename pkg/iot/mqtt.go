@@ -21,7 +21,7 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, error) {
 	)
 
 	onConnected := func(_ mqtt.Client) {
-		logger.Error("mqtt connected")
+		logger.Info("mqtt connected")
 	}
 
 	onLost := func(_ mqtt.Client, err error) {
