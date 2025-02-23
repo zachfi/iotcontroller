@@ -151,5 +151,6 @@ func (c *Controller) running(ctx context.Context) error {
 }
 
 func (c *Controller) stopping(_ error) error {
+	c.mgr.GetCache().WaitForCacheSync(context.Background())
 	return nil
 }
