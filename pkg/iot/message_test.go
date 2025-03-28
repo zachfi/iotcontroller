@@ -46,7 +46,7 @@ func _TestUpdateMessageFixtures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	mqttClient, err := NewMQTTClient(cfg, slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{})))
+	mqttClient, clientCtx, err := NewMQTTClient(cfg, slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{})))
 	require.NoError(t, err)
 
 	token := mqttClient.Subscribe(cfg.Topic, 0, onMessageReceived)
@@ -59,4 +59,6 @@ func _TestUpdateMessageFixtures(t *testing.T) {
 	require.NoError(t, token.Error())
 
 	<-ctx.Done()
+
+	require.ErrorAs(t, clientCtx.Err(), context.Canceled)
 }
