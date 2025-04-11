@@ -108,7 +108,8 @@ func loadCRDs(t *testing.T, cfg api.Config, k3d *e2e.HTTPService) {
 		require.NotNil(t, b)
 
 		o := &unstructured.Unstructured{}
-		decode(b, nil, o)
+		_, _, err = decode(b, nil, o)
+		require.NoError(t, err)
 
 		// Load the CRD using the client
 		err = c.Create(ctx, o)
