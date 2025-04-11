@@ -15,7 +15,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	iotv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/internal/common"
 	"github.com/zachfi/iotcontroller/modules/conditioner"
 	"github.com/zachfi/iotcontroller/modules/controller"
@@ -31,12 +37,16 @@ import (
 const (
 	Server string = "server"
 
+	// Utility modules
+	KubeClient string = "kubeclient"
+	MQTTClient string = "mqttclient"
+
+	// Modules
 	EventClient  string = "eventclient"
 	Conditioner  string = "conditioner"
 	Controller   string = "controller"
 	Harvester    string = "harvester"
 	HookReceiver string = "hook-receiver"
-	MQTTClient   string = "mqttclient"
 	Router       string = "router"
 	Weather      string = "weather"
 	ZoneKeeper   string = "zone-keeper"
@@ -50,6 +60,7 @@ func (a *App) setupModuleManager() error {
 	mm := modules.NewManager(kitlog.NewLogfmtLogger(os.Stderr))
 	mm.RegisterModule(Server, a.initServer, modules.UserInvisibleModule)
 
+	mm.RegisterModule(KubeClient, a.initKubeClient)
 	mm.RegisterModule(MQTTClient, a.initMqttClient)
 
 	mm.RegisterModule(Conditioner, a.initConditioner)
@@ -70,12 +81,12 @@ func (a *App) setupModuleManager() error {
 		MQTTClient: {Server}, // MQTT client
 		Controller: {Server}, // K8s client
 
-		Conditioner:  {Server, Controller},
+		Conditioner:  {Server, KubeClient},
 		Harvester:    {Server, MQTTClient},
 		HookReceiver: {Server},
-		Router:       {Server, Controller},
+		Router:       {Server, KubeClient},
 		Weather:      {Server, Conditioner},
-		ZoneKeeper:   {Server, MQTTClient, Controller},
+		ZoneKeeper:   {Server, MQTTClient, KubeClient},
 
 		// Timer:      {Server},
 
@@ -130,6 +141,10 @@ func (a *App) initHookReceiver() (services.Service, error) {
 }
 
 func (a *App) initWeather() (services.Service, error) {
+	if a.cfg.Weather.APIKey == "" {
+		return services.NewIdleService(nil, nil), nil
+	}
+
 	c, err := common.NewClientConn(a.cfg.HookReceiver.EventReceiverClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new client connection; %w", err)
@@ -170,6 +185,26 @@ func (a *App) initMqttClient() (services.Service, error) {
 	return c, nil
 }
 
+func (a *App) initKubeClient() (services.Service, error) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(iotv1.AddToScheme(scheme))
+
+	cfg, err := config.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, err
+	}
+
+	a.kubeclient = c
+
+	return services.NewIdleService(nil, nil), nil
+}
+
 func (a *App) initController() (services.Service, error) {
 	c, err := controller.New(a.cfg.Controller, a.logger, a.logHandler)
 	if err != nil {
@@ -186,7 +221,7 @@ func (a *App) initRouter() (services.Service, error) {
 		return nil, fmt.Errorf("failed to create new client connection; %w", err)
 	}
 
-	r, err := router.New(a.cfg.Router, a.logger, a.controller.Client(), iotv1proto.NewZoneKeeperServiceClient(c))
+	r, err := router.New(a.cfg.Router, a.logger, a.kubeclient, iotv1proto.NewZoneKeeperServiceClient(c))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +233,7 @@ func (a *App) initRouter() (services.Service, error) {
 }
 
 func (a *App) initZoneKeeper() (services.Service, error) {
-	z, err := zonekeeper.New(a.cfg.ZoneKeeper, a.logger, a.mqttclient, a.controller.Client())
+	z, err := zonekeeper.New(a.cfg.ZoneKeeper, a.logger, a.mqttclient, a.kubeclient)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +265,7 @@ func (a *App) initConditioner() (services.Service, error) {
 		return nil, fmt.Errorf("failed to create new client connection; %w", err)
 	}
 
-	m, err := conditioner.New(a.cfg.Conditioner, a.logger, iotv1proto.NewZoneKeeperServiceClient(c), a.controller.Client())
+	m, err := conditioner.New(a.cfg.Conditioner, a.logger, iotv1proto.NewZoneKeeperServiceClient(c), a.kubeclient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create conditioner: %w", err)
 	}

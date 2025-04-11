@@ -16,6 +16,7 @@ import (
 	"github.com/grafana/dskit/services"
 	"github.com/grafana/dskit/signals"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/prometheus/common/version"
@@ -55,6 +56,7 @@ type App struct {
 	conditioner *conditioner.Conditioner
 	// lights     *lights.Lights
 	mqttclient   *mqttclient.MQTTClient
+	kubeclient   client.Client
 	weather      *weather.Weather
 	zonekeeper   *zonekeeper.ZoneKeeper
 	hookreceiver *hookreceiver.HookReceiver

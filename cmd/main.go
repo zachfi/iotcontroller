@@ -96,6 +96,7 @@ func main() {
 	)
 	if err != nil {
 		slog.Error("failed initializing tracer", "err", err)
+
 		os.Exit(1)
 	}
 	defer shutdownTracer()
