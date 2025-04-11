@@ -19,11 +19,14 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 ALL_SRC := $(shell find . -name '*.go' \
+								-not -path './tools*/*' \
 								-not -path './vendor*/*' \
 								-not -path './integration/*' \
                                 -type f | sort)
 
 ALL_PKGS := $(shell go list $(sort $(dir $(ALL_SRC))))
+
+GOTEST=gotestsum --format=testname --
 
 .PHONY: all
 all: build
@@ -67,8 +70,8 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ## Run tests.  -race requires CGO_ENABLED=1
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" CGO_ENABLED=1 go test $(ALL_PKGS) -race -coverprofile cover.out
 
-test-e2e: generate docker-build
-	go test -v ./integration/e2e
+test-e2e: tools-image-build docker-build  ## Run end to end tests
+	$(GOTEST) -v $(GOTEST_OPT) ./integration/e2e
 
 ##@ Build
 
@@ -180,5 +183,7 @@ proto-grpc:
 	@buf lint
 	@buf generate
 
+include build/lint.mk
 include build/release.mk
 include build/drone.mk
+include build/tools.mk
