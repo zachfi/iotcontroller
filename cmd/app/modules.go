@@ -200,6 +200,8 @@ func (a *App) initKubeClient() (services.Service, error) {
 		return nil, err
 	}
 
+	c = client.NewNamespacedClient(c, a.cfg.Controller.Namespace)
+
 	a.kubeclient = c
 
 	return services.NewIdleService(nil, nil), nil
