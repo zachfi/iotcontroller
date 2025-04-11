@@ -2,12 +2,15 @@ package harvester
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/grafana/dskit/backoff"
 	"github.com/grafana/dskit/services"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -25,11 +28,19 @@ const module = "harvester"
 var (
 	harvesterMessageTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "iot_harvester_message_total",
-		Help: "The the total number of messages processed by the harvester",
+		Help: "The the total number of messages seen by the harvester",
 	}, []string{})
 	harvesterMessageErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "iot_harvester_message_error",
 		Help: "The the total number of messages failed to process by the harvester",
+	}, []string{})
+	harvesterRouteSendErrorTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "iot_harvester_route_send_error_total",
+		Help: "The the total number of messages failed to route",
+	}, []string{})
+	harvesterRouteSendTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "iot_harvester_route_send_total",
+		Help: "The the total number of messages routed",
 	}, []string{})
 )
 
@@ -41,7 +52,6 @@ type Harvester struct {
 	tracer trace.Tracer
 
 	routeClient iotv1proto.RouteServiceClient
-	routeStream iotv1proto.RouteService_RouteClient
 
 	mqttClient *mqttclient.MQTTClient
 
@@ -77,37 +87,39 @@ func (h *Harvester) starting(ctx context.Context) error {
 }
 
 func (h *Harvester) running(ctx context.Context) error {
-	var (
-		err    error
-		stream iotv1proto.RouteService_RouteClient
-	)
-
+	b := backoff.New(ctx, h.cfg.Backoff)
 	for {
-		if err = ctx.Err(); err != nil {
+		select {
+		case <-ctx.Done():
 			return nil
-		}
+		default:
+			stream, err := h.routeClient.Route(ctx)
+			if err != nil {
+				h.logger.Error("stream Route failed, will retry", "err", err)
+				b.Wait()
+				continue
+			}
+			b.Reset()
 
-		stream, err = h.routeClient.Route(ctx)
-		if err != nil {
-			h.logger.Error("stream Route failed, will retry", "err", err)
-			continue
-		}
-
-		h.mu.Lock()
-		h.routeStream = stream
-		h.mu.Unlock()
-
-		err = h.run(ctx)
-		if err != nil {
-			return err
+			err = h.run(ctx, stream)
+			if err != nil {
+				return fmt.Errorf("run failed: %w", err)
+			}
 		}
 	}
 }
 
 // An error is returned only when we should exit.
-func (h *Harvester) run(ctx context.Context) error {
+func (h *Harvester) run(ctx context.Context, stream iotv1proto.RouteService_RouteClient) error {
+	bgCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	msgCh := make(chan mqtt.Message, 1000)
+
+	go h.receiver(ctx, cancel, stream, msgCh)
+
 	var (
-		onMessageReceived = h.messageFunc(ctx)
+		onMessageReceived = h.messageFunc(bgCtx, msgCh)
 		token             mqtt.Token
 		timeout           = 30 * time.Second
 		err               error
@@ -130,24 +142,48 @@ func (h *Harvester) run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-h.routeStream.Context().Done():
+		case <-stream.Context().Done():
+			return nil
+		case <-bgCtx.Done():
 			return nil
 		}
 	}
 }
 
 func (h *Harvester) stopping(_ error) error {
-	if h.routeStream != nil {
-		err := h.routeStream.CloseSend()
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
+func (h *Harvester) receiver(ctx context.Context, cancel context.CancelFunc, stream iotv1proto.RouteService_RouteClient, msgChan chan mqtt.Message) {
+	var routeErr error
+
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stream.Context().Done():
+			return
+		case msg := <-msgChan:
+			routeReq := &iotv1proto.RouteRequest{
+				Path:    msg.Topic(),
+				Message: msg.Payload(),
+			}
+
+			if routeErr = stream.Send(routeReq); routeErr != nil {
+				if errors.Is(routeErr, io.EOF) {
+					return
+				}
+				harvesterRouteSendErrorTotal.WithLabelValues().Inc()
+				continue
+			}
+			harvesterRouteSendTotal.WithLabelValues().Inc()
+		}
+	}
+}
+
+func (h *Harvester) messageFunc(ctx context.Context, msgCh chan mqtt.Message) mqtt.MessageHandler {
 	return func(_ mqtt.Client, msg mqtt.Message) {
 		_, span := h.tracer.Start(
 			ctx,
@@ -159,27 +195,7 @@ func (h *Harvester) messageFunc(ctx context.Context) mqtt.MessageHandler {
 		harvesterMessageTotal.WithLabelValues().Inc()
 
 		go func() {
-			var routeErr error
-
-			_, funcSpan := h.tracer.Start(
-				ctx,
-				"Harvester.messageFunc.func",
-				trace.WithSpanKind(trace.SpanKindClient),
-			)
-			h.mu.RLock()
-			defer func() {
-				funcSpan.AddEvent("completed")
-				_ = tracing.ErrHandler(funcSpan, routeErr, "mqtt func message failed", h.logger)
-				h.mu.RUnlock()
-			}()
-			routeReq := &iotv1proto.RouteRequest{
-				Path:    msg.Topic(),
-				Message: msg.Payload(),
-			}
-
-			if routeErr = h.routeStream.Send(routeReq); routeErr != nil {
-				harvesterMessageErrors.WithLabelValues().Inc()
-			}
+			msgCh <- msg
 		}()
 	}
 }

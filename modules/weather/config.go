@@ -6,14 +6,16 @@ import (
 )
 
 type Config struct {
-	Interval  time.Duration `mapstructure:"interval"`
-	APIKey    string        `mapstructure:"apikey"`
-	Locations []Location    `mapstructure:"locations"`
+	Interval  time.Duration `yaml:"interval"`
+	APIKey    string        `yaml:"apikey"`
+	Locations []Location    `yaml:"locations"`
+	Timeout   time.Duration `yaml:"timeout"`
 }
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	f.StringVar(&cfg.APIKey, "api_key", "", "An OpenweatherMap API key")
 	f.DurationVar(&cfg.Interval, "interval", time.Second*90, "The interval at which to refresh the data")
+	f.DurationVar(&cfg.Timeout, "timeout", time.Second*30, "The timeout for the API requests")
 }
 
 type Location struct {

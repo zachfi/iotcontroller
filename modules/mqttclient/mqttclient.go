@@ -21,7 +21,8 @@ type MQTTClient struct {
 
 	cfg *Config
 
-	client mqtt.Client
+	client    mqtt.Client
+	clientCtx context.Context
 
 	logger *slog.Logger
 	tracer trace.Tracer
@@ -34,12 +35,11 @@ func New(cfg Config, logger *slog.Logger) (*MQTTClient, error) {
 		tracer: otel.Tracer(module),
 	}
 
-	client, err := iot.NewMQTTClient(m.cfg.MQTT, m.logger)
+	err := m.replaceClient()
 	if err != nil {
 		return nil, err
 	}
 
-	m.client = client
 	m.Service = services.NewBasicService(m.starting, m.running, m.stopping)
 
 	return m, nil
@@ -53,7 +53,7 @@ func (m *MQTTClient) Subscribe(f mqtt.MessageHandler) mqtt.Token {
 	return m.client.Subscribe(m.cfg.MQTT.Topic, 0, f)
 }
 
-func (m *MQTTClient) Publish(topic string, qos byte, retained bool, payload interface{}) mqtt.Token {
+func (m *MQTTClient) Publish(topic string, qos byte, retained bool, payload any) mqtt.Token {
 	return m.client.Publish(topic, qos, retained, payload)
 }
 
@@ -65,14 +65,17 @@ func (m *MQTTClient) CheckHealth() error {
 	return nil
 }
 
-func (m *MQTTClient) starting(ctx context.Context) error {
+func (m *MQTTClient) starting(_ context.Context) error {
 	m.logger.Info("connecting to MQTT broker", "broker", m.cfg.MQTT.URL)
 	token := m.client.Connect()
 	m.logger.Debug("waiting for MQTT connection")
-	token.Wait()
+	if ok := token.WaitTimeout(time.Minute); ok {
+		return nil
+	}
 
 	err := token.Error()
 	if err != nil {
+		m.logger.Error("failed to connect to MQTT broker", "error", err)
 		return err
 	}
 
@@ -90,6 +93,14 @@ func (m *MQTTClient) running(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-m.clientCtx.Done():
+			metricMQTTClientReplaced.Inc()
+			err := m.replaceClient()
+			if err != nil {
+				return err
+			}
+
+			continue
 		case <-t.C:
 			if m.client != nil && m.client.IsConnected() {
 				failures = 0
@@ -108,9 +119,26 @@ func (m *MQTTClient) running(ctx context.Context) error {
 }
 
 func (m *MQTTClient) stopping(_ error) error {
-	m.logger.Info("disconnecting from MQTT broker")
 	if m.client != nil {
-		m.client.Disconnect(100)
+		m.logger.Info("disconnecting from MQTT broker")
+		m.client.Disconnect(10000)
 	}
+	return nil
+}
+
+// replaceClient is used to replace an MQTT client in the case of a failure.
+func (m *MQTTClient) replaceClient() error {
+	if m.client != nil {
+		m.logger.Info("replacing MQTT client")
+		m.client.Disconnect(1000)
+	}
+
+	client, clientCtx, err := iot.NewMQTTClient(m.cfg.MQTT, m.logger)
+	if err != nil {
+		return err
+	}
+	m.client = client
+	m.clientCtx = clientCtx
+
 	return nil
 }

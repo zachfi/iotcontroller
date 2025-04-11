@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	ZoneKeeperClient common.ClientConfig `yaml:"zone_keeper_address,omitempty"`
+	ZoneKeeperClient common.ClientConfig `yaml:"zone_keeper_client,omitempty"`
 }
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {

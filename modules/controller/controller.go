@@ -14,7 +14,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrlruntimelog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -56,7 +55,12 @@ func New(cfg Config, logger *slog.Logger, logHandler slog.Handler) (*Controller,
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	kfg, err := ctrl.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	mgr, err := ctrl.NewManager(kfg, ctrl.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: c.cfg.ProbeAddr,
 		LeaderElection:         c.cfg.EnableLeaderElection,
@@ -122,13 +126,6 @@ func (c *Controller) starting(_ context.Context) error {
 		return errors.Wrap(err, "unable to create Zone controller")
 	}
 
-	return nil
-}
-
-func (c *Controller) Client() client.Client {
-	if c.mgr != nil {
-		return c.mgr.GetClient()
-	}
 	return nil
 }
 

@@ -46,7 +46,7 @@ var (
 )
 
 func (w *Weather) Collect(ctx context.Context) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, w.cfg.Timeout)
 	defer cancel()
 
 	ctx, span := w.tracer.Start(ctx, "Collect")

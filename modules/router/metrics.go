@@ -25,4 +25,10 @@ var (
 		Namespace: metricsNamespace,
 		Help:      "The number of messages received by the router",
 	}, []string{})
+
+	metricActiveReceiverRoutines = promauto.NewGauge(prometheus.GaugeOpts{
+		Name:      "router_active_receiver_routines",
+		Namespace: metricsNamespace,
+		Help:      "The number of messages received by the router",
+	})
 )

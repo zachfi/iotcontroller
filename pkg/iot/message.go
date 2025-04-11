@@ -9,6 +9,8 @@ const (
 	MessageDeviceReport
 )
 
+// zigbee2mqtt/bridge/event {"data":{"definition":{"description":"Texas Instruments router","exposes":[{"access":7,"description":"Transmit power, supported from firmware 20221102. The max for CC1352 is 20 dBm and 5 dBm for CC2652 (any higher value is converted to 5dBm)","label":"Transmit power","name":"transmit_power","property":"transmit_power","type":"numeric","unit":"dBm","value_max":20,"value_min":-20,"value_step":1},{"access":1,"description":"Link quality (signal strength)","label":"Linkquality","name":"linkquality","property":"linkquality","type":"numeric","unit":"lqi","value_max":255,"value_min":0}],"model":"ti.router","options":[],"supports_ota":false,"vendor":"Custom devices (DiY)"},"friendly_name":"0x00124b00259bbd7f","ieee_address":"0x00124b00259bbd7f","status":"successful","supported":true},"type":"device_interview"}
+
 type WifiMessage struct {
 	BSSID string `json:"bssid,omitempty"`
 	IP    string `json:"ip,omitempty"`

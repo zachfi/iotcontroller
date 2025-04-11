@@ -84,7 +84,7 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 
 	c.routers[Ispindel] = isp
 
-	c.Service = services.NewIdleService(c.starting, c.stopping)
+	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
 	return c, nil
 }
 
@@ -188,35 +188,33 @@ func (r *Router) Route(stream iotv1proto.RouteService_RouteServer) error {
 }
 
 func (r *Router) routeReceiver(ctx context.Context) {
-	var (
-		req *iotv1proto.RouteRequest
-		bg  = boundedwaitgroup.New(r.cfg.ReportConcurrency)
-	)
+}
 
-	// TODO: measure the number of active workers to determine if we need to raise the limit.
+func (r *Router) starting(_ context.Context) error {
+	return nil
+}
+
+func (r *Router) running(ctx context.Context) error {
+	bg := boundedwaitgroup.New(r.cfg.ReportConcurrency)
 
 	for {
 		select {
 		case <-ctx.Done():
-			r.logger.Debug("router context canceled")
-			return
-		case req = <-r.queue:
+			return nil
+		case req := <-r.queue:
 
 			bg.Add(1)
+			metricActiveReceiverRoutines.Inc()
 			go func() {
 				defer bg.Done()
 
 				spanCtx, span := r.tracer.Start(context.Background(), "Router.routeReceiver", trace.WithSpanKind(trace.SpanKindServer))
 				err := r.Send(spanCtx, req.Path, req.Message)
 				_ = tracing.ErrHandler(span, err, "route failed", r.logger)
+				metricActiveReceiverRoutines.Dec()
 			}()
 		}
 	}
-}
-
-func (r *Router) starting(ctx context.Context) error {
-	go r.routeReceiver(ctx)
-	return nil
 }
 
 func (r *Router) stopping(_ error) error {
