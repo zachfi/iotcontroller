@@ -1,0 +1,21 @@
+mqttclient:
+  mqtt:
+    topic: '#'
+    url: {{ .MQTTUrl }}
+    username: test
+    password: test
+server:
+  grpc_listen_address: '::'
+  http_listen_address: '::'
+harvester:
+  router_client:
+    server_address: {{ .RouterAddress }}
+hookreceiver:
+  event_receiver_client:
+    server_address: {{ .RouterAddress }}
+conditioner:
+  zone_keeper_client:
+    server_address: {{ .RouterAddress }}
+router:
+  zone_keeper_client:
+    server_address: {{ .RouterAddress }}
