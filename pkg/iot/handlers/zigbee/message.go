@@ -17,7 +17,7 @@ type message struct {
 func newMessage(device *iotv1proto.Device) *message {
 	m := &message{
 		topic: fmt.Sprintf("zigbee2mqtt/%s/set", device.Name),
-		msg:   make(map[string]interface{}, 1),
+		msg:   make(map[string]any, 1),
 	}
 
 	switch device.Type {
