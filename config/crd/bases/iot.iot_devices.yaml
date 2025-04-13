@@ -46,6 +46,8 @@ spec:
                 type: string
               model_id:
                 type: string
+              note:
+                type: string
               power_source:
                 type: string
               type:

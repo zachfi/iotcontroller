@@ -30,6 +30,7 @@ type DeviceSpec struct {
 	ManufactureName string `json:"manufacture_name,omitempty"`
 	PowerSource     string `json:"power_source,omitempty"`
 	ModelID         string `json:"model_id,omitempty"`
+	Note            string `json:"note,omitempty"`
 }
 
 // DeviceStatus defines the observed state of Device
