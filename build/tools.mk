@@ -28,8 +28,8 @@ tools-docker:
 	@echo "=== [ tools-docker     ]: Running tools in docker..."
 	@docker run -it -v $(shell pwd):/var/tmp $(TOOLS_IMAGE_NAME) make -C /var/tmp tools
 
-tools-image:
-	@echo "=== [ tools-image     ]: Running tools in docker..."
+tools-image-pull:
+	@echo "=== [ tools-image     ]: Pulling tools image..."
 	@docker pull $(TOOLS_IMAGE):$(TOOLS_IMAGE_TAG)
 
 tools:
