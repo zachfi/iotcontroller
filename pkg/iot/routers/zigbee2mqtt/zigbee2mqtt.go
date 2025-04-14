@@ -63,7 +63,7 @@ func (z *Zigbee2Mqtt) BridgeStateRoute(_ context.Context, b []byte) error {
 	return nil
 }
 
-func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...interface{}) error {
+func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) error {
 	var (
 		device   *apiv1.Device
 		deviceID string
@@ -257,7 +257,7 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 	}
 
 	if m.LinkQuality != nil {
-		metricIOTLinkQuality.WithLabelValues(device.Name, routeName, zone).Set(float64(*m.LinkQuality))
+		metricIOTLinkQuality.WithLabelValues(device.Name, routeName, zone, device.Spec.Type).Set(float64(*m.LinkQuality))
 	}
 
 	if m.Temperature != nil {

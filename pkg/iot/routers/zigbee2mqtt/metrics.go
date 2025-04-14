@@ -30,7 +30,7 @@ var (
 		Name:      "link_quality",
 		Namespace: metricsNamespace,
 		Help:      "The reported link quality",
-	}, []string{"device", "component", "zone"})
+	}, []string{"device", "component", "zone", "type"})
 
 	metricIOTBridgeState = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "bridge_state",
