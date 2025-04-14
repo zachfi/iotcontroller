@@ -111,7 +111,7 @@ type Expose struct {
 func DeviceType(z Device) iotv1proto.DeviceType {
 	// Check for colored light using color
 	for _, e := range z.Definition.Exposes {
-		if e.Features != nil && len(e.Features) > 0 {
+		if len(e.Features) > 0 {
 			for _, f := range e.Features {
 				if f.Property == PropertyColor {
 					return iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT
@@ -122,7 +122,7 @@ func DeviceType(z Device) iotv1proto.DeviceType {
 
 	// Check for basic light using brightness
 	for _, e := range z.Definition.Exposes {
-		if e.Features != nil && len(e.Features) > 0 {
+		if len(e.Features) > 0 {
 			for _, f := range e.Features {
 				if f.Property == PropertyBrightness {
 					return iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT
@@ -182,6 +182,8 @@ func DeviceType(z Device) iotv1proto.DeviceType {
 	switch z.Type {
 	case "Coordinator":
 		return iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR
+	case "Router":
+		return iotv1proto.DeviceType_DEVICE_TYPE_ROUTER
 	}
 
 	return iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED

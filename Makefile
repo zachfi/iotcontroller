@@ -179,9 +179,9 @@ proto: proto-grpc
 
 proto-grpc:
 	@echo "=== $(PROJECT_NAME) === [ proto compile    ]: compiling protobufs:"
-	@buf build
-	@buf lint
-	@buf generate
+	$(TOOLS_CMD) buf build
+	$(TOOLS_CMD) buf lint
+	$(TOOLS_CMD) buf generate
 
 include build/lint.mk
 include build/release.mk

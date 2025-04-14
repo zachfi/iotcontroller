@@ -25,3 +25,5 @@ Dockerfile.cross
 *.swo
 *~
 integration/e2e/e2e_integration_test*
+dist/
+cover.cov
