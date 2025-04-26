@@ -7,7 +7,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/go-kit/log v0.2.1
 	github.com/go-logr/logr v1.4.2
-	github.com/gogo/status v1.1.0
+	github.com/gogo/status v1.1.1
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
 	github.com/gorilla/mux v1.8.1
 	github.com/grafana/dskit v0.0.0-20250107142522-441a90acd4e5
