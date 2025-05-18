@@ -12,7 +12,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/grafana/dskit v0.0.0-20250107142522-441a90acd4e5
 	github.com/grafana/e2e v0.1.2-0.20240118170847-db90b84177fc
-	github.com/jedib0t/go-pretty/v6 v6.6.5
+	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.36.3
 	github.com/pkg/errors v0.9.1
