@@ -78,7 +78,7 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		),
 	}
 
-	go z.deviceTracker.Run(time.Minute)
+	go z.deviceTracker.Run(context.TODO(), time.Minute)
 
 	return z, nil
 }

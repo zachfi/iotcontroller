@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -19,7 +20,8 @@ var (
 )
 
 type Metric interface {
-	Delete(prometheus.Labels) bool
+	// DeletePartialMatch from prometheus.MetricVec
+	DeletePartialMatch(prometheus.Labels) int
 }
 
 type DeviceTracker struct {
@@ -38,12 +40,14 @@ func NewDeviceTracker(metrics []Metric, purgeAfter time.Duration) *DeviceTracker
 }
 
 // A go routine that periodically purges devices that have not been seen for a while.
-func (d *DeviceTracker) Run(interval time.Duration) {
+func (d *DeviceTracker) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-ticker.C:
 			d.PurgeAll()
 		}
@@ -59,7 +63,7 @@ func (d *DeviceTracker) PurgeAll() {
 			metricPurges.Inc()
 			delete(d.Devices, device)
 			for _, metric := range d.Metrics {
-				metric.Delete(prometheus.Labels{"device": device})
+				metric.DeletePartialMatch(prometheus.Labels{"device": device})
 			}
 		}
 	}
