@@ -53,7 +53,7 @@ type Router struct {
 	queue            chan *iotv1proto.RouteRequest
 
 	regexps map[string]*regexp.Regexp
-	routers map[RouteTypes]interface{}
+	routers map[RouteTypes]any
 }
 
 /* type RouteFunc func([]byte, ...interface{}) error */
@@ -67,7 +67,7 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 		zonekeeperClient: zonekeeperClient,
 		queue:            make(chan *iotv1proto.RouteRequest, 10000),
 		regexps:          make(map[string]*regexp.Regexp, 10),
-		routers:          make(map[RouteTypes]interface{}),
+		routers:          make(map[RouteTypes]any),
 	}
 
 	z2m, err := zigbee2mqtt.New(logger, c.tracer, kubeclient, c.zonekeeperClient)
