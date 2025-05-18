@@ -31,7 +31,7 @@ func TestDeviceTracker(t *testing.T) {
 	tracker.Track(deviceID)
 
 	// Check that the device is present
-	if _, ok := tracker.Devices[deviceID]; !ok {
+	if ok := tracker.tracked(deviceID); !ok {
 		t.Errorf("Expected device %s to be present", deviceID)
 	}
 
@@ -39,7 +39,7 @@ func TestDeviceTracker(t *testing.T) {
 	time.Sleep(purgeAfter + time.Second)
 
 	// Check that the device has been purged
-	if _, ok := tracker.Devices[deviceID]; ok {
+	if ok := tracker.tracked(deviceID); ok {
 		t.Errorf("Expected device %s to be purged", deviceID)
 	}
 }

@@ -54,6 +54,7 @@ func (d *DeviceTracker) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// PurgeAll removes devices that have not been seen for a while.
 func (d *DeviceTracker) PurgeAll() {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
@@ -69,9 +70,19 @@ func (d *DeviceTracker) PurgeAll() {
 	}
 }
 
+// Track adds a device to the tracker.
 func (d *DeviceTracker) Track(device string) {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
 	d.Devices[device] = time.Now()
+}
+
+// Tracked returns true if the device is being tracked.
+func (d *DeviceTracker) tracked(device string) bool {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+
+	_, ok := d.Devices[device]
+	return ok
 }
