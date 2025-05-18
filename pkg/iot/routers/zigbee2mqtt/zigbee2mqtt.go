@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zachfi/zkit/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
@@ -39,6 +40,8 @@ type Zigbee2Mqtt struct {
 
 	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
 	/* reportStream     telemetryv1proto.TelemetryService_TelemetryReportIOTDeviceClient */
+
+	deviceTracker *iotutil.DeviceTracker
 }
 
 func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) (*Zigbee2Mqtt, error) {
@@ -47,7 +50,35 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		tracer:           tracer,
 		kubeclient:       kubeclient,
 		zonekeeperClient: zonekeeperClient,
+
+		deviceTracker: iotutil.NewDeviceTracker(
+			[]iotutil.Metric{
+				metricIOTReport,
+				metricIOTBatteryPercent,
+				metricIOTLinkQuality,
+				metricIOTBridgeState,
+				metricIOTOccupancy,
+				metricIOTWaterLeak,
+				metricIOTTemperature,
+				metricIOTSoilMoisture,
+				metricIOTHumidity,
+				metricIOTFormaldehyde,
+				metricIOTCo2,
+				metricIOTVoc,
+				metricIOTIlluminance,
+				metricIOTState,
+				metricIOTTamper,
+				waterTemperature,
+				airTemperature,
+				airHumidity,
+				airHeatindex,
+				thingWirelessSignalStrength,
+			},
+			time.Minute*5,
+		),
 	}
+
+	go z.deviceTracker.Run(context.TODO(), time.Minute)
 
 	return z, nil
 }
@@ -68,10 +99,11 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 		device   *apiv1.Device
 		deviceID string
 		err      error
-		m        = ZigbeeMessage{}
 		name     string
-		wg       = sync.WaitGroup{}
 		zone     string
+
+		m  = ZigbeeMessage{}
+		wg = sync.WaitGroup{}
 	)
 	_, span := z.tracer.Start(ctx, "Zigbee2Mqtt.DeviceRoute")
 	defer tracing.ErrHandler(span, err, "device route failed", z.logger)
@@ -128,7 +160,7 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 	return nil
 }
 
-func (z *Zigbee2Mqtt) DevicesRoute(ctx context.Context, b []byte, _ ...interface{}) error {
+func (z *Zigbee2Mqtt) DevicesRoute(ctx context.Context, b []byte, _ ...any) error {
 	var err error
 	_, span := z.tracer.Start(ctx, "Zigbee2Mqtt.DevicesRoute")
 	defer tracing.ErrHandler(span, err, "devices route failed", z.logger)
@@ -248,6 +280,8 @@ func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
 func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMessage, device *apiv1.Device) {
 	var zone string
 
+	z.deviceTracker.Track(device.Name)
+
 	if v, ok := device.Labels[iot.DeviceZoneLabel]; ok {
 		zone = v
 	}
@@ -297,27 +331,21 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 		metricIOTIlluminance.WithLabelValues(device.Name, routeName, zone).Set(float64(*m.Illuminance))
 	}
 
-	if m.Occupancy != nil {
-		if *m.Occupancy {
-			metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
-		} else {
-			metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
-		}
+	if m.Occupancy != nil && *m.Occupancy {
+		metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
+	} else {
+		metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
 	}
 
-	if m.WaterLeak != nil {
-		if *m.WaterLeak {
-			metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
-		} else {
-			metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
-		}
+	if m.WaterLeak != nil && *m.WaterLeak {
+		metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
+	} else {
+		metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
 	}
 
-	if m.Tamper != nil {
-		if *m.Tamper {
-			metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
-		} else {
-			metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
-		}
+	if m.Tamper != nil && *m.Tamper {
+		metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
+	} else {
+		metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
 	}
 }

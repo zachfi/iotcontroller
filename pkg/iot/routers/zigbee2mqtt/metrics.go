@@ -128,7 +128,7 @@ var (
 		Help:      "computed heat index",
 	}, []string{"device"})
 
-	thingWireless = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	thingWirelessSignalStrength = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "thing_wireless",
 		Namespace: metricsNamespace,
 		Help:      "wireless information",
