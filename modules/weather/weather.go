@@ -1,3 +1,4 @@
+// Package weather provides functionality to collect weather data and send sunrise/sunset events.
 package weather
 
 import (
@@ -14,17 +15,32 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
-
+	"github.com/nathan-osman/go-sunrise"
+	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	"github.com/zachfi/zkit/pkg/tracing"
 )
 
 var module = "weather"
 
+type Epoch int
+
 const (
-	EventSunset  = "sunset"
-	EventSunrise = "sunrise"
+	EventSunset Epoch = iota
+	EventSunrise
 )
+
+var stateName = map[Epoch]string{
+	EventSunset:  "sunset",
+	EventSunrise: "sunrise",
+}
+
+func (e Epoch) String() string {
+	if name, ok := stateName[e]; ok {
+		return name
+	}
+	return "unknown"
+}
 
 type Weather struct {
 	services.Service
@@ -69,22 +85,78 @@ func (w *Weather) stopping(_ error) error {
 }
 
 func (w *Weather) running(ctx context.Context) error {
-	collectTicker := time.NewTicker(w.cfg.Interval)
+	var (
+		collectTicker = time.NewTicker(w.cfg.Interval)
+		epochTicker   = time.NewTicker(time.Hour)
+	)
 
-	bg := boundedwaitgroup.New(3)
+	defer collectTicker.Stop()
+	defer epochTicker.Stop()
+
+	w.sendEpochEvents(ctx)
+	w.Collect(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-collectTicker.C:
-			bg.Add(1)
-			go func() {
-				defer bg.Done()
-				w.Collect(ctx)
-			}()
+			w.Collect(ctx)
+		case <-epochTicker.C:
+			w.sendEpochEvents(context.Background())
+		}
+	}
+}
 
-			bg.Wait()
+func (w *Weather) sendEpochEvents(ctx context.Context) {
+	var err error
+	ctx, span := w.tracer.Start(ctx, "sendEpochEvents")
+	defer tracing.ErrHandler(span, err, "sendEpochEvents", w.logger)
+
+	if len(w.cfg.Locations) == 0 {
+		w.logger.Warn("no locations configured, skipping sending sunrise/sunset events")
+		span.AddEvent("no locations configured")
+		return
+	}
+
+	for _, location := range w.cfg.Locations {
+		rise, set := sunrise.SunriseSunset(
+			location.Latitude,
+			location.Longitude,
+			time.Now().Year(),
+			time.Now().Month(),
+			time.Now().Day(),
+		)
+
+		for _, epoch := range []Epoch{EventSunset, EventSunrise} {
+			var eventTime time.Time
+
+			switch epoch {
+			case EventSunset:
+				eventTime = set
+			case EventSunrise:
+				eventTime = rise
+			default:
+				w.logger.Error("unknown epoch", "epoch", epoch)
+				err = fmt.Errorf("unknown epoch: %v", epoch)
+				span.RecordError(err)
+				continue
+			}
+
+			e := &iotv1proto.EventRequest{
+				Name: epoch.String(),
+				Labels: map[string]string{
+					iot.EpochLabel:    epoch.String(),
+					iot.LocationLabel: location.Name,
+					iot.WhenLabel:     eventTime.Format(time.RFC3339),
+					"value":           fmt.Sprintf("%d", eventTime.Unix()),
+				},
+			}
+
+			_, err := w.eventReceiverClient.Event(ctx, e)
+			if err != nil {
+				w.logger.Error("failed to send event", "err", err)
+			}
 		}
 	}
 }
