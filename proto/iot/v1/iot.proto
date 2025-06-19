@@ -33,14 +33,14 @@ service EventReceiverService {
   rpc Event(EventRequest) returns (EventResponse);
 }
 
-message RouteRequest {
+message SendRequest {
   string path = 1;
   bytes message = 2;
 }
-message RouteResponse {}
+message SendResponse {}
 
 service RouteService {
-  rpc Route(stream RouteRequest) returns (RouteResponse);
+  rpc Send(SendRequest) returns (SendResponse);
 }
 
 enum ColorTemperature {
