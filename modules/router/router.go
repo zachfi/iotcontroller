@@ -3,19 +3,16 @@ package router
 import (
 	"context"
 	"errors"
-	"io"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strconv"
 	"sync"
 
-	"github.com/gogo/status"
 	"github.com/grafana/dskit/services"
-	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc/codes"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
@@ -45,15 +42,17 @@ type Router struct {
 
 	kubeclient kubeclient.Client
 
-	// TODO: think about if the router is the first and only stop, then do we
-	// metric in the Telemetry and then will need to call.
-	/* telemetryClient telemetryv1proto.TelemetryServiceClient */
-
 	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
-	queue            chan *iotv1proto.RouteRequest
+	itemCh           chan *item
 
 	regexps map[string]*regexp.Regexp
 	routers map[RouteTypes]any
+}
+
+type item struct {
+	ctx     context.Context
+	Path    string
+	Payload []byte
 }
 
 /* type RouteFunc func([]byte, ...interface{}) error */
@@ -65,7 +64,7 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 		tracer:           otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
 		kubeclient:       kubeclient,
 		zonekeeperClient: zonekeeperClient,
-		queue:            make(chan *iotv1proto.RouteRequest, 10000),
+		itemCh:           make(chan *item, 10000),
 		regexps:          make(map[string]*regexp.Regexp, 10),
 		routers:          make(map[RouteTypes]any),
 	}
@@ -88,18 +87,19 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 	return c, nil
 }
 
-func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
-	if errors.Is(ctx.Err(), context.Canceled) {
-		return nil
-	}
-
+func (r *Router) send(ctx context.Context, path string, payload []byte) error {
 	var (
 		err      error
 		deviceID string
 	)
 
-	ctx, span := r.tracer.Start(ctx, "Router.Send")
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(attribute.String("path", path))
 	defer tracing.ErrHandler(span, err, "router send failed", r.logger)
+
+	if errors.Is(ctx.Err(), context.Canceled) {
+		span.AddEvent("context canceled")
+	}
 
 	switch {
 	// Zigbee routes
@@ -144,50 +144,38 @@ func (r *Router) Send(ctx context.Context, path string, payload []byte) error {
 		*/
 	default:
 		r.logger.Debug("unhandled route", "path", path)
+		span.AddEvent("unhandled route")
 		metricUnhandledRoute.WithLabelValues(path).Inc()
 	}
 
 	return nil
 }
 
-func (r *Router) Route(stream iotv1proto.RouteService_RouteServer) error {
-	var (
-		ctx = stream.Context()
-		req *iotv1proto.RouteRequest
-		err error
-	)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		metricQueueLength.With(prometheus.Labels{}).Set(float64(len(r.queue)))
-
-		req, err = stream.Recv()
-		if errors.Is(err, io.EOF) {
-			// Close the connection and return the response to the client
-			return nil
-		}
-
-		if err != nil {
-			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
-				return nil
-			}
-
-			r.logger.Error("stream error", "err", err)
-			continue
-		}
-
-		metricMessagesReceived.With(prometheus.Labels{}).Inc()
-
-		r.queue <- req
+func (r *Router) Send(ctx context.Context, req *iotv1proto.SendRequest) (*iotv1proto.SendResponse, error) {
+	attributes := []attribute.KeyValue{
+		attribute.String("path", req.Path),
 	}
-}
 
-func (r *Router) routeReceiver(ctx context.Context) {
+	ctx, span := r.tracer.Start(ctx, "Router.Send", trace.WithAttributes(attributes...), trace.WithSpanKind(trace.SpanKindServer))
+	span.SetAttributes(attributes...)
+	defer span.End()
+
+	go func() {
+		// Use a new span context, so that the context is not canceled when the
+		// request is finished.  Link to the parent.
+		spanCtx, _ := r.tracer.Start(context.Background(), "Router.Send",
+			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithLinks(trace.LinkFromContext(ctx)),
+		)
+		// The span context is passed through, and rehydrated in the receiver goroutine.
+		r.itemCh <- &item{
+			ctx:     spanCtx,
+			Path:    req.Path,
+			Payload: req.Message,
+		}
+	}()
+
+	return &iotv1proto.SendResponse{}, nil
 }
 
 func (r *Router) starting(_ context.Context) error {
@@ -200,31 +188,40 @@ func (r *Router) running(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			bg.Wait()
 			return nil
-		case req := <-r.queue:
+		case i := <-r.itemCh:
 
 			bg.Add(1)
 			metricActiveReceiverRoutines.Inc()
 			go func() {
 				defer bg.Done()
-
-				spanCtx, span := r.tracer.Start(context.Background(), "Router.routeReceiver", trace.WithSpanKind(trace.SpanKindServer))
-				err := r.Send(spanCtx, req.Path, req.Message)
-				_ = tracing.ErrHandler(span, err, "route failed", r.logger)
-				metricActiveReceiverRoutines.Dec()
+				defer metricActiveReceiverRoutines.Dec()
+				var err error
+				_, span := r.tracer.Start(i.ctx, "Router.receiver")
+				defer tracing.ErrHandler(span, err, "send failed", r.logger)
+				err = r.send(i.ctx, i.Path, i.Payload)
+				if err != nil {
+					r.logger.Error("failed to send item", "path", i.Path, "err", err)
+				}
 			}()
 		}
 	}
 }
 
 func (r *Router) stopping(_ error) error {
+	close(r.itemCh)
 	return nil
 }
 
 // match reports whether path matches regex ^pattern$, and if it matches,
 // assigns any capture groups to the *string or *int vars.
-func (r *Router) match(path, pattern string, vars ...interface{}) bool {
-	regex := r.mustCompileCached(pattern)
+func (r *Router) match(path, pattern string, vars ...any) bool {
+	regex, err := r.compileCached(pattern)
+	if err != nil {
+		r.logger.Error(err.Error())
+		return false
+	}
 	matches := regex.FindStringSubmatch(path)
 	if len(matches) <= 0 {
 		return false
@@ -240,22 +237,30 @@ func (r *Router) match(path, pattern string, vars ...interface{}) bool {
 			}
 			*p = n
 		default:
-			panic("vars must be *string or *int")
+			r.logger.Error("unsupported type for regex capture group", "type", p, "pattern", pattern)
+			return false
 		}
 	}
 	return true
 }
 
-func (r *Router) mustCompileCached(pattern string) *regexp.Regexp {
+func (r *Router) compileCached(pattern string) (*regexp.Regexp, error) {
+	var (
+		regex = r.regexps[pattern]
+		err   error
+	)
+
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 
-	regex := r.regexps[pattern]
 	if regex == nil {
-		regex = regexp.MustCompile("^" + pattern + "$")
+		regex, err = regexp.Compile("^" + pattern + "$")
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile regex %q: %w", pattern, err)
+		}
 		r.regexps[pattern] = regex
 	}
-	return regex
+	return regex, nil
 }
 
 func (r *Router) zigbee2Mqtt() *zigbee2mqtt.Zigbee2Mqtt {

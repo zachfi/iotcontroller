@@ -54,8 +54,9 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 
 		sched: &schedule{
 			events: make(map[string]*event, 1000),
-			reqs:   make(chan request),
+			itemCh: make(chan item),
 			logger: logger.With("conditioner", "schedule"),
+			tracer: otel.Tracer(module + ".schedule"),
 		},
 	}
 
@@ -65,8 +66,10 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 }
 
 func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (*iotv1proto.EventResponse, error) {
+	var err error
+
 	attributes := []attribute.KeyValue{
-		attribute.String("name", req.Name),
+		attribute.String("event", req.Name),
 	}
 
 	for k, v := range req.Labels {
@@ -77,14 +80,14 @@ func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(attributes...),
 	)
-	defer span.End()
+	defer tracing.ErrHandler(span, err, "conditioner event failed", c.logger)
 
 	var (
 		list = &apiv1.ConditionList{}
 		errs []error
 	)
 
-	err := c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
+	err = c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
 	if err != nil {
 		return &iotv1proto.EventResponse{}, fmt.Errorf("failed to list conditions: %w", err)
 	}
@@ -108,6 +111,8 @@ func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (
 }
 
 func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
+	// TODO: trace this context, and its parent
+
 	if !cond.Spec.Enabled {
 		return
 	}
@@ -424,6 +429,15 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 
 func (c *Conditioner) starting(ctx context.Context) error {
 	go c.sched.run(ctx, c.zonekeeperClient)
+
+	// TODO: consider creating a watch for conditions in place of the timer loop, which lists all conditions
+	// watchlist := cache.NewListWatchFromClient(
+	// 	c.kubeClientr
+	// 	apiv1.GroupVersion.WithResource("conditions").Resource,
+	// 	v1.NamespaceAll,
+	// 	fields.Everything(),
+	// )
+
 	return nil
 }
 

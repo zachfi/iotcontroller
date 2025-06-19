@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -18,6 +19,7 @@ var module = "mqttclient"
 
 type MQTTClient struct {
 	services.Service
+	sync.Mutex
 
 	cfg *Config
 
@@ -128,6 +130,8 @@ func (m *MQTTClient) stopping(_ error) error {
 
 // replaceClient is used to replace an MQTT client in the case of a failure.
 func (m *MQTTClient) replaceClient() error {
+	m.Lock()
+	defer m.Unlock()
 	if m.client != nil {
 		m.logger.Info("replacing MQTT client")
 		m.client.Disconnect(1000)
