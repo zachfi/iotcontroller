@@ -2,11 +2,14 @@ package conditioner
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	"github.com/zachfi/zkit/pkg/tracing"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type schedule struct {
@@ -15,13 +18,21 @@ type schedule struct {
 	logger *slog.Logger
 
 	events map[string]*event
-	reqs   chan request
+	itemCh chan item
+
+	tracer trace.Tracer
 }
 
 type event struct {
 	cancel context.CancelFunc
 	t      time.Time
 	req    request
+}
+
+// item is passed through the itemCh.  Wrap the request with the context to propogate the span context.
+type item struct {
+	ctx context.Context
+	request
 }
 
 type request struct {
@@ -62,8 +73,14 @@ func matched(a, b request) bool {
 }
 
 func (s *schedule) add(ctx context.Context, name string, t time.Time, req request) {
+	var err error
+
+	ctx, span := s.tracer.Start(ctx, "schedule.add")
+	defer tracing.ErrHandler(span, err, "add failed", s.logger)
+
 	if req.sceneReq == nil && req.stateReq == nil {
-		s.logger.Error("unable to schedule request with nil scene and nil state")
+		err = errors.New("unable to schedule request with nil scene and nil state")
+		s.logger.Error(err.Error())
 		return
 	}
 
@@ -96,8 +113,17 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 			case <-ctx.Done():
 				return
 			case <-timer.C:
-				s.reqs <- req
+				spanCtx, span := s.tracer.Start(context.Background(), "schedule.add.wait")
+				defer span.End()
+
+				span.AddLink(trace.LinkFromContext(ctx))
+
+				s.itemCh <- item{
+					ctx:     spanCtx,
+					request: req,
+				}
 				return
+
 			}
 		}
 	}(ctx, req)
@@ -118,26 +144,29 @@ func (s *schedule) removeExtraneous(names map[string]struct{}) {
 	}
 
 	for _, n := range namesToDelete {
+		s.events[n].cancel()
+
 		delete(s.events, n)
 	}
 }
 
-// run calls the client for each request
+// run consumes items from the channel and executes the requests with the zonekeeper client.
 func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceClient) {
+	var i item
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case req := <-s.reqs:
-			if req.sceneReq != nil {
-				_, err := client.SetScene(ctx, req.sceneReq)
+		case i = <-s.itemCh:
+			if i.request.sceneReq != nil {
+				_, err := client.SetScene(i.ctx, i.request.sceneReq)
 				if err != nil {
 					s.logger.Error("failed to set scene", "err", err)
 				}
 			}
 
-			if req.stateReq != nil {
-				_, err := client.SetState(ctx, req.stateReq)
+			if i.request.stateReq != nil {
+				_, err := client.SetState(i.ctx, i.request.stateReq)
 				if err != nil {
 					s.logger.Error("failed to set state", "err", err)
 				}

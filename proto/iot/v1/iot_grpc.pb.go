@@ -223,14 +223,14 @@ var EventReceiverService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	RouteService_Route_FullMethodName = "/iot.v1.RouteService/Route"
+	RouteService_Send_FullMethodName = "/iot.v1.RouteService/Send"
 )
 
 // RouteServiceClient is the client API for RouteService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RouteServiceClient interface {
-	Route(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RouteRequest, RouteResponse], error)
+	Send(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error)
 }
 
 type routeServiceClient struct {
@@ -241,24 +241,21 @@ func NewRouteServiceClient(cc grpc.ClientConnInterface) RouteServiceClient {
 	return &routeServiceClient{cc}
 }
 
-func (c *routeServiceClient) Route(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RouteRequest, RouteResponse], error) {
+func (c *routeServiceClient) Send(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RouteService_ServiceDesc.Streams[0], RouteService_Route_FullMethodName, cOpts...)
+	out := new(SendResponse)
+	err := c.cc.Invoke(ctx, RouteService_Send_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[RouteRequest, RouteResponse]{ClientStream: stream}
-	return x, nil
+	return out, nil
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RouteService_RouteClient = grpc.ClientStreamingClient[RouteRequest, RouteResponse]
 
 // RouteServiceServer is the server API for RouteService service.
 // All implementations should embed UnimplementedRouteServiceServer
 // for forward compatibility.
 type RouteServiceServer interface {
-	Route(grpc.ClientStreamingServer[RouteRequest, RouteResponse]) error
+	Send(context.Context, *SendRequest) (*SendResponse, error)
 }
 
 // UnimplementedRouteServiceServer should be embedded to have
@@ -268,8 +265,8 @@ type RouteServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRouteServiceServer struct{}
 
-func (UnimplementedRouteServiceServer) Route(grpc.ClientStreamingServer[RouteRequest, RouteResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method Route not implemented")
+func (UnimplementedRouteServiceServer) Send(context.Context, *SendRequest) (*SendResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Send not implemented")
 }
 func (UnimplementedRouteServiceServer) testEmbeddedByValue() {}
 
@@ -291,12 +288,23 @@ func RegisterRouteServiceServer(s grpc.ServiceRegistrar, srv RouteServiceServer)
 	s.RegisterService(&RouteService_ServiceDesc, srv)
 }
 
-func _RouteService_Route_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(RouteServiceServer).Route(&grpc.GenericServerStream[RouteRequest, RouteResponse]{ServerStream: stream})
+func _RouteService_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouteServiceServer).Send(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RouteService_Send_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouteServiceServer).Send(ctx, req.(*SendRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RouteService_RouteServer = grpc.ClientStreamingServer[RouteRequest, RouteResponse]
 
 // RouteService_ServiceDesc is the grpc.ServiceDesc for RouteService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -304,14 +312,13 @@ type RouteService_RouteServer = grpc.ClientStreamingServer[RouteRequest, RouteRe
 var RouteService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "iot.v1.RouteService",
 	HandlerType: (*RouteServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams: []grpc.StreamDesc{
+	Methods: []grpc.MethodDesc{
 		{
-			StreamName:    "Route",
-			Handler:       _RouteService_Route_Handler,
-			ClientStreams: true,
+			MethodName: "Send",
+			Handler:    _RouteService_Send_Handler,
 		},
 	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "iot/v1/iot.proto",
 }
 

@@ -533,7 +533,7 @@ func (*EventResponse) Descriptor() ([]byte, []int) {
 	return file_iot_v1_iot_proto_rawDescGZIP(), []int{4}
 }
 
-type RouteRequest struct {
+type SendRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
 	Message       []byte                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
@@ -541,20 +541,20 @@ type RouteRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RouteRequest) Reset() {
-	*x = RouteRequest{}
+func (x *SendRequest) Reset() {
+	*x = SendRequest{}
 	mi := &file_iot_v1_iot_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RouteRequest) String() string {
+func (x *SendRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RouteRequest) ProtoMessage() {}
+func (*SendRequest) ProtoMessage() {}
 
-func (x *RouteRequest) ProtoReflect() protoreflect.Message {
+func (x *SendRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_iot_v1_iot_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -566,45 +566,45 @@ func (x *RouteRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RouteRequest.ProtoReflect.Descriptor instead.
-func (*RouteRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use SendRequest.ProtoReflect.Descriptor instead.
+func (*SendRequest) Descriptor() ([]byte, []int) {
 	return file_iot_v1_iot_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *RouteRequest) GetPath() string {
+func (x *SendRequest) GetPath() string {
 	if x != nil {
 		return x.Path
 	}
 	return ""
 }
 
-func (x *RouteRequest) GetMessage() []byte {
+func (x *SendRequest) GetMessage() []byte {
 	if x != nil {
 		return x.Message
 	}
 	return nil
 }
 
-type RouteResponse struct {
+type SendResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RouteResponse) Reset() {
-	*x = RouteResponse{}
+func (x *SendResponse) Reset() {
+	*x = SendResponse{}
 	mi := &file_iot_v1_iot_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RouteResponse) String() string {
+func (x *SendResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RouteResponse) ProtoMessage() {}
+func (*SendResponse) ProtoMessage() {}
 
-func (x *RouteResponse) ProtoReflect() protoreflect.Message {
+func (x *SendResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_iot_v1_iot_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -616,8 +616,8 @@ func (x *RouteResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RouteResponse.ProtoReflect.Descriptor instead.
-func (*RouteResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use SendResponse.ProtoReflect.Descriptor instead.
+func (*SendResponse) Descriptor() ([]byte, []int) {
 	return file_iot_v1_iot_proto_rawDescGZIP(), []int{6}
 }
 
@@ -1142,11 +1142,11 @@ const file_iot_v1_iot_proto_rawDesc = "" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x0f\n" +
-	"\rEventResponse\"<\n" +
-	"\fRouteRequest\x12\x12\n" +
+	"\rEventResponse\";\n" +
+	"\vSendRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\fR\amessage\"\x0f\n" +
-	"\rRouteResponse\"\x12\n" +
+	"\amessage\x18\x02 \x01(\fR\amessage\"\x0e\n" +
+	"\fSendResponse\"\x12\n" +
 	"\x10SetStateResponse\"N\n" +
 	"\x0fSetStateRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
@@ -1215,9 +1215,9 @@ const file_iot_v1_iot_proto_rawDesc = "" +
 	"IOTService\x12I\n" +
 	"\fUpdateDevice\x12\x1b.iot.v1.UpdateDeviceRequest\x1a\x1c.iot.v1.UpdateDeviceResponse2L\n" +
 	"\x14EventReceiverService\x124\n" +
-	"\x05Event\x12\x14.iot.v1.EventRequest\x1a\x15.iot.v1.EventResponse2F\n" +
-	"\fRouteService\x126\n" +
-	"\x05Route\x12\x14.iot.v1.RouteRequest\x1a\x15.iot.v1.RouteResponse(\x012\xf8\x02\n" +
+	"\x05Event\x12\x14.iot.v1.EventRequest\x1a\x15.iot.v1.EventResponse2A\n" +
+	"\fRouteService\x121\n" +
+	"\x04Send\x12\x13.iot.v1.SendRequest\x1a\x14.iot.v1.SendResponse2\xf8\x02\n" +
 	"\x11ZoneKeeperService\x12=\n" +
 	"\bSetState\x12\x17.iot.v1.SetStateRequest\x1a\x18.iot.v1.SetStateResponse\x12=\n" +
 	"\bSetScene\x12\x17.iot.v1.SetSceneRequest\x1a\x18.iot.v1.SetSceneResponse\x12L\n" +
@@ -1251,8 +1251,8 @@ var file_iot_v1_iot_proto_goTypes = []any{
 	(*UpdateDeviceRequest)(nil),   // 6: iot.v1.UpdateDeviceRequest
 	(*EventRequest)(nil),          // 7: iot.v1.EventRequest
 	(*EventResponse)(nil),         // 8: iot.v1.EventResponse
-	(*RouteRequest)(nil),          // 9: iot.v1.RouteRequest
-	(*RouteResponse)(nil),         // 10: iot.v1.RouteResponse
+	(*SendRequest)(nil),           // 9: iot.v1.SendRequest
+	(*SendResponse)(nil),          // 10: iot.v1.SendResponse
 	(*SetStateResponse)(nil),      // 11: iot.v1.SetStateResponse
 	(*SetStateRequest)(nil),       // 12: iot.v1.SetStateRequest
 	(*SetSceneResponse)(nil),      // 13: iot.v1.SetSceneResponse
@@ -1272,7 +1272,7 @@ var file_iot_v1_iot_proto_depIdxs = []int32{
 	3,  // 2: iot.v1.Device.type:type_name -> iot.v1.DeviceType
 	6,  // 3: iot.v1.IOTService.UpdateDevice:input_type -> iot.v1.UpdateDeviceRequest
 	7,  // 4: iot.v1.EventReceiverService.Event:input_type -> iot.v1.EventRequest
-	9,  // 5: iot.v1.RouteService.Route:input_type -> iot.v1.RouteRequest
+	9,  // 5: iot.v1.RouteService.Send:input_type -> iot.v1.SendRequest
 	12, // 6: iot.v1.ZoneKeeperService.SetState:input_type -> iot.v1.SetStateRequest
 	14, // 7: iot.v1.ZoneKeeperService.SetScene:input_type -> iot.v1.SetSceneRequest
 	15, // 8: iot.v1.ZoneKeeperService.GetDeviceZone:input_type -> iot.v1.GetDeviceZoneRequest
@@ -1280,7 +1280,7 @@ var file_iot_v1_iot_proto_depIdxs = []int32{
 	19, // 10: iot.v1.ZoneKeeperService.SelfAnnounce:input_type -> iot.v1.SelfAnnounceRequest
 	4,  // 11: iot.v1.IOTService.UpdateDevice:output_type -> iot.v1.UpdateDeviceResponse
 	8,  // 12: iot.v1.EventReceiverService.Event:output_type -> iot.v1.EventResponse
-	10, // 13: iot.v1.RouteService.Route:output_type -> iot.v1.RouteResponse
+	10, // 13: iot.v1.RouteService.Send:output_type -> iot.v1.SendResponse
 	11, // 14: iot.v1.ZoneKeeperService.SetState:output_type -> iot.v1.SetStateResponse
 	13, // 15: iot.v1.ZoneKeeperService.SetScene:output_type -> iot.v1.SetSceneResponse
 	16, // 16: iot.v1.ZoneKeeperService.GetDeviceZone:output_type -> iot.v1.GetDeviceZoneResponse

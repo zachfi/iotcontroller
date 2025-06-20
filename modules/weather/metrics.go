@@ -9,12 +9,13 @@ import (
 	owm "github.com/briandowns/openweathermap"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+
+	"github.com/icodealot/noaa"
 )
 
 var (
@@ -43,6 +44,23 @@ var (
 		Name: "weather_summary",
 		Help: "Weather description",
 	}, []string{"location", "main", "description"})
+
+	metricWeatherNOAAForecast = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "weather_noaa",
+		Help: "Weather data from NOAA",
+	}, []string{"location", "condition", "future_hours"})
+
+	metricWeatherNOAAWindSpeedForecast = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Subsystem: "weather",
+		Name:      "noaa_wind_speed",
+		Help:      "Wind speed from NOAA",
+	}, []string{"location", "direction", "future_hours"})
+
+	metricWeatherNOAATemperatureForecast = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Subsystem: "weather",
+		Name:      "noaa_temperature",
+		Help:      "Temperature from NOAA",
+	}, []string{"location", "future_hours"})
 )
 
 func (w *Weather) Collect(ctx context.Context) {
@@ -52,22 +70,79 @@ func (w *Weather) Collect(ctx context.Context) {
 	ctx, span := w.tracer.Start(ctx, "Collect")
 	defer span.End()
 
-	bg := boundedwaitgroup.New(4)
+	// bg := boundedwaitgroup.New(4)
 
 	for _, location := range w.cfg.Locations {
-		bg.Add(1)
-		go func(loc Location) {
-			defer bg.Done()
-			w.collectPollution(ctx, loc)
-		}(location)
+		// bg.Add(1)
+		// go func(loc Location) {
+		// 	defer bg.Done()
+		// 	w.collectPollution(ctx, loc)
+		// }(location)
+		//
+		// bg.Add(1)
+		// go func(loc Location) {
+		// 	defer bg.Done()
+		// 	w.collectOne(ctx, loc)
+		// }(location)
 
-		bg.Add(1)
-		go func(loc Location) {
-			defer bg.Done()
-			w.collectOne(ctx, loc)
-		}(location)
+		// bg.Add(1)
+		// go func(loc Location) {
+		// defer bg.Done()
+		w.collectNoaa(ctx, location)
+		// }(location)
 	}
-	bg.Wait()
+	// bg.Wait()
+}
+
+// collectNoaa collects weather data from NOAA for the configured locations.
+func (w *Weather) collectNoaa(ctx context.Context, location Location) {
+	_, span := w.tracer.Start(ctx, "collectNoaa")
+	defer span.End()
+
+	if !w.cfg.NOAA.Enabled {
+		return
+	}
+
+	w.logger.Info("collecting weather data", "location", location.Name)
+
+	span.SetAttributes(attribute.Bool("noaa_enabled", w.cfg.NOAA.Enabled))
+
+	var (
+		lat      string
+		lon      string
+		err      error
+		forecast *noaa.HourlyForecastResponse
+	)
+
+	lat = fmt.Sprintf("%f", location.Latitude)
+	lon = fmt.Sprintf("%f", location.Longitude)
+
+	forecast, err = noaa.HourlyForecast(lat, lon)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		w.logger.Error("failed to get forecast", "err", err, "lat", lat, "lon", lon)
+		return
+	}
+
+	span.SetAttributes(attribute.Int("forecast_periods", len(forecast.Periods)))
+	for _, f := range forecast.Periods {
+
+		startTime, err := time.Parse(time.RFC3339, f.StartTime)
+		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			w.logger.Error("failed to parse start time", "err", err, "start_time", f.StartTime)
+			continue
+		}
+
+		futureHours := time.Until(startTime).Round(time.Hour).Hours()
+		futureHoursStr := fmt.Sprintf("%dh", int(futureHours))
+
+		metricWeatherNOAAForecast.WithLabelValues(location.Name, f.Summary, futureHoursStr).Inc()
+
+		metricWeatherNOAAWindSpeedForecast.WithLabelValues(location.Name, f.WindDirection, futureHoursStr).Set(f.QuantitativeWindSpeed.Value)
+
+		metricWeatherNOAATemperatureForecast.WithLabelValues(location.Name, futureHoursStr).Set(f.Temperature)
+	}
 }
 
 func (w *Weather) collectPollution(ctx context.Context, location Location) {
@@ -127,20 +202,20 @@ func (w *Weather) collectOne(ctx context.Context, location Location) {
 	}
 
 	// Sunrise and sunset
-	epochs := map[string]float64{
+	epochs := map[Epoch]float64{
 		EventSunrise: float64(o.Current.Sunrise),
 		EventSunset:  float64(o.Current.Sunset),
 	}
 
 	for epoch, value := range epochs {
-		metricWeatherEpoch.WithLabelValues(location.Name, epoch).Add(value)
+		metricWeatherEpoch.WithLabelValues(location.Name, epoch.String()).Add(value)
 
 		in := &iotv1proto.EventRequest{
-			Name:   epoch,
+			Name:   epoch.String(),
 			Labels: make(map[string]string),
 		}
 
-		in.Labels[iot.EpochLabel] = epoch
+		in.Labels[iot.EpochLabel] = epoch.String()
 		in.Labels[iot.LocationLabel] = location.Name
 		in.Labels[iot.WhenLabel] = time.Unix(int64(value), 0).Format(time.RFC3339)
 		in.Labels["value"] = fmt.Sprintf("%f", value)

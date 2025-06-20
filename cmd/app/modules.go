@@ -13,8 +13,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -142,6 +140,7 @@ func (a *App) initHookReceiver() (services.Service, error) {
 
 func (a *App) initWeather() (services.Service, error) {
 	if a.cfg.Weather.APIKey == "" {
+		a.logger.Info("Weather API key is not set, skipping weather module initialization")
 		return services.NewIdleService(nil, nil), nil
 	}
 
@@ -284,16 +283,6 @@ func (a *App) initServer() (services.Service, error) {
 	a.cfg.Server.RegisterInstrumentation = true
 	a.cfg.Server.DisableRequestSuccessLog = false
 	// a.cfg.Server.Log = a.logger
-
-	a.cfg.Server.GRPCStreamMiddleware = []grpc.StreamServerInterceptor{
-		otelgrpc.StreamServerInterceptor(),
-	}
-
-	a.cfg.Server.GRPCMiddleware = []grpc.UnaryServerInterceptor{
-		otelgrpc.UnaryServerInterceptor(),
-	}
-
-	/* prometheus.MustRegister(&a.cfg) */
 
 	if a.cfg.EnableGoRuntimeMetrics {
 		// unregister default Go collector

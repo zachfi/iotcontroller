@@ -88,10 +88,15 @@ func main() {
 		logger     = slog.New(handler)
 	)
 
+	serviceName := "iotcontroller"
+	if cfg.Target != "" {
+		serviceName = fmt.Sprintf("%s-%s", serviceName, cfg.Target)
+	}
+
 	shutdownTracer, err := tracing.InstallOpenTelemetryTracer(
 		&cfg.Tracing,
 		logger,
-		"iotcontroller",
+		serviceName,
 		versionString(),
 	)
 	if err != nil {

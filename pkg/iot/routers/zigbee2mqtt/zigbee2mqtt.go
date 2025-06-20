@@ -100,12 +100,11 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 		deviceID string
 		err      error
 		name     string
-		zone     string
 
 		m  = ZigbeeMessage{}
 		wg = sync.WaitGroup{}
 	)
-	_, span := z.tracer.Start(ctx, "Zigbee2Mqtt.DeviceRoute")
+	ctx, span := z.tracer.Start(ctx, "Zigbee2Mqtt.DeviceRoute")
 	defer tracing.ErrHandler(span, err, "device route failed", z.logger)
 
 	err = json.Unmarshal(b, &m)
@@ -133,9 +132,16 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 
 	// If this device has been annotated by a zone, then we pass the action to
 	// the zone handler.
-	if zo, ok := device.Labels[iot.DeviceZoneLabel]; ok {
-		zone = zo
+	if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
+		span.SetAttributes(
+			attribute.String("zone", zone),
+			attribute.String("device", device.Name),
+		)
+
 		if m.Action != nil {
+			span.SetAttributes(
+				attribute.String("action", *m.Action),
+			)
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
