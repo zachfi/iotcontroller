@@ -135,7 +135,7 @@ func (w *Weather) collectNoaa(ctx context.Context, location Location) {
 		}
 
 		futureHours := time.Until(startTime).Round(time.Hour).Hours()
-		futureHoursStr := fmt.Sprintf("%d", int(futureHours))
+		futureHoursStr := fmt.Sprintf("%dh", int(futureHours))
 
 		metricWeatherNOAAForecast.WithLabelValues(location.Name, f.Summary, futureHoursStr).Inc()
 
