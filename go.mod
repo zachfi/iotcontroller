@@ -7,7 +7,6 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/go-kit/log v0.2.1
 	github.com/go-logr/logr v1.4.3
-	github.com/gogo/status v1.1.1
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
 	github.com/gorilla/mux v1.8.1
 	github.com/grafana/dskit v0.0.0-20250616075643-3b7e2f87d946
@@ -19,7 +18,7 @@ require (
 	github.com/onsi/gomega v1.37.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.22.0
-	github.com/prometheus/common v0.64.0
+	github.com/prometheus/common v0.65.0
 	github.com/stretchr/testify v1.10.0
 	github.com/zachfi/zkit v0.1.2
 	github.com/zachfi/znet v0.32.16
@@ -58,6 +57,7 @@ require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/gogo/googleapis v1.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/gogo/status v1.1.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
