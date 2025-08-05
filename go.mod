@@ -12,7 +12,7 @@ require (
 	github.com/grafana/dskit v0.0.0-20250616075643-3b7e2f87d946
 	github.com/grafana/e2e v0.1.2-0.20240118170847-db90b84177fc
 	github.com/icodealot/noaa v0.0.2
-	github.com/jedib0t/go-pretty/v6 v6.6.7
+	github.com/jedib0t/go-pretty/v6 v6.6.8
 	github.com/nathan-osman/go-sunrise v1.1.0
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
