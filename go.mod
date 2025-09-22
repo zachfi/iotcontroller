@@ -1,6 +1,6 @@
 module github.com/zachfi/iotcontroller
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/briandowns/openweathermap v0.21.1
