@@ -32,6 +32,12 @@ var (
 		Help:      "The reported link quality",
 	}, []string{"device", "component", "zone", "type"})
 
+	metricIOTTransmitPower = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "transmit_power",
+		Namespace: metricsNamespace,
+		Help:      "The reported transmit power",
+	}, []string{"device", "component", "zone", "type"})
+
 	metricIOTBridgeState = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "bridge_state",
 		Namespace: metricsNamespace,

@@ -56,6 +56,7 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 				metricIOTReport,
 				metricIOTBatteryPercent,
 				metricIOTLinkQuality,
+				metricIOTTransmitPower,
 				metricIOTBridgeState,
 				metricIOTOccupancy,
 				metricIOTWaterLeak,
@@ -298,6 +299,10 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 
 	if m.LinkQuality != nil {
 		metricIOTLinkQuality.WithLabelValues(device.Name, routeName, zone, device.Spec.Type).Set(float64(*m.LinkQuality))
+	}
+
+	if m.TransmitPower != nil {
+		metricIOTTransmitPower.WithLabelValues(device.Name, routeName, zone, device.Spec.Type).Set(float64(*m.TransmitPower))
 	}
 
 	if m.Temperature != nil {
