@@ -16,7 +16,7 @@ steps:
   name: test
 - commands:
   - make docker-build registry=reg.dist.svc.cluster.znet:5000
-  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
+  image: reg.dist.svc.cluster.znet:5000/zachfi/tools
   name: build-image
   volumes:
   - name: dockersock
@@ -31,7 +31,7 @@ steps:
       from_secret: DOCKER_PASSWORD
     DOCKER_USERNAME:
       from_secret: DOCKER_USERNAME
-  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
+  image: reg.dist.svc.cluster.znet:5000/zachfi/tools
   name: push-image
   volumes:
   - name: dockersock
@@ -57,7 +57,7 @@ steps:
   environment:
     GITHUB_TOKEN:
       from_secret: GITHUB_TOKEN
-  image: reg.dist.svc.cluster.znet:5000/zachfi/build-image
+  image: reg.dist.svc.cluster.znet:5000/zachfi/tools
   name: release
   pull: always
   when:
@@ -71,6 +71,6 @@ volumes:
   temp: {}
 ---
 kind: signature
-hmac: 6d6f2eeb3623acb6e90e6279c9f4268eef9e64d4cb909ac8d3b7d6a2b7a131e8
+hmac: a547bdbe12071404ef2afbcdd919ba8dfafdd029cad9a5e94d19ef5869059388
 
 ...

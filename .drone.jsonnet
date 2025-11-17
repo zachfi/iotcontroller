@@ -1,6 +1,6 @@
 // local image = 'zachfi/shell:latest';
 local registry = 'reg.dist.svc.cluster.znet:5000';
-local defaultImage = '%s/zachfi/build-image' % registry;
+local defaultImage = '%s/zachfi/tools' % registry;
 
 local pipeline(name) = {
   kind: 'pipeline',
