@@ -111,7 +111,10 @@ func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (
 }
 
 func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
-	// TODO: trace this context, and its parent
+	var err error
+
+	ctx, span := c.tracer.Start(ctx, "Conditioner.setSchedule") // trace.WithAttributes(attributes...),
+	defer tracing.ErrHandler(span, err, "conditioner event failed", c.logger)
 
 	if !cond.Spec.Enabled {
 		return
