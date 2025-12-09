@@ -3,6 +3,7 @@ VERSION=$(shell ./tools/image-tag | cut -d, -f 1)
 
 # Image URL to use all building/pushing image targets
 IMG ?= zachfi/iotcontroller:$(VERSION)
+LATESTIMG ?= zachfi/iotcontroller:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.28.0
 
@@ -89,9 +90,9 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: docker-build
 docker-build: test ## Build docker image with the manager.
 ifneq ($(registry),)
-	docker build -t $(registry)/${IMG} .
+	docker build -t $(registry)/${IMG} -t $(registry)/${LATESTIMG}  .
 else
-	docker build -t ${IMG} .
+	docker build -t ${IMG} -t ${LATESTIMG} .
 endif
 
 .PHONY: docker-push
