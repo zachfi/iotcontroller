@@ -59,9 +59,66 @@ spec:
                       type: string
                     inactive_state:
                       type: string
+                    time_intervals:
+                      description: TimeIntervals define the windows during which this
+                        remediation is applicable.  If the conditioner receives an
+                        event outside of this range, the zone will be set to the inactive
+                        state, if defined in the condition spec.
+                      items:
+                        description: TimeIntervalSpec mirrors the JSON/YAML *input*
+                          format expected by Prometheus.
+                        properties:
+                          daysOfMonth:
+                            description: DaysOfMonth accepts strings like "1", "-1"
+                              (last day), "1:5".
+                            items:
+                              type: string
+                            type: array
+                          location:
+                            description: Location is the IANA Timezone string (e.g.
+                              "America/New_York").
+                            type: string
+                          months:
+                            description: Months accepts strings like "january", "march:may".
+                            items:
+                              type: string
+                            type: array
+                          times:
+                            description: Times is a list of start/end times. We use
+                              a local struct here to ensure deepcopy generation works.
+                            items:
+                              description: TimePeriod mirrors the `yamlTimeRange`
+                                struct from the upstream package. We use strings here
+                                because Prometheus expects "HH:MM".
+                              properties:
+                                end_time:
+                                  type: string
+                                start_time:
+                                  type: string
+                              required:
+                              - end_time
+                              - start_time
+                              type: object
+                            type: array
+                          weekdays:
+                            description: Weekdays accepts strings like "monday", "saturday",
+                              "monday:wednesday".
+                            items:
+                              type: string
+                            type: array
+                          years:
+                            description: Years accepts strings like "2023", "2023:2025".
+                            items:
+                              type: string
+                            type: array
+                        type: object
+                      type: array
                     when_gate:
                       description: WhenGate is used to create a window for the epoch
-                        around which this Remediation is applicable.
+                        around which this Remediation is applicable.  When is relative
+                        to the "when" label. i.e. If the epoch in the label is at
+                        10am, and the when.start is -30, then the event will fire
+                        30 minutes before, at 9:30am.
                       properties:
                         start:
                           type: string
