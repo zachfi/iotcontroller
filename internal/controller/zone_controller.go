@@ -137,6 +137,12 @@ func (r *ZoneReconciler) getZone(ctx context.Context, req ctrl.Request) (*iotv1.
 	return zone, nil
 }
 
+// syncLabels updates the zone label on Device objects to match the Zone's
+// Spec.Devices list. It first removes the label from any Device that currently
+// has it but is not listed in the spec, then adds (or updates) the label on
+// each Device named in the spec. The updates are performed concurrently with a
+// bounded wait‑group; all errors are collected and returned as a single joined
+// error.
 func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error {
 	var (
 		err     error
