@@ -55,7 +55,7 @@ type Harvester struct {
 	mqttClient *mqttclient.MQTTClient
 	itemCh     chan item
 
-	mu sync.RWMutex
+	mu sync.Mutex
 }
 
 type item struct {
@@ -87,7 +87,7 @@ func (h *Harvester) starting(ctx context.Context) error {
 	// bind address and not the k8s service.
 	/* if h.cfg.Target == All { } */
 
-	// TODO: wait for the mqtt client to be haelthy before proceeding
+	// TODO: wait for the mqtt client to be healthy before proceeding
 	// h.mqttClient.CheckHealth()
 
 	return nil
