@@ -149,7 +149,7 @@ func (w *Weather) sendEpochEvents(ctx context.Context) {
 					iot.EpochLabel:    epoch.String(),
 					iot.LocationLabel: location.Name,
 					iot.WhenLabel:     eventTime.Format(time.RFC3339),
-					"value":           fmt.Sprintf("%d", eventTime.Unix()),
+					iot.ValueLabel:    fmt.Sprintf("%d", eventTime.Unix()),
 				},
 			}
 

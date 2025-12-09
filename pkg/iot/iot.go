@@ -14,6 +14,7 @@ const (
 	LocationLabel  = "location"
 	StatusLabel    = "status"
 	WhenLabel      = "when"
+	ValueLabel     = "value"
 	ZoneLabel      = "zone"
 )
 
