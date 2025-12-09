@@ -64,8 +64,15 @@ type Remediation struct {
 	InactiveScene string `json:"inactive_scene,omitempty"`
 
 	// WhenGate is used to create a window for the epoch around which this
-	// Remediation is applicable.
+	// Remediation is applicable.  When is relative to the "when" label.
+	// i.e. If the epoch in the label is at 10am, and the when.start is -30, then
+	// the event will fire 30 minutes before, at 9:30am.
 	WhenGate When `json:"when_gate,omitempty"`
+
+	// TimeIntervals define the windows during which this remediation is
+	// applicable.  If the conditioner receives an event outside of this range,
+	// the zone will be set to the inactive state, if defined in the condition spec.
+	TimeIntervals []TimeIntervalSpec `json:"time_intervals,omitempty"`
 }
 
 type When struct {
