@@ -72,6 +72,7 @@ func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (
 		attribute.String("event", req.Name),
 	}
 
+	// Collect the event labels on the span
 	for k, v := range req.Labels {
 		attributes = append(attributes, attribute.String(k, v))
 	}
@@ -99,7 +100,7 @@ func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (
 
 		err = c.runConditionEvent(ctx, req, cond)
 		if err != nil {
-			return &iotv1proto.EventResponse{}, fmt.Errorf("failed to run condition event: %w", err)
+			errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
 		}
 	}
 
@@ -110,17 +111,23 @@ func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (
 	return &iotv1proto.EventResponse{}, nil
 }
 
+func (c *Conditioner) Status() []scheduleStatus {
+	return c.sched.Status()
+}
+
 func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 	var err error
 
 	ctx, span := c.tracer.Start(ctx, "Conditioner.setSchedule") // trace.WithAttributes(attributes...),
-	defer tracing.ErrHandler(span, err, "conditioner event failed", c.logger)
+	defer tracing.ErrHandler(span, err, "set schedule failed", c.logger)
 
 	if !cond.Spec.Enabled {
+		c.sched.remove(ctx, cond.Name)
 		return
 	}
 
 	if cond.Spec.Schedule == "" {
+		span.AddEvent("no schedule defined")
 		return
 	}
 
@@ -233,10 +240,9 @@ func (c *Conditioner) zoneState(state string) iotv1proto.ZoneState {
 
 func (c *Conditioner) handleRemediation(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) error {
 	var (
-		err    error
-		active bool
-		state  string
-		scene  string
+		err   error
+		state string
+		scene string
 
 		zoneState = iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
 	)
@@ -244,36 +250,7 @@ func (c *Conditioner) handleRemediation(ctx context.Context, req *iotv1proto.Eve
 	ctx, span := c.tracer.Start(ctx, "Conditioner.handleRemediation")
 	defer func() { _ = tracing.ErrHandler(span, err, "handle remediation", c.logger) }()
 
-	active = c.remActiveWindow(ctx, req, rem)
-	if !active {
-		return nil
-	}
-
-	if active && rem.ActiveState != "" {
-		state = rem.ActiveState
-	} else if rem.InactiveState != "" {
-		state = rem.InactiveState
-	}
-
-	if active && rem.ActiveScene != "" {
-		scene = rem.ActiveScene
-	} else if rem.InactiveScene != "" {
-		scene = rem.InactiveScene
-	}
-
-	// Check if we have an alert status
-	if status, ok := req.Labels[iot.StatusLabel]; ok {
-		span.SetAttributes(attribute.String(iot.StatusLabel, status))
-		// Only override the above if we have a value
-		st, sc := handleStatusLabel(status, rem)
-		if st != "" {
-			state = st
-		}
-
-		if sc != "" {
-			scene = sc
-		}
-	}
+	scene, state = c.getSceneState(ctx, req, rem)
 
 	// Set the scene if we have one
 	if scene != "" {
@@ -306,26 +283,75 @@ func (c *Conditioner) handleRemediation(ctx context.Context, req *iotv1proto.Eve
 	return err
 }
 
-func (c *Conditioner) remActiveWindow(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (active bool) {
-	_, span := c.tracer.Start(ctx, "Conditioner.remActiveWindow")
+// getSceneState determines the scene and state to set based on the received event request and remediation.
+func (c *Conditioner) getSceneState(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (state, scene string) {
+	_, span := c.tracer.Start(ctx, "Conditioner.runTimer")
+	defer span.End()
+
+	// Check if we have an alert status
+	if status, ok := req.Labels[iot.StatusLabel]; ok {
+		span.SetAttributes(attribute.String(iot.StatusLabel, status))
+
+		// Only override the above if we have a value
+		switch status {
+		case alertStatusFiring:
+			if rem.ActiveState != "" {
+				state = rem.ActiveState
+			}
+
+			if rem.ActiveScene != "" {
+				scene = rem.ActiveScene
+			}
+		case alertStatusResolved:
+			if rem.InactiveState != "" {
+				state = rem.InactiveState
+			}
+
+			if rem.InactiveScene != "" {
+				scene = rem.InactiveScene
+			}
+		}
+	}
+
+	// Overriding the alert status using the window.  In either firing or
+	// resolved state, the zone is disabled.
+	activeWindow := c.withinActiveWindow(ctx, req, rem)
+	span.SetAttributes(attribute.Bool("activeWindow", activeWindow))
+
+	if !activeWindow {
+		if rem.InactiveState != "" {
+			state = rem.InactiveState
+		}
+		if rem.InactiveScene != "" {
+			scene = rem.InactiveScene
+		}
+	}
+
+	return state, scene
+}
+
+func (c *Conditioner) withinActiveWindow(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (active bool) {
+	_, span := c.tracer.Start(ctx, "Conditioner.withinActiveWindow")
 	defer func() {
 		span.SetAttributes(attribute.Bool("active", active))
 		span.End()
 	}()
 
-	if rem.WhenGate.Start == "" && rem.WhenGate.Stop == "" {
-		active = true
-		return
+	for _, ti := range rem.TimeIntervals {
+		tip, err := ti.AsPrometheus()
+		if err != nil {
+			c.logger.Error("invalid time interval configuration", "err", err)
+			continue
+		}
+
+		if tip.ContainsTime(time.Now()) {
+			active = true
+			return
+		}
 	}
 
-	if rem.WhenGate.Start != "" && rem.WhenGate.Stop == "" {
-		c.logger.Error("remediation whengate requires both start on stop")
-		active = false
-		return
-	}
-
-	// Skip if the remediation time window is out of bounds.
 	// An event has a when label, so check for it.
+	// The Event could have a "when" lebel indicating the time of the event.  Check of it.
 	if when, ok := req.Labels[iot.WhenLabel]; ok {
 		var (
 			now         = time.Now()
@@ -343,6 +369,8 @@ func (c *Conditioner) remActiveWindow(ctx context.Context, req *iotv1proto.Event
 			active = false
 			return
 		}
+
+		// TODO: consider the duration window to check of 6h.  Should this be configurable?
 
 		// Skip events older than 6 hours to avoid using yesterdays epoch.
 		if time.Since(eventTime) > 6*time.Hour {
@@ -398,7 +426,7 @@ func (c *Conditioner) remActiveWindow(ctx context.Context, req *iotv1proto.Event
 }
 
 func (c *Conditioner) runTimerLoop(ctx context.Context) {
-	t := time.NewTicker(15 * time.Second)
+	t := time.NewTicker(c.cfg.TimerLoopInterval)
 
 	for {
 		select {
@@ -414,9 +442,13 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 	var (
 		list  = &apiv1.ConditionList{}
 		names = make(map[string]struct{}, 10)
+		err   error
 	)
 
-	err := c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
+	ctx, span := c.tracer.Start(ctx, "Conditioner.runTimer")
+	defer tracing.ErrHandler(span, err, "failed to run timer", c.logger)
+
+	err = c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
 	if err != nil {
 		c.logger.Error("failed to list conditions", "err", err)
 		return
@@ -433,7 +465,11 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 func (c *Conditioner) starting(ctx context.Context) error {
 	go c.sched.run(ctx, c.zonekeeperClient)
 
-	// TODO: consider creating a watch for conditions in place of the timer loop, which lists all conditions
+	// TODO: consider creating a watch for conditions in place of the timer loop,
+	// which lists all conditions.  Currently a list of all conditions against
+	// the k8s api is made to retrieve the schedules for each condition and set
+	// them to fire accordingly.  Making this a watch would allow for immediate
+	// update to the schedule upon change, and reduce teh load onthe k8s API.
 	// watchlist := cache.NewListWatchFromClient(
 	// 	c.kubeClientr
 	// 	apiv1.GroupVersion.WithResource("conditions").Resource,
@@ -452,10 +488,6 @@ func (c *Conditioner) running(ctx context.Context) error {
 
 func (c *Conditioner) stopping(_ error) error {
 	return nil
-}
-
-func (c *Conditioner) Status() []scheduleStatus {
-	return c.sched.Status()
 }
 
 func handleStatusLabel(status string, rem apiv1.Remediation) (state string, scene string) {

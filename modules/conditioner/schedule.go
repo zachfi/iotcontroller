@@ -72,6 +72,7 @@ func matched(a, b request) bool {
 	return true
 }
 
+// add schedules a new event or updates an existing event by name.
 func (s *schedule) add(ctx context.Context, name string, t time.Time, req request) {
 	var err error
 
@@ -129,8 +130,22 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 	}(ctx, req)
 }
 
+// Remove cancels and removes a scheduled event by name.
+func (s *schedule) remove(ctx context.Context, name string) {
+	_, span := s.tracer.Start(ctx, "schedule.remove")
+	defer span.End()
+
+	s.Lock()
+	defer s.Unlock()
+
+	if _, ok := s.events[name]; ok {
+		s.events[name].cancel()
+		delete(s.events, name)
+	}
+}
+
 // Any names not listed in the map are removed from the event.  This allows us
-// to clean up the currenting runnign schedules when the backing condition has
+// to clean up the currenting running schedules when the backing condition has
 // been removed or renamed.
 func (s *schedule) removeExtraneous(names map[string]struct{}) {
 	s.Lock()
