@@ -288,7 +288,7 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 	}
 
 	if m.Battery != nil {
-		metricIOTBatteryPercent.WithLabelValues(device.Name, routeName, zone).Set(*m.Battery)
+		metricIOTBatteryPercent.WithLabelValues(device.Name, routeName, zone, device.Spec.Type).Set(*m.Battery)
 	}
 
 	if m.LinkQuality != nil {

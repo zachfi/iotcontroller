@@ -24,7 +24,7 @@ var (
 		Name:      "battery_percent",
 		Namespace: metricsNamespace,
 		Help:      "The reported batter percentage remaining.",
-	}, []string{"device", "component", "zone"})
+	}, []string{"device", "component", "zone", "type"})
 
 	metricIOTLinkQuality = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name:      "link_quality",
