@@ -6,7 +6,7 @@ import (
 
 const (
 	mqttImage = "eclipse-mosquitto:2"
-	image     = "zachfi/iotcontroller:main-3162549-WIP"
+	image     = "zachfi/iotcontroller:latest"
 )
 
 func NewMQTTServer(name string) *e2e.ConcreteService {
