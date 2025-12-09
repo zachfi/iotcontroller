@@ -9,6 +9,8 @@ import (
 	"net/http"
 
 	"github.com/grafana/dskit/services"
+
+	"github.com/prometheus/alertmanager/notify/webhook"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -58,7 +60,7 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	defer r.Body.Close()
 
-	var m HookMessage
+	var m webhook.Message
 	if err = dec.Decode(&m); err != nil {
 		http.Error(w, "invalid request body", 400)
 		h.logger.Error("invalid request body", "err", err)
@@ -148,29 +150,4 @@ func (h *HookReceiver) starting(_ context.Context) error {
 
 func (h *HookReceiver) stopping(_ error) error {
 	return nil
-}
-
-type HookMessage struct {
-	Version           string            `json:"version"`
-	GroupKey          string            `json:"groupKey"`
-	Status            string            `json:"status"`
-	Receiver          string            `json:"receiver"`
-	GroupLabels       map[string]string `json:"groupLabels"`
-	CommonLabels      map[string]string `json:"commonLabels"`
-	CommonAnnotations map[string]string `json:"commonAnnotations"`
-	ExternalURL       string            `json:"externalURL"`
-	Alerts            []Alert           `json:"alerts"`
-}
-
-type Label struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-// Alert is a single alert.
-type Alert struct {
-	Labels      map[string]string `json:"labels"`
-	Annotations map[string]string `json:"annotations"`
-	StartsAt    string            `json:"startsAt,omitempty"`
-	EndsAt      string            `json:"EndsAt,omitempty"`
 }
