@@ -64,7 +64,7 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 		tracer:           otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
 		kubeclient:       kubeclient,
 		zonekeeperClient: zonekeeperClient,
-		itemCh:           make(chan *item, 10000),
+		itemCh:           make(chan *item, 100), // Some amount of queue to maintain order
 		regexps:          make(map[string]*regexp.Regexp, 10),
 		routers:          make(map[RouteTypes]any),
 	}
