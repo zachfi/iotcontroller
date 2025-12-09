@@ -125,11 +125,9 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 		return err
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		z.updateZigbeeMessageMetrics(ctx, m, device)
-	}()
+	})
 
 	// If this device has been annotated by a zone, then we pass the action to
 	// the zone handler.
@@ -143,17 +141,15 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 			span.SetAttributes(
 				attribute.String("action", *m.Action),
 			)
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				defer wg.Done()
 				z.action(ctx, *m.Action, device.Name, zone)
-			}()
+			})
 		} else {
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				defer wg.Done()
 				z.selfAnnounce(ctx, device.Name, zone)
-			}()
+			})
 		}
 	}
 
@@ -211,7 +207,7 @@ func (z *Zigbee2Mqtt) handleZigbeeBridgeDevice(ctx context.Context, logger *slog
 		return tracing.ErrHandler(span, err, "failed to get or create API device", logger)
 	}
 
-	device.Spec.Type = DeviceType(d).String()
+	device.Spec.Type = deviceType(d).String()
 	device.Spec.DateCode = d.DateCode
 	device.Spec.Model = d.Definition.Model
 	device.Spec.Vendor = d.Definition.Vendor

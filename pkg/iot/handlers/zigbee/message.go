@@ -10,7 +10,7 @@ import (
 
 type message struct {
 	sync.Mutex
-	msg   map[string]interface{}
+	msg   map[string]any
 	topic string
 }
 

@@ -8,6 +8,8 @@ import (
 // cat pkg/iot/devices.json| jq -r '.[] | select(. != null).definition | select(. != null).exposes[].features | select(. != null).[].property'
 // cat pkg/iot/devices.json| jq -r '.[] | select(. != null).definition | select(. != null).exposes[].property'
 
+// TODO: many of these properties appear unused.  They are intended to match the
+// message to ensure we're adhering.
 const (
 	PropertyAction            = "action"
 	PropertyBattery           = "battery"
@@ -21,13 +23,14 @@ const (
 	PropertyIlluminance       = "illuminance"
 	PropertyLinkQuality       = "linkquality"
 	PropertyOccupancy         = "occupancy"
+	PropertyWaterLeak         = "water_leak"
 	PropertyPressure          = "pressure"
 	PropertySoilMoisture      = "soil_moisture"
 	PropertyState             = "state"
 	PropertyTemperature       = "temperature"
 	PropertyVOC               = "voc"
 	PropertyVoltage           = "voltage"
-	PropertyWaterLeak         = "water_leak"
+	PropertyTransmitPower     = "transmit_power"
 )
 
 const (
@@ -44,11 +47,11 @@ type Device struct {
 	FriendlyName   string `json:"friendly_name"`
 	Endpoints      struct {
 		Num1 struct {
-			Bindings             []interface{} `json:"bindings"`
-			ConfiguredReportings []interface{} `json:"configured_reportings"`
+			Bindings             []any `json:"bindings"`
+			ConfiguredReportings []any `json:"configured_reportings"`
 			Clusters             struct {
-				Input  []string      `json:"input"`
-				Output []interface{} `json:"output"`
+				Input  []string `json:"input"`
+				Output []any    `json:"output"`
 			} `json:"clusters"`
 		} `json:"1"`
 	} `json:"endpoints"`
@@ -108,7 +111,7 @@ type Expose struct {
 	} `json:"features,omitempty"`
 }
 
-func DeviceType(z Device) iotv1proto.DeviceType {
+func deviceType(z Device) iotv1proto.DeviceType {
 	// Check for colored light using color
 	for _, e := range z.Definition.Exposes {
 		if len(e.Features) > 0 {
@@ -169,6 +172,12 @@ func DeviceType(z Device) iotv1proto.DeviceType {
 	for _, e := range z.Definition.Exposes {
 		if e.Property == PropertyWaterLeak {
 			return iotv1proto.DeviceType_DEVICE_TYPE_LEAK
+		}
+	}
+
+	for _, e := range z.Definition.Exposes {
+		if e.Property == PropertyTransmitPower {
+			return iotv1proto.DeviceType_DEVICE_TYPE_ROUTER
 		}
 	}
 

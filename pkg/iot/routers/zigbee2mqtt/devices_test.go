@@ -40,7 +40,7 @@ func TestDevices(t *testing.T) {
 			require.Greater(t, len(obj), 0)
 
 			for _, d := range obj {
-				x := DeviceType(d)
+				x := deviceType(d)
 				require.Greater(t, x, iotv1proto.DeviceType_DEVICE_TYPE_UNSPECIFIED,
 					fmt.Sprintf("device: %+v", d),
 				)
