@@ -142,12 +142,10 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 				attribute.String("action", *m.Action),
 			)
 			wg.Go(func() {
-				defer wg.Done()
 				z.action(ctx, *m.Action, device.Name, zone)
 			})
 		} else {
 			wg.Go(func() {
-				defer wg.Done()
 				z.selfAnnounce(ctx, device.Name, zone)
 			})
 		}
