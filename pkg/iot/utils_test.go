@@ -172,7 +172,7 @@ func TestReadMessage(t *testing.T) {
 			ObjectID:  "wifi",
 			Payload:   []byte(`{"ssid":"testaroo"}`),
 			Endpoints: []string{"ssid"},
-			Obj: WifiMessage{
+			Obj: wifiMessage{
 				SSID: "testaroo",
 			},
 		},
@@ -180,7 +180,7 @@ func TestReadMessage(t *testing.T) {
 			ObjectID:  "air",
 			Payload:   []byte(`{"temperature": 17.28}`),
 			Endpoints: []string{"temperature"},
-			Obj: AirMessage{
+			Obj: airMessage{
 				Temperature: testFloat(17.28),
 			},
 		},
@@ -188,7 +188,7 @@ func TestReadMessage(t *testing.T) {
 			ObjectID:  "air",
 			Payload:   []byte(`{"humidity":50.5}`),
 			Endpoints: []string{"humidity"},
-			Obj: AirMessage{
+			Obj: airMessage{
 				Humidity: testFloat(50.5),
 			},
 		},
@@ -196,7 +196,7 @@ func TestReadMessage(t *testing.T) {
 			ObjectID:  "water",
 			Payload:   []byte(`{"temperature":50.5}`),
 			Endpoints: []string{"temperature"},
-			Obj: WaterMessage{
+			Obj: waterMessage{
 				Temperature: testFloat(50.5),
 			},
 		},
@@ -204,7 +204,7 @@ func TestReadMessage(t *testing.T) {
 			ObjectID:  "led",
 			Payload:   []byte(`{"name":"test"}`),
 			Endpoints: []string{"config"},
-			Obj: LEDConfig{
+			Obj: lEDConfig{
 				Name: "test",
 			},
 		},
@@ -212,7 +212,7 @@ func TestReadMessage(t *testing.T) {
 			ObjectID:  "led",
 			Payload:   []byte(`{"state":"on"}`),
 			Endpoints: []string{"color"},
-			Obj: LEDColor{
+			Obj: lEDColor{
 				State: "on",
 			},
 		},

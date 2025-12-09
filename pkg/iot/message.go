@@ -11,26 +11,28 @@ const (
 
 // zigbee2mqtt/bridge/event {"data":{"definition":{"description":"Texas Instruments router","exposes":[{"access":7,"description":"Transmit power, supported from firmware 20221102. The max for CC1352 is 20 dBm and 5 dBm for CC2652 (any higher value is converted to 5dBm)","label":"Transmit power","name":"transmit_power","property":"transmit_power","type":"numeric","unit":"dBm","value_max":20,"value_min":-20,"value_step":1},{"access":1,"description":"Link quality (signal strength)","label":"Linkquality","name":"linkquality","property":"linkquality","type":"numeric","unit":"lqi","value_max":255,"value_min":0}],"model":"ti.router","options":[],"supports_ota":false,"vendor":"Custom devices (DiY)"},"friendly_name":"0x00124b00259bbd7f","ieee_address":"0x00124b00259bbd7f","status":"successful","supported":true},"type":"device_interview"}
 
-type WifiMessage struct {
+// TODO: most of these types appear to be unused.
+
+type wifiMessage struct {
 	BSSID string `json:"bssid,omitempty"`
 	IP    string `json:"ip,omitempty"`
 	RSSI  int    `json:"rssi,omitempty"`
 	SSID  string `json:"ssid,omitempty"`
 }
 
-type AirMessage struct {
+type airMessage struct {
 	Humidity    *float32 `json:"humidity,omitempty"`
 	Temperature *float32 `json:"temperature,omitempty"`
 	HeatIndex   *float32 `json:"heatindex,omitempty"`
 	TempCoef    *float64 `json:"tempcoef,omitempty"`
 }
 
-type WaterMessage struct {
+type waterMessage struct {
 	Temperature *float32 `json:"temperature,omitempty"`
 	TempCoef    *float64 `json:"tempcoef,omitempty"`
 }
 
-type LEDConfig struct {
+type lEDConfig struct {
 	Schema       string   `json:"schema"`
 	Brightness   bool     `json:"brightness"`
 	Rgb          bool     `json:"rgb"`
@@ -50,7 +52,7 @@ type LEDConfig struct {
 	} `json:"device"`
 }
 
-type LEDColor struct {
+type lEDColor struct {
 	State      string `json:"state"`
 	Brightness int    `json:"brightness"`
 	Effect     string `json:"effect"`

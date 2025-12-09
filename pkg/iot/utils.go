@@ -126,21 +126,21 @@ func ReadZigbeeMessage(ctx context.Context, tracer trace.Tracer, dis *iotv1proto
 func ReadMessage(objectID string, payload []byte, endpoint ...string) (interface{}, error) {
 	switch objectID {
 	case "wifi":
-		m := WifiMessage{}
+		m := wifiMessage{}
 		err := json.Unmarshal(payload, &m)
 		if err != nil {
 			return nil, err
 		}
 		return m, nil
 	case "air":
-		m := AirMessage{}
+		m := airMessage{}
 		err := json.Unmarshal(payload, &m)
 		if err != nil {
 			return nil, err
 		}
 		return m, nil
 	case "water":
-		m := WaterMessage{}
+		m := waterMessage{}
 		err := json.Unmarshal(payload, &m)
 		if err != nil {
 			return nil, err
@@ -150,14 +150,14 @@ func ReadMessage(objectID string, payload []byte, endpoint ...string) (interface
 		if len(endpoint) > 0 {
 			switch endpoint[0] {
 			case "config":
-				m := LEDConfig{}
+				m := lEDConfig{}
 				err := json.Unmarshal(payload, &m)
 				if err != nil {
 					return nil, err
 				}
 				return m, nil
 			case "color":
-				m := LEDColor{}
+				m := lEDColor{}
 				err := json.Unmarshal(payload, &m)
 				if err != nil {
 					return nil, err
