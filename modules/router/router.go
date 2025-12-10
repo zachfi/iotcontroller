@@ -200,8 +200,12 @@ func (r *Router) running(ctx context.Context) error {
 				var err error
 				_, span := r.tracer.Start(i.ctx, "Router.receiver")
 				defer tracing.ErrHandler(span, err, "send failed", r.logger)
+
+				metricMessagesReceived.WithLabelValues().Inc()
+
 				err = r.send(i.ctx, i.Path, i.Payload)
 				if err != nil {
+					metricMessagesSendErrors.WithLabelValues().Inc()
 					r.logger.Error("failed to send item", "path", i.Path, "err", err)
 				}
 			}()

@@ -9,8 +9,6 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/grafana/dskit/services"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.25.0"
@@ -23,25 +21,6 @@ import (
 )
 
 const module = "harvester"
-
-var (
-	harvesterMessageTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "iot_harvester_message_total",
-		Help: "The the total number of messages seen by the harvester",
-	}, []string{})
-	harvesterMessageErrors = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "iot_harvester_message_error",
-		Help: "The the total number of messages failed to process by the harvester",
-	}, []string{})
-	harvesterRouteSendErrorTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "iot_harvester_route_send_error_total",
-		Help: "The the total number of messages failed to route",
-	}, []string{})
-	harvesterRouteSendTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "iot_harvester_route_send_total",
-		Help: "The the total number of messages routed",
-	}, []string{})
-)
 
 type Harvester struct {
 	services.Service
@@ -171,7 +150,7 @@ func (h *Harvester) messageFunc() mqtt.MessageHandler {
 		)
 		defer func() { _ = tracing.ErrHandler(span, nil, "harvester mqtt message failed", h.logger) }()
 
-		harvesterMessageTotal.WithLabelValues().Inc()
+		harvesterMessageTotal.WithLabelValues(msg.Topic()).Inc()
 
 		go func() {
 			h.itemCh <- item{

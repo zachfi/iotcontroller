@@ -96,11 +96,13 @@ func (m *MQTTClient) running(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-m.clientCtx.Done():
-			metricMQTTClientReplaced.Inc()
 			err := m.replaceClient()
 			if err != nil {
+				metricMQTTClientReplacementError.Inc()
 				return err
 			}
+
+			metricMQTTClientReplaced.Inc()
 
 			continue
 		case <-t.C:

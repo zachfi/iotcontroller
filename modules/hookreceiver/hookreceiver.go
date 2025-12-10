@@ -129,7 +129,7 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 
 		hookreceiverReceivedTotal.WithLabelValues(name, zone).Inc()
 
-		// ??
+		// Extract the AlertNameLabel
 		for k, v := range alert.Labels {
 			if k == iot.AlertNameLabel {
 				in.Labels[k] = v

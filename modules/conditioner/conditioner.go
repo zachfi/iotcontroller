@@ -248,6 +248,7 @@ func (c *Conditioner) handleRemediation(ctx context.Context, req *iotv1proto.Eve
 	)
 
 	ctx, span := c.tracer.Start(ctx, "Conditioner.handleRemediation")
+	// TODO: add the zone to the error, the req or something to indicate the failure.
 	defer func() { _ = tracing.ErrHandler(span, err, "handle remediation", c.logger) }()
 
 	scene, state = c.getSceneState(ctx, req, rem)
