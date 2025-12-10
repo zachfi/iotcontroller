@@ -285,7 +285,7 @@ func (c *Conditioner) handleRemediation(ctx context.Context, req *iotv1proto.Eve
 }
 
 // getSceneState determines the scene and state to set based on the received event request and remediation.
-func (c *Conditioner) getSceneState(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (state, scene string) {
+func (c *Conditioner) getSceneState(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (scene, state string) {
 	_, span := c.tracer.Start(ctx, "Conditioner.runTimer")
 	defer span.End()
 
@@ -328,7 +328,7 @@ func (c *Conditioner) getSceneState(ctx context.Context, req *iotv1proto.EventRe
 		}
 	}
 
-	return state, scene
+	return scene, state
 }
 
 func (c *Conditioner) withinActiveWindow(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (active bool) {
