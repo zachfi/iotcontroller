@@ -23,14 +23,31 @@ service IOTService {
   rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
 }
 
-message EventRequest {
+// message EventRequest {
+//   string name = 1;
+//   map<string, string> labels = 2;
+// }
+// message EventResponse {}
+
+message AlertRequest {
   string name = 1;
-  map<string, string> labels = 2;
+  string status = 2;
+  string zone = 3;
 }
-message EventResponse {}
+message AlertResponse {}
+
+message EpochRequest {
+  string name = 1;
+  string location = 2;
+  int64 when = 3;
+}
+message EpochResponse {}
+
 
 service EventReceiverService {
-  rpc Event(EventRequest) returns (EventResponse);
+  // rpc Event(EventRequest) returns (EventResponse);
+  rpc Alert(AlertRequest) returns (AlertResponse);
+  rpc Epoch(EpochRequest) returns (EpochResponse);
 }
 
 message SendRequest {

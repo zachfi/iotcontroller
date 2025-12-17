@@ -12,9 +12,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/zachfi/iotcontroller/pkg/iot"
-	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
-
 	"github.com/icodealot/noaa"
 )
 
@@ -199,32 +196,6 @@ func (w *Weather) collectOne(ctx context.Context, location Location) {
 	err = o.OneCallByCoordinates(coord)
 	if err != nil {
 		w.logger.Error("onecall coordinates failed", "err", err)
-	}
-
-	// Sunrise and sunset
-	epochs := map[Epoch]float64{
-		EventSunrise: float64(o.Current.Sunrise),
-		EventSunset:  float64(o.Current.Sunset),
-	}
-
-	for epoch, value := range epochs {
-		metricWeatherEpoch.WithLabelValues(location.Name, epoch.String()).Add(value)
-
-		in := &iotv1proto.EventRequest{
-			Name:   epoch.String(),
-			Labels: make(map[string]string),
-		}
-
-		in.Labels[iot.EpochLabel] = epoch.String()
-		in.Labels[iot.LocationLabel] = location.Name
-		in.Labels[iot.WhenLabel] = time.Unix(int64(value), 0).Format(time.RFC3339)
-		in.Labels["value"] = fmt.Sprintf("%f", value)
-
-		_, err := w.eventReceiverClient.Event(ctx, in)
-		if err != nil {
-			w.logger.Error("failed to send event", "err", err)
-		}
-
 	}
 
 	// Current conditions

@@ -61,9 +61,9 @@ spec:
                       type: string
                     time_intervals:
                       description: TimeIntervals define the windows during which this
-                        remediation is applicable.  If the conditioner receives an
-                        event outside of this range, the zone will be set to the inactive
-                        state, if defined in the condition spec.
+                        remediation is applicable for Alerts.  If the conditioner
+                        receives an event outside of this range, the zone will be
+                        set to the inactive state, if defined in the condition spec.
                       items:
                         description: TimeIntervalSpec mirrors the JSON/YAML *input*
                           format expected by Prometheus.
@@ -114,11 +114,10 @@ spec:
                         type: object
                       type: array
                     when_gate:
-                      description: WhenGate is used to create a window for the epoch
-                        around which this Remediation is applicable.  When is relative
-                        to the "when" label. i.e. If the epoch in the label is at
-                        10am, and the when.start is -30, then the event will fire
-                        30 minutes before, at 9:30am.
+                      description: WhenGate is relative to the Epoch event, and use
+                        used to create an activation window.  When the window opens,
+                        the zone is activated, and when the window window closes,
+                        the zone is deactivated.
                       properties:
                         start:
                           type: string

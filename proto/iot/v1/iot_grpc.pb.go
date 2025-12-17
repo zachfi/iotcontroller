@@ -123,14 +123,17 @@ var IOTService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	EventReceiverService_Event_FullMethodName = "/iot.v1.EventReceiverService/Event"
+	EventReceiverService_Alert_FullMethodName = "/iot.v1.EventReceiverService/Alert"
+	EventReceiverService_Epoch_FullMethodName = "/iot.v1.EventReceiverService/Epoch"
 )
 
 // EventReceiverServiceClient is the client API for EventReceiverService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EventReceiverServiceClient interface {
-	Event(ctx context.Context, in *EventRequest, opts ...grpc.CallOption) (*EventResponse, error)
+	// rpc Event(EventRequest) returns (EventResponse);
+	Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error)
+	Epoch(ctx context.Context, in *EpochRequest, opts ...grpc.CallOption) (*EpochResponse, error)
 }
 
 type eventReceiverServiceClient struct {
@@ -141,10 +144,20 @@ func NewEventReceiverServiceClient(cc grpc.ClientConnInterface) EventReceiverSer
 	return &eventReceiverServiceClient{cc}
 }
 
-func (c *eventReceiverServiceClient) Event(ctx context.Context, in *EventRequest, opts ...grpc.CallOption) (*EventResponse, error) {
+func (c *eventReceiverServiceClient) Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EventResponse)
-	err := c.cc.Invoke(ctx, EventReceiverService_Event_FullMethodName, in, out, cOpts...)
+	out := new(AlertResponse)
+	err := c.cc.Invoke(ctx, EventReceiverService_Alert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *eventReceiverServiceClient) Epoch(ctx context.Context, in *EpochRequest, opts ...grpc.CallOption) (*EpochResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EpochResponse)
+	err := c.cc.Invoke(ctx, EventReceiverService_Epoch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +168,9 @@ func (c *eventReceiverServiceClient) Event(ctx context.Context, in *EventRequest
 // All implementations should embed UnimplementedEventReceiverServiceServer
 // for forward compatibility.
 type EventReceiverServiceServer interface {
-	Event(context.Context, *EventRequest) (*EventResponse, error)
+	// rpc Event(EventRequest) returns (EventResponse);
+	Alert(context.Context, *AlertRequest) (*AlertResponse, error)
+	Epoch(context.Context, *EpochRequest) (*EpochResponse, error)
 }
 
 // UnimplementedEventReceiverServiceServer should be embedded to have
@@ -165,8 +180,11 @@ type EventReceiverServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedEventReceiverServiceServer struct{}
 
-func (UnimplementedEventReceiverServiceServer) Event(context.Context, *EventRequest) (*EventResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Event not implemented")
+func (UnimplementedEventReceiverServiceServer) Alert(context.Context, *AlertRequest) (*AlertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Alert not implemented")
+}
+func (UnimplementedEventReceiverServiceServer) Epoch(context.Context, *EpochRequest) (*EpochResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Epoch not implemented")
 }
 func (UnimplementedEventReceiverServiceServer) testEmbeddedByValue() {}
 
@@ -188,20 +206,38 @@ func RegisterEventReceiverServiceServer(s grpc.ServiceRegistrar, srv EventReceiv
 	s.RegisterService(&EventReceiverService_ServiceDesc, srv)
 }
 
-func _EventReceiverService_Event_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(EventRequest)
+func _EventReceiverService_Alert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AlertRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(EventReceiverServiceServer).Event(ctx, in)
+		return srv.(EventReceiverServiceServer).Alert(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: EventReceiverService_Event_FullMethodName,
+		FullMethod: EventReceiverService_Alert_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EventReceiverServiceServer).Event(ctx, req.(*EventRequest))
+		return srv.(EventReceiverServiceServer).Alert(ctx, req.(*AlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _EventReceiverService_Epoch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EpochRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventReceiverServiceServer).Epoch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventReceiverService_Epoch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventReceiverServiceServer).Epoch(ctx, req.(*EpochRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -214,8 +250,12 @@ var EventReceiverService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*EventReceiverServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Event",
-			Handler:    _EventReceiverService_Event_Handler,
+			MethodName: "Alert",
+			Handler:    _EventReceiverService_Alert_Handler,
+		},
+		{
+			MethodName: "Epoch",
+			Handler:    _EventReceiverService_Epoch_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
