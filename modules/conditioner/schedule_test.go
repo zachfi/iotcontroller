@@ -1,11 +1,88 @@
 package conditioner
 
 import (
+	"context"
+	"log/slog"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/zachfi/iotcontroller/pkg/mocks"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
+
+var testlogger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+
+func Test_schedule(t *testing.T) {
+	cases := []struct {
+		name   string
+		events int
+		err    string
+		req    request
+	}{
+		{
+			name:   "test1",
+			err:    "empty request",
+			events: 0,
+		},
+		{
+			name:   "test1",
+			events: 1,
+			req: request{
+				stateReq: &iotv1proto.SetStateRequest{
+					Name:  "zone1",
+					State: iotv1proto.ZoneState_ZONE_STATE_OFF,
+				},
+			},
+		},
+		{
+			name:   "test1",
+			events: 1,
+			req: request{
+				stateReq: &iotv1proto.SetStateRequest{
+					Name:  "zone1",
+					State: iotv1proto.ZoneState_ZONE_STATE_OFF,
+				},
+			},
+		},
+		{
+			name:   "test2",
+			events: 2,
+			req: request{
+				stateReq: &iotv1proto.SetStateRequest{
+					Name:  "zone2",
+					State: iotv1proto.ZoneState_ZONE_STATE_ON,
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s := newSchedule(testlogger)
+	require.NotNil(t, s)
+
+	go s.run(ctx, &mocks.ZoneKeeperClientMock{})
+
+	for _, tc := range cases {
+		next := time.Now().Add(1 * time.Second)
+
+		err := s.add(ctx, tc.name, next, tc.req)
+		if tc.err != "" {
+			require.Error(t, err)
+			require.EqualError(t, err, tc.err, "expected error for test case %s", tc.name)
+		} else {
+			require.NoError(t, err, "unexpected error for test case %s", tc.name)
+		}
+
+		require.Equal(t, tc.events, s.len(), "unexpected number of events for test case %s", tc.name)
+	}
+
+	time.Sleep(3 * time.Second)
+	require.Equal(t, 0, s.len(), "expected all vents to be processed")
+}
 
 func Test_matched(t *testing.T) {
 	cases := map[string]struct {

@@ -53,12 +53,7 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		zonekeeperClient: zoneKeeperClient,
 		kubeClient:       k,
 
-		sched: &schedule{
-			events: make(map[string]*event, 1000),
-			itemCh: make(chan item),
-			logger: logger.With("conditioner", "schedule"),
-			tracer: otel.Tracer(module + ".schedule"),
-		},
+		sched: newSchedule(logger),
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
@@ -91,7 +86,7 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 
 	for _, cond := range list.Items {
 		// NOTE: We're matching against the alert for location and zone, but below
-		// the remediation may action a different zone.
+		// the remediation may take action against a different zone.
 
 		labels := map[string]string{
 			iot.AlertNameLabel: req.Name,
@@ -185,10 +180,8 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 			start, stop, err := c.epochWindow(ctx, time.Unix(req.When, 0), rem.WhenGate)
 			if err != nil {
 				c.logger.Error("failed to calculate epoch window", "err", err)
+				errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
 
-				if err != nil {
-					errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
-				}
 				continue
 			}
 
@@ -277,27 +270,9 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 
 	var req request
 	for _, rem := range cond.Spec.Remediations {
-		req.sceneReq = nil
-		req.stateReq = nil
+		req = activateRequest(ctx, rem)
 
-		if rem.ActiveScene != "" {
-			req.sceneReq = &iotv1proto.SetSceneRequest{
-				Name:  rem.Zone,
-				Scene: rem.ActiveScene,
-			}
-		}
-
-		if rem.ActiveState != "" {
-			req.stateReq = &iotv1proto.SetStateRequest{
-				Name:  rem.Zone,
-				State: zoneState(rem.ActiveState),
-			}
-		}
-
-		if req.sceneReq != nil || req.stateReq != nil {
-			// BUG: the name here will conflict if we have multiple remediations.
-			c.sched.add(ctx, cond.Name, next, req)
-		}
+		c.sched.add(ctx, strings.Join([]string{cond.Name, "schedule", rem.Zone, "activate"}, "-"), next, req)
 	}
 }
 
@@ -489,76 +464,15 @@ func (c *Conditioner) stopping(_ error) error {
 	return nil
 }
 
-func handleStatusLabel(status string, rem apiv1.Remediation) (state string, scene string) {
-	switch status {
-	case alertStatusFiring:
-		if rem.ActiveState != "" {
-			state = rem.ActiveState
-		}
-
-		if rem.ActiveScene != "" {
-			scene = rem.ActiveScene
-		}
-	case alertStatusResolved:
-		if rem.InactiveState != "" {
-			state = rem.InactiveState
-		}
-
-		if rem.InactiveScene != "" {
-			scene = rem.InactiveScene
-		}
-	}
-
-	return
-}
-
 func activateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
-	var err error
-
-	req := activateRequest(ctx, rem)
-
-	if req.sceneReq != nil {
-		_, err = zonekeeperClient.SetScene(ctx, req.sceneReq)
-		if err != nil {
-			return fmt.Errorf("failed to deactivate zone %q scene: %w", rem.Zone, err)
-		}
-	}
-
-	if req.stateReq != nil {
-		_, err = zonekeeperClient.SetState(ctx, req.stateReq)
-		if err != nil {
-			return fmt.Errorf("failed to deactivate zone %q state: %w", rem.Zone, err)
-		}
-	}
-
-	return nil
+	return execRequest(ctx, activateRequest(ctx, rem), zonekeeperClient)
 }
-
-// func deactivateZone(zoneName string, scene string, state iotv1)
 
 func deactivateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
-	var err error
-
-	req := deactivateRequest(ctx, rem)
-
-	if req.sceneReq != nil {
-		_, err = zonekeeperClient.SetScene(ctx, req.sceneReq)
-		if err != nil {
-			return fmt.Errorf("failed to deactivate zone %q scene: %w", rem.Zone, err)
-		}
-	}
-
-	if req.stateReq != nil {
-		_, err = zonekeeperClient.SetState(ctx, req.stateReq)
-		if err != nil {
-			return fmt.Errorf("failed to deactivate zone %q state: %w", rem.Zone, err)
-		}
-	}
-
-	return nil
+	return execRequest(ctx, deactivateRequest(ctx, rem), zonekeeperClient)
 }
 
-func activateRequest(ctx context.Context, rem apiv1.Remediation) request {
+func activateRequest(_ context.Context, rem apiv1.Remediation) request {
 	var req request
 
 	if rem.ActiveScene != "" {
@@ -580,7 +494,7 @@ func activateRequest(ctx context.Context, rem apiv1.Remediation) request {
 	return req
 }
 
-func deactivateRequest(ctx context.Context, rem apiv1.Remediation) request {
+func deactivateRequest(_ context.Context, rem apiv1.Remediation) request {
 	var req request
 
 	if rem.InactiveScene != "" {
