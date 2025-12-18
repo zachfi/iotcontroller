@@ -19,7 +19,6 @@ import (
 	"github.com/zachfi/zkit/pkg/tracing"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
-	"github.com/zachfi/iotcontroller/pkg/delay"
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -43,7 +42,6 @@ type Conditioner struct {
 	kubeClient       kubeclient.Client
 
 	sched *schedule
-	d     *delay.Delay
 }
 
 func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeperServiceClient, k kubeclient.Client) (*Conditioner, error) {
@@ -61,8 +59,6 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 			logger: logger.With("conditioner", "schedule"),
 			tracer: otel.Tracer(module + ".schedule"),
 		},
-
-		d: delay.New(),
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
@@ -94,7 +90,6 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 	}
 
 	for _, cond := range list.Items {
-
 		// NOTE: We're matching against the alert for location and zone, but below
 		// the remediation may action a different zone.
 
@@ -221,15 +216,22 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 					),
 				)
 
-				locationNameConditionZone := strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone}, "-")
+				// If we have an Epoch event in the future schedule the activation and deactivation.
+				if now.Before(start) {
+					// Schedule the zone activation
+					activate := activateRequest(ctx, rem)
+					c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "activate"}, "-"), start, activate)
 
-				c.d.Set(ctx, locationNameConditionZone, start, func() {
+					// Schedule the zone deactivation
+					deactivate := deactivateRequest(ctx, rem)
+					c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
+				} else if now.After(stop) {
+					// If we are past the stop time, deactivate immediately.
 					err = deactivateRemediation(ctx, rem, c.zonekeeperClient)
 					if err != nil {
 						c.logger.Error("failed to run condition epoch", "err", err)
 					}
-				})
-
+				}
 			}
 		}
 
@@ -293,6 +295,7 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 		}
 
 		if req.sceneReq != nil || req.stateReq != nil {
+			// BUG: the name here will conflict if we have multiple remediations.
 			c.sched.add(ctx, cond.Name, next, req)
 		}
 	}
@@ -465,7 +468,7 @@ func (c *Conditioner) starting(ctx context.Context) error {
 	// which lists all conditions.  Currently a list of all conditions against
 	// the k8s api is made to retrieve the schedules for each condition and set
 	// them to fire accordingly.  Making this a watch would allow for immediate
-	// update to the schedule upon change, and reduce teh load onthe k8s API.
+	// update to the schedule upon change, and reduce the load on the k8s API.
 	// watchlist := cache.NewListWatchFromClient(
 	// 	c.kubeClientr
 	// 	apiv1.GroupVersion.WithResource("conditions").Resource,
@@ -512,25 +515,19 @@ func handleStatusLabel(status string, rem apiv1.Remediation) (state string, scen
 func activateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
 	var err error
 
-	if rem.ActiveScene != "" {
-		_, err = zonekeeperClient.SetScene(ctx, &iotv1proto.SetSceneRequest{
-			Name:  rem.Zone,
-			Scene: rem.ActiveScene,
-		})
+	req := activateRequest(ctx, rem)
+
+	if req.sceneReq != nil {
+		_, err = zonekeeperClient.SetScene(ctx, req.sceneReq)
 		if err != nil {
-			return fmt.Errorf("failed to activate zone %q scene: %w", rem.Zone, err)
+			return fmt.Errorf("failed to deactivate zone %q scene: %w", rem.Zone, err)
 		}
 	}
 
-	state := zoneState(rem.ActiveState)
-	// Set the state if we have one
-	if state > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
-		_, err = zonekeeperClient.SetState(ctx, &iotv1proto.SetStateRequest{
-			Name:  rem.Zone,
-			State: state,
-		})
+	if req.stateReq != nil {
+		_, err = zonekeeperClient.SetState(ctx, req.stateReq)
 		if err != nil {
-			return fmt.Errorf("failed to activate zone %q state: %w", rem.Zone, err)
+			return fmt.Errorf("failed to deactivate zone %q state: %w", rem.Zone, err)
 		}
 	}
 
@@ -542,29 +539,67 @@ func activateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperC
 func deactivateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
 	var err error
 
-	if rem.InactiveScene != "" {
-		_, err = zonekeeperClient.SetScene(ctx, &iotv1proto.SetSceneRequest{
-			Name:  rem.Zone,
-			Scene: rem.InactiveScene,
-		})
+	req := deactivateRequest(ctx, rem)
+
+	if req.sceneReq != nil {
+		_, err = zonekeeperClient.SetScene(ctx, req.sceneReq)
 		if err != nil {
 			return fmt.Errorf("failed to deactivate zone %q scene: %w", rem.Zone, err)
 		}
 	}
 
-	state := zoneState(rem.InactiveState)
-	// Set the state if we have one
-	if state > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
-		_, err = zonekeeperClient.SetState(ctx, &iotv1proto.SetStateRequest{
-			Name:  rem.Zone,
-			State: state,
-		})
+	if req.stateReq != nil {
+		_, err = zonekeeperClient.SetState(ctx, req.stateReq)
 		if err != nil {
 			return fmt.Errorf("failed to deactivate zone %q state: %w", rem.Zone, err)
 		}
 	}
 
 	return nil
+}
+
+func activateRequest(ctx context.Context, rem apiv1.Remediation) request {
+	var req request
+
+	if rem.ActiveScene != "" {
+		req.sceneReq = &iotv1proto.SetSceneRequest{
+			Name:  rem.Zone,
+			Scene: rem.ActiveScene,
+		}
+	}
+
+	state := zoneState(rem.ActiveState)
+	// Set the state if we have one
+	if state > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		req.stateReq = &iotv1proto.SetStateRequest{
+			Name:  rem.Zone,
+			State: state,
+		}
+	}
+
+	return req
+}
+
+func deactivateRequest(ctx context.Context, rem apiv1.Remediation) request {
+	var req request
+
+	if rem.InactiveScene != "" {
+		req.sceneReq = &iotv1proto.SetSceneRequest{
+			Name:  rem.Zone,
+			Scene: rem.InactiveScene,
+		}
+	}
+
+	state := zoneState(rem.InactiveState)
+	// Set the state if we have one
+	if state > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		req.stateReq = &iotv1proto.SetStateRequest{
+			Name:  rem.Zone,
+			State: state,
+		}
+	}
+
+	return req
 }
 
 // Using the known short-hand strings for zone states, return the appropriate
