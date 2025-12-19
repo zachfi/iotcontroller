@@ -106,14 +106,14 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 				case alertStatusFiring:
 					active = true
 				case alertStatusResolved:
-					active = false
+					// active = false
+				default:
+					continue
 				}
 
 				// Override based on the window.
 				if c.withinActiveWindow(ctx, rem, time.Now()) {
 					active = true
-				} else {
-					active = false
 				}
 			}
 
@@ -214,11 +214,19 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 				if now.Before(start) {
 					// Schedule the zone activation
 					activate := activateRequest(ctx, rem)
-					c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "activate"}, "-"), start, activate)
+					err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "activate"}, "-"), start, activate)
+					if err != nil {
+						c.logger.Error("failed to schedule activation", "err", err)
+						errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+					}
 
 					// Schedule the zone deactivation
 					deactivate := deactivateRequest(ctx, rem)
-					c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
+					err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
+					if err != nil {
+						c.logger.Error("failed to schedule deactivation", "err", err)
+						errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+					}
 				} else if now.After(stop) {
 					// If we are past the stop time, deactivate immediately.
 					err = deactivateRemediation(ctx, rem, c.zonekeeperClient)
@@ -278,7 +286,11 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 	for _, rem := range cond.Spec.Remediations {
 		req = activateRequest(ctx, rem)
 
-		c.sched.add(ctx, strings.Join([]string{cond.Name, "schedule", rem.Zone, "activate"}, "-"), next, req)
+		err = c.sched.add(ctx, strings.Join([]string{cond.Name, "schedule", rem.Zone, "activate"}, "-"), next, req)
+		if err != nil {
+			span.AddEvent("failed to set schedule", trace.WithAttributes(attribute.String("err", err.Error())))
+			c.logger.Error("failed to set schedule", "err", err)
+		}
 	}
 }
 
