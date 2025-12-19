@@ -16,6 +16,7 @@ import (
 	"github.com/grafana/dskit/services"
 	"github.com/grafana/dskit/signals"
 	"github.com/pkg/errors"
+	"gopkg.in/yaml.v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -191,13 +192,18 @@ func (a *App) statusHandler() http.HandlerFunc {
 			"version":     a.writeStatusVersion,
 			"endpoints":   a.writeStatusEndpoints,
 			"services":    a.writeStatusServices,
-			"conditioner": a.writeStatusConditioner,
 			"mqttclient":  a.writeStatusMqttClient,
+			"conditioner": a.writeStatusConditioner,
 		}
 
 		wrapStatus := func(endpoint string) {
 			msg.WriteString("GET /status/" + endpoint + "\n")
 			switch endpoint {
+			case "config":
+				err := a.writeStatusConfig(&msg, r)
+				if err != nil {
+					errs = append(errs, err)
+				}
 			default:
 				err := simpleEndpoints[endpoint](&msg)
 				if err != nil {
@@ -210,11 +216,19 @@ func (a *App) statusHandler() http.HandlerFunc {
 		if endpoint, ok := vars["endpoint"]; ok {
 			wrapStatus(endpoint)
 		} else {
-			wrapStatus("version")
-			wrapStatus("services")
-			wrapStatus("endpoints")
-			wrapStatus("conditioner")
-			wrapStatus("mqttclient")
+			sortedEndpoints := []string{"version", "endpoints", "services", "config"}
+
+			if a.mqttclient != nil {
+				sortedEndpoints = append(sortedEndpoints, "mqttclient")
+			}
+
+			if a.conditioner != nil {
+				sortedEndpoints = append(sortedEndpoints, "conditioner")
+			}
+
+			for e := range sortedEndpoints {
+				wrapStatus(sortedEndpoints[e])
+			}
 		}
 
 		w.Header().Set("Content-Type", "text/plain")
@@ -348,6 +362,54 @@ func (a *App) writeStatusMqttClient(w io.Writer) error {
 
 	x.AppendSeparator()
 	x.Render()
+
+	return nil
+}
+
+func (a *App) writeStatusConfig(w io.Writer, r *http.Request) error {
+	var output any
+
+	mode := r.URL.Query().Get("mode")
+	switch mode {
+	case "diff":
+		defaultCfg := NewDefaultConfig()
+
+		defaultCfgYaml, err := yamlMarshalUnmarshal(defaultCfg)
+		if err != nil {
+			return err
+		}
+
+		cfgYaml, err := yamlMarshalUnmarshal(a.cfg)
+		if err != nil {
+			return err
+		}
+
+		output, err = diffConfig(defaultCfgYaml, cfgYaml)
+		if err != nil {
+			return err
+		}
+	case "defaults":
+		output = NewDefaultConfig()
+	case "":
+		output = a.cfg
+	default:
+		return fmt.Errorf("unknown value for mode query parameter: %v", mode)
+	}
+
+	out, err := yaml.Marshal(output)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write([]byte("---\n"))
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(out)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

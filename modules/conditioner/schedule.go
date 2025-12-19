@@ -2,9 +2,9 @@ package conditioner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -36,6 +36,7 @@ type event struct {
 type item struct {
 	ctx context.Context
 	*request
+	name string
 }
 
 type request struct {
@@ -60,13 +61,15 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req *reque
 		return ctx.Err()
 	}
 
-	ctx, span := s.tracer.Start(ctx, "schedule.add")
+	ctx, span := s.tracer.Start(ctx, "schedule.add", trace.WithAttributes(
+		attribute.String("name", name),
+		attribute.String("time", t.Format(time.RFC3339)),
+	))
 	defer tracing.ErrHandler(span, err, "add failed", s.logger)
 
 	if req == nil || (req.sceneReq == nil && req.stateReq == nil) {
-		span.AddEvent("empty request")
-		err = errors.New("empty request")
-		return err
+		span.AddEvent(ErrEmptyRequest.Error())
+		return ErrEmptyRequest
 	}
 
 	s.Lock()
@@ -80,61 +83,68 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req *reque
 
 		v.cancel()
 		delete(s.events, name)
+		span.AddEvent("removed existing event")
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	// NOTE: use a background context for the job itself, and only rely on the cancle() method to stop it.
+	jobCtx, cancel := context.WithCancel(context.Background())
 	s.events[name] = &event{
 		cancel: cancel,
 		t:      t,
 		req:    req,
 	}
 
-	go func(ctx context.Context, req *request) {
+	go func(jobCtx, reqCtx context.Context, req *request) {
 		timer := time.NewTimer(time.Until(t))
 		defer timer.Stop()
 
+		spanCtx, span := s.tracer.Start(jobCtx, "schedule.event.execute", trace.WithAttributes(
+			attribute.String("name", name),
+		))
+		defer span.End()
+		span.AddLink(trace.LinkFromContext(reqCtx))
+
 		if req == nil {
+			span.AddEvent("nil request")
 			return
 		}
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-jobCtx.Done():
+				span.AddEvent("canceled")
 				return
 			case <-timer.C:
-				spanCtx, span := s.tracer.Start(context.Background(), "schedule.add.wait")
-				defer span.End()
-
-				span.AddLink(trace.LinkFromContext(ctx))
-
+				span.AddEvent("tick")
 				s.itemCh <- item{
+					// Name is used to identify the event and clean up after the request is executed.
+					name:    name,
 					ctx:     spanCtx,
 					request: req,
 				}
-				// Remove the event after execution
-				s.remove(ctx, name)
 				return
-
 			}
 		}
-	}(ctx, req)
+	}(jobCtx, ctx, req)
 
 	return nil
 }
 
 // Remove cancels and removes a scheduled event by name.
 func (s *schedule) remove(ctx context.Context, name string) {
-	_, span := s.tracer.Start(ctx, "schedule.remove", trace.WithAttributes(
-		attribute.String("name", name),
-	))
-	defer span.End()
-
 	s.Lock()
 	defer s.Unlock()
 
 	if _, ok := s.events[name]; ok {
 		s.events[name].cancel()
 		delete(s.events, name)
+
+		_, span := s.tracer.Start(ctx, "schedule.remove", trace.WithAttributes(
+			attribute.String("name", name),
+		))
+		defer span.End()
+
+		span.AddEvent(fmt.Sprintf("removed event %q", name))
 	}
 }
 
@@ -165,19 +175,36 @@ func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceC
 	for {
 		select {
 		case <-ctx.Done():
+			s.logger.Info("stopping schedule runner")
+			s.stop()
 			return
 		case i = <-s.itemCh:
 			s.logger.Info("executing scheduled request")
-			err := execRequest(i.ctx, i.request, client)
+			err := s.execRequest(i.ctx, i.request, client)
 			if err != nil {
 				s.logger.Error("failed to run request", "err", err)
 			}
+
+			s.remove(i.ctx, i.name)
 		}
 	}
 }
 
-func execRequest(ctx context.Context, req *request, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
+func (s *schedule) stop() {
+	s.Lock()
+	defer s.Unlock()
+
+	for n, e := range s.events {
+		e.cancel()
+		delete(s.events, n)
+	}
+}
+
+func (s *schedule) execRequest(ctx context.Context, req *request, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
 	var err error
+
+	ctx, span := s.tracer.Start(ctx, "schedule.execRequest")
+	defer tracing.ErrHandler(span, err, "execRequest failed", s.logger)
 
 	if req == nil {
 		return nil
@@ -229,6 +256,10 @@ func (s *schedule) Status() []scheduleStatus {
 
 		states = append(states, ss)
 	}
+
+	sort.Slice(states, func(i, j int) bool {
+		return states[i].Next < states[j].Next
+	})
 
 	return states
 }

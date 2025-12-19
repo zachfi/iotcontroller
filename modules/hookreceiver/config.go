@@ -12,5 +12,5 @@ type Config struct {
 }
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
-	cfg.EventReceiverClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "router-client"), f)
+	cfg.EventReceiverClient.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "event-receiver-client"), f)
 }

@@ -119,9 +119,9 @@ func NewMQTTClient(cfg MQTTConfig, logger *slog.Logger) (mqtt.Client, context.Co
 
 	mqttOpts.SetWriteTimeout(5 * time.Second)
 
-	if cfg.Username != "" && cfg.Password != "" {
-		mqttOpts.SetUsername(cfg.Username)
-		mqttOpts.SetPassword(cfg.Password)
+	if cfg.Username.String() != "" && cfg.Password.String() != "" {
+		mqttOpts.SetUsername(cfg.Username.String())
+		mqttOpts.SetPassword(cfg.Password.String())
 	}
 
 	mqttClient = mqtt.NewClient(mqttOpts)

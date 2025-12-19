@@ -118,12 +118,12 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 			}
 
 			if active {
-				err = activateRemediation(ctx, rem, c.zonekeeperClient)
+				err = c.sched.activateRemediation(ctx, rem, c.zonekeeperClient)
 				if err != nil {
 					c.logger.Error("failed to activate condition alert", "err", err)
 				}
 			} else {
-				err = deactivateRemediation(ctx, rem, c.zonekeeperClient)
+				err = c.sched.deactivateRemediation(ctx, rem, c.zonekeeperClient)
 				if err != nil {
 					c.logger.Error("failed to deactivate condition alert", "err", err)
 				}
@@ -199,7 +199,7 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 					),
 				)
 
-				err = activateRemediation(ctx, rem, c.zonekeeperClient)
+				err = c.sched.activateRemediation(ctx, rem, c.zonekeeperClient)
 				if err != nil {
 					c.logger.Error("failed to run condition epoch", "err", err)
 				}
@@ -218,7 +218,7 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 					// Schedule the zone activation
 					if activate := activateRequest(ctx, rem); activate != nil {
 						err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "activate"}, "-"), start, activate)
-						if err != nil {
+						if err != nil && !errors.Is(err, ErrEmptyRequest) {
 							c.logger.Error("failed to schedule activation", "err", err)
 							errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
 						}
@@ -227,14 +227,14 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 					// Schedule the zone deactivation
 					if deactivate := deactivateRequest(ctx, rem); deactivate == nil {
 						err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
-						if err != nil {
+						if err != nil && !errors.Is(err, ErrEmptyRequest) {
 							c.logger.Error("failed to schedule deactivation", "err", err)
 							errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
 						}
 					}
 				} else if now.After(stop) {
 					// If we are past the stop time, deactivate immediately.
-					err = deactivateRemediation(ctx, rem, c.zonekeeperClient)
+					err = c.sched.deactivateRemediation(ctx, rem, c.zonekeeperClient)
 					if err != nil {
 						c.logger.Error("failed to run condition epoch", "err", err)
 					}
@@ -258,7 +258,7 @@ func (c *Conditioner) Status() []scheduleStatus {
 func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 	var err error
 
-	ctx, span := c.tracer.Start(ctx, "Conditioner.setSchedule") // trace.WithAttributes(attributes...),
+	ctx, span := c.tracer.Start(ctx, "Conditioner.setSchedule", trace.WithAttributes(attribute.String("name", cond.Name)))
 	defer tracing.ErrHandler(span, err, "set schedule failed", c.logger)
 
 	if !cond.Spec.Enabled {
@@ -292,7 +292,7 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 		req = activateRequest(ctx, rem)
 
 		err = c.sched.add(ctx, strings.Join([]string{cond.Name, "schedule", rem.Zone, "activate"}, "-"), next, req)
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrEmptyRequest) {
 			span.AddEvent("failed to set schedule", trace.WithAttributes(attribute.String("err", err.Error())))
 			c.logger.Error("failed to set schedule", "err", err)
 		}
@@ -409,7 +409,7 @@ func (c *Conditioner) withinActiveWindow(ctx context.Context, rem apiv1.Remediat
 	for _, ti := range rem.TimeIntervals {
 		tip, err := ti.AsPrometheus()
 		if err != nil {
-			c.logger.Error("invalid time interval configuration", "err", err)
+			c.logger.Error("invalid time interval configuration", "err", err, "interval", fmt.Sprintf("%+v", ti))
 			continue
 		}
 
@@ -457,7 +457,11 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 		names[cond.Name] = struct{}{}
 	}
 
-	c.sched.removeExtraneous(names)
+	// FIXME: this used to work because there was a 1:1 relationship between the
+	// condition in the k8s API and the event.  Now that we are scheduling epoch
+	// events, we don't want to clean those up before they have fired.  Do we
+	// need this removal if they clean themselves up after execution?
+	// c.sched.removeExtraneous(names)
 }
 
 func (c *Conditioner) starting(ctx context.Context) error {
@@ -488,12 +492,12 @@ func (c *Conditioner) stopping(_ error) error {
 	return nil
 }
 
-func activateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
-	return execRequest(ctx, activateRequest(ctx, rem), zonekeeperClient)
+func (s *schedule) activateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
+	return s.execRequest(ctx, activateRequest(ctx, rem), zonekeeperClient)
 }
 
-func deactivateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
-	return execRequest(ctx, deactivateRequest(ctx, rem), zonekeeperClient)
+func (s *schedule) deactivateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
+	return s.execRequest(ctx, deactivateRequest(ctx, rem), zonekeeperClient)
 }
 
 func activateRequest(_ context.Context, rem apiv1.Remediation) *request {

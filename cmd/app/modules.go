@@ -83,7 +83,7 @@ func (a *App) setupModuleManager() error {
 		Harvester:    {Server, MQTTClient},
 		HookReceiver: {Server},
 		Router:       {Server, KubeClient},
-		Weather:      {Server, Conditioner},
+		Weather:      {Server},
 		ZoneKeeper:   {Server, MQTTClient, KubeClient},
 
 		// Timer:      {Server},
@@ -144,7 +144,7 @@ func (a *App) initWeather() (services.Service, error) {
 		return services.NewIdleService(nil, nil), nil
 	}
 
-	c, err := common.NewClientConn(a.cfg.HookReceiver.EventReceiverClient)
+	c, err := common.NewClientConn(a.cfg.Weather.EventReceiverClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new client connection; %w", err)
 	}

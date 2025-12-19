@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/grafana/dskit/flagext"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,8 +22,8 @@ func _TestUpdateMessageFixtures(t *testing.T) {
 	cfg := MQTTConfig{
 		URL:      "tcp://localhost:1883",
 		Topic:    "#",
-		Username: "iot",
-		Password: "xxx",
+		Username: flagext.SecretWithValue("iot"),
+		Password: flagext.SecretWithValue("xxx"),
 	}
 
 	ctx := context.Background()
