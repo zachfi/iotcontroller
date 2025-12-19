@@ -372,3 +372,123 @@ func Test_timeContains(t *testing.T) {
 		})
 	}
 }
+
+var testTargetZone = "test-target"
+
+func Test_request(t *testing.T) {
+	cases := []struct {
+		name               string
+		rem                apiv1.Remediation
+		activateNil        bool
+		activateSceneReq   *iotv1proto.SetSceneRequest
+		activateStateReq   *iotv1proto.SetStateRequest
+		deactivateNil      bool
+		deactivateSceneReq *iotv1proto.SetSceneRequest
+		deactivateStateReq *iotv1proto.SetStateRequest
+	}{
+		{
+			name:          "empty remediation",
+			rem:           apiv1.Remediation{},
+			activateNil:   true,
+			deactivateNil: true,
+		},
+		{
+			name: "activate scene only",
+			rem: apiv1.Remediation{
+				Zone:        testTargetZone,
+				ActiveScene: "scene1",
+			},
+			activateSceneReq: &iotv1proto.SetSceneRequest{
+				Name:  testTargetZone,
+				Scene: "scene1",
+			},
+			deactivateNil: true,
+		},
+		{
+			name: "activate state only",
+			rem: apiv1.Remediation{
+				Zone:        testTargetZone,
+				ActiveState: "on",
+			},
+			activateStateReq: &iotv1proto.SetStateRequest{
+				Name:  testTargetZone,
+				State: iotv1proto.ZoneState_ZONE_STATE_ON,
+			},
+			deactivateNil: true,
+		},
+		{
+			name: "deactivate scene only",
+			rem: apiv1.Remediation{
+				Zone:          testTargetZone,
+				InactiveScene: "scene1",
+			},
+			deactivateSceneReq: &iotv1proto.SetSceneRequest{
+				Name:  testTargetZone,
+				Scene: "scene1",
+			},
+			activateNil: true,
+		},
+		{
+			name: "deactivate state only",
+			rem: apiv1.Remediation{
+				Zone:          testTargetZone,
+				InactiveState: "off",
+			},
+			deactivateStateReq: &iotv1proto.SetStateRequest{
+				Name:  testTargetZone,
+				State: iotv1proto.ZoneState_ZONE_STATE_OFF,
+			},
+			activateNil: true,
+		},
+		{
+			name: "test long name scene and state",
+			rem: apiv1.Remediation{
+				Zone:          testTargetZone,
+				ActiveScene:   "long-scene-name-1234567890",
+				ActiveState:   "ZONE_STATE_ON",
+				InactiveScene: "long-scene-name-0987654321",
+				InactiveState: "ZONE_STATE_OFF",
+			},
+			activateSceneReq: &iotv1proto.SetSceneRequest{
+				Name:  testTargetZone,
+				Scene: "long-scene-name-1234567890",
+			},
+			activateStateReq: &iotv1proto.SetStateRequest{
+				Name:  testTargetZone,
+				State: iotv1proto.ZoneState_ZONE_STATE_ON,
+			},
+			deactivateSceneReq: &iotv1proto.SetSceneRequest{
+				Name:  testTargetZone,
+				Scene: "long-scene-name-0987654321",
+			},
+			deactivateStateReq: &iotv1proto.SetStateRequest{
+				Name:  testTargetZone,
+				State: iotv1proto.ZoneState_ZONE_STATE_OFF,
+			},
+		},
+	}
+
+	ctx := context.Background()
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := activateRequest(ctx, tc.rem)
+			if tc.activateNil {
+				require.Nil(t, req)
+			} else {
+				require.NotNil(t, req)
+				require.Equal(t, tc.activateSceneReq, req.sceneReq)
+				require.Equal(t, tc.activateStateReq, req.stateReq)
+			}
+
+			req = deactivateRequest(ctx, tc.rem)
+			if tc.deactivateNil {
+				require.Nil(t, req)
+			} else {
+				require.NotNil(t, req)
+				require.Equal(t, tc.deactivateSceneReq, req.sceneReq)
+				require.Equal(t, tc.deactivateStateReq, req.stateReq)
+			}
+		})
+	}
+}

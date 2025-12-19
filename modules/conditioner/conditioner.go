@@ -146,6 +146,8 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 
 	attributes := []attribute.KeyValue{
 		attribute.String("name", req.Name),
+		attribute.String("location", req.Location),
+		attribute.String("when", time.Unix(req.When, 0).Format(time.RFC3339)),
 	}
 
 	ctx, span := c.tracer.Start(ctx, "Conditioner.Epoch",
@@ -175,6 +177,7 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 		if ok := c.matchCondition(ctx, labels, cond); !ok {
 			continue
 		}
+		span.AddEvent("matched condition", trace.WithAttributes(attribute.String("condition", cond.Name)))
 
 		// Handle the remdiations for this condition
 		for _, rem := range cond.Spec.Remediations {
@@ -213,19 +216,21 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 				// If we have an Epoch event in the future schedule the activation and deactivation.
 				if now.Before(start) {
 					// Schedule the zone activation
-					activate := activateRequest(ctx, rem)
-					err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "activate"}, "-"), start, activate)
-					if err != nil {
-						c.logger.Error("failed to schedule activation", "err", err)
-						errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+					if activate := activateRequest(ctx, rem); activate != nil {
+						err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "activate"}, "-"), start, activate)
+						if err != nil {
+							c.logger.Error("failed to schedule activation", "err", err)
+							errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+						}
 					}
 
 					// Schedule the zone deactivation
-					deactivate := deactivateRequest(ctx, rem)
-					err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
-					if err != nil {
-						c.logger.Error("failed to schedule deactivation", "err", err)
-						errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+					if deactivate := deactivateRequest(ctx, rem); deactivate == nil {
+						err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
+						if err != nil {
+							c.logger.Error("failed to schedule deactivation", "err", err)
+							errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+						}
 					}
 				} else if now.After(stop) {
 					// If we are past the stop time, deactivate immediately.
@@ -282,7 +287,7 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 
 	// The schedule is on the condition, so we execute each remediation at the next cron event.
 
-	var req request
+	var req *request
 	for _, rem := range cond.Spec.Remediations {
 		req = activateRequest(ctx, rem)
 
@@ -491,8 +496,8 @@ func deactivateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeepe
 	return execRequest(ctx, deactivateRequest(ctx, rem), zonekeeperClient)
 }
 
-func activateRequest(_ context.Context, rem apiv1.Remediation) request {
-	var req request
+func activateRequest(_ context.Context, rem apiv1.Remediation) *request {
+	req := &request{}
 
 	if rem.ActiveScene != "" {
 		req.sceneReq = &iotv1proto.SetSceneRequest{
@@ -510,11 +515,15 @@ func activateRequest(_ context.Context, rem apiv1.Remediation) request {
 		}
 	}
 
-	return req
+	if req.stateReq != nil || req.sceneReq != nil {
+		return req
+	}
+
+	return nil
 }
 
-func deactivateRequest(_ context.Context, rem apiv1.Remediation) request {
-	var req request
+func deactivateRequest(_ context.Context, rem apiv1.Remediation) *request {
+	req := &request{}
 
 	if rem.InactiveScene != "" {
 		req.sceneReq = &iotv1proto.SetSceneRequest{
@@ -532,32 +541,30 @@ func deactivateRequest(_ context.Context, rem apiv1.Remediation) request {
 		}
 	}
 
-	return req
+	if req.stateReq != nil || req.sceneReq != nil {
+		return req
+	}
+
+	return nil
+}
+
+var shortHandStates = map[string]iotv1proto.ZoneState{
+	"on":          iotv1proto.ZoneState_ZONE_STATE_ON,
+	"off":         iotv1proto.ZoneState_ZONE_STATE_OFF,
+	"offtimer":    iotv1proto.ZoneState_ZONE_STATE_OFFTIMER,
+	"color":       iotv1proto.ZoneState_ZONE_STATE_COLOR,
+	"randomcolor": iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
 }
 
 // Using the known short-hand strings for zone states, return the appropriate
 // enum value, or the string representing the enum.  A return of
 // ZONE_STATE_UNSPECIFIED indicates no match.
 func zoneState(state string) iotv1proto.ZoneState {
-	zoneState := iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
-
-	switch state {
-	case "on":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_ON
-	case "off":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_OFF
-	case "offtimer":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_OFFTIMER
-	case "color":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_COLOR
-	case "randomcolor":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR
-	default:
-		// Allow for the direct name lookup, rather than the short-hand strings above
-		if s, ok := iotv1proto.ZoneState_value[state]; ok {
-			zoneState = iotv1proto.ZoneState(s)
-		}
+	if s, ok := shortHandStates[state]; ok {
+		return s
+	} else if s, ok := iotv1proto.ZoneState_value[state]; ok {
+		return iotv1proto.ZoneState(s)
 	}
 
-	return zoneState
+	return iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
 }

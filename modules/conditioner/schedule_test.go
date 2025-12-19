@@ -19,7 +19,7 @@ func Test_schedule(t *testing.T) {
 		name   string
 		events int
 		err    string
-		req    request
+		req    *request
 	}{
 		{
 			name:   "test1",
@@ -29,7 +29,7 @@ func Test_schedule(t *testing.T) {
 		{
 			name:   "test1",
 			events: 1,
-			req: request{
+			req: &request{
 				stateReq: &iotv1proto.SetStateRequest{
 					Name:  "zone1",
 					State: iotv1proto.ZoneState_ZONE_STATE_OFF,
@@ -39,7 +39,7 @@ func Test_schedule(t *testing.T) {
 		{
 			name:   "test1",
 			events: 1,
-			req: request{
+			req: &request{
 				stateReq: &iotv1proto.SetStateRequest{
 					Name:  "zone1",
 					State: iotv1proto.ZoneState_ZONE_STATE_OFF,
@@ -49,7 +49,7 @@ func Test_schedule(t *testing.T) {
 		{
 			name:   "test2",
 			events: 2,
-			req: request{
+			req: &request{
 				stateReq: &iotv1proto.SetStateRequest{
 					Name:  "zone2",
 					State: iotv1proto.ZoneState_ZONE_STATE_ON,
@@ -67,17 +67,19 @@ func Test_schedule(t *testing.T) {
 	go s.run(ctx, &mocks.ZoneKeeperClientMock{})
 
 	for _, tc := range cases {
-		next := time.Now().Add(1 * time.Second)
+		t.Run(tc.name, func(t *testing.T) {
+			next := time.Now().Add(1 * time.Second)
 
-		err := s.add(ctx, tc.name, next, tc.req)
-		if tc.err != "" {
-			require.Error(t, err)
-			require.EqualError(t, err, tc.err, "expected error for test case %s", tc.name)
-		} else {
-			require.NoError(t, err, "unexpected error for test case %s", tc.name)
-		}
+			err := s.add(ctx, tc.name, next, tc.req)
+			if tc.err != "" {
+				require.Error(t, err)
+				require.EqualError(t, err, tc.err, "expected error for test case %s", tc.name)
+			} else {
+				require.NoError(t, err, "unexpected error for test case %s", tc.name)
+			}
 
-		require.Equal(t, tc.events, s.len(), "unexpected number of events for test case %s", tc.name)
+			require.Equal(t, tc.events, s.len(), "unexpected number of events for test case %s", tc.name)
+		})
 	}
 
 	time.Sleep(3 * time.Second)
@@ -86,21 +88,25 @@ func Test_schedule(t *testing.T) {
 
 func Test_matched(t *testing.T) {
 	cases := map[string]struct {
-		a      request
-		b      request
+		a      *request
+		b      *request
 		expect bool
 	}{
 		"default": {
 			expect: true,
 		},
+		"only one non-nil": {
+			expect: false,
+			a:      &request{},
+		},
 		"simple scene match": {
-			a: request{
+			a: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "porch",
 				},
 			},
-			b: request{
+			b: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "porch",
@@ -109,13 +115,13 @@ func Test_matched(t *testing.T) {
 			expect: true,
 		},
 		"simple scene not match": {
-			a: request{
+			a: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "porch",
 				},
 			},
-			b: request{
+			b: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "office",
@@ -124,18 +130,18 @@ func Test_matched(t *testing.T) {
 			expect: false,
 		},
 		"simple scene not match empty": {
-			a: request{
+			a: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "office",
 				},
 			},
-			b:      request{},
+			b:      &request{},
 			expect: false,
 		},
 		"simple scene not match empty alt": {
-			a: request{},
-			b: request{
+			a: &request{},
+			b: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "office",
@@ -145,13 +151,13 @@ func Test_matched(t *testing.T) {
 		},
 		// mismatched zone
 		"simple state not match": {
-			a: request{
+			a: &request{
 				stateReq: &iotv1proto.SetStateRequest{
 					State: iotv1proto.ZoneState_ZONE_STATE_COLOR,
 					Name:  "porch",
 				},
 			},
-			b: request{
+			b: &request{
 				stateReq: &iotv1proto.SetStateRequest{
 					State: iotv1proto.ZoneState_ZONE_STATE_COLOR,
 					Name:  "office",
@@ -160,19 +166,19 @@ func Test_matched(t *testing.T) {
 			expect: false,
 		},
 		"simple state not match empty": {
-			a: request{
+			a: &request{
 				stateReq: &iotv1proto.SetStateRequest{
 					State: iotv1proto.ZoneState_ZONE_STATE_COLOR,
 					Name:  "porch",
 				},
 			},
-			b:      request{},
+			b:      &request{},
 			expect: false,
 		},
 		// empty a
 		"simple state not match empty alt": {
-			a: request{},
-			b: request{
+			a: &request{},
+			b: &request{
 				stateReq: &iotv1proto.SetStateRequest{
 					State: iotv1proto.ZoneState_ZONE_STATE_COLOR,
 					Name:  "porch",
@@ -181,7 +187,7 @@ func Test_matched(t *testing.T) {
 			expect: false,
 		},
 		"large match": {
-			a: request{
+			a: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "porch",
@@ -191,7 +197,7 @@ func Test_matched(t *testing.T) {
 					Name:  "porch",
 				},
 			},
-			b: request{
+			b: &request{
 				sceneReq: &iotv1proto.SetSceneRequest{
 					Scene: "dawn",
 					Name:  "porch",

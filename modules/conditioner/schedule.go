@@ -29,13 +29,13 @@ type schedule struct {
 type event struct {
 	cancel context.CancelFunc
 	t      time.Time
-	req    request
+	req    *request
 }
 
 // item is passed through the itemCh.  Wrap the request with the context to propagate the span context.
 type item struct {
 	ctx context.Context
-	request
+	*request
 }
 
 type request struct {
@@ -53,7 +53,7 @@ func newSchedule(logger *slog.Logger) *schedule {
 }
 
 // add schedules a new event or updates an existing event by name.
-func (s *schedule) add(ctx context.Context, name string, t time.Time, req request) error {
+func (s *schedule) add(ctx context.Context, name string, t time.Time, req *request) error {
 	var err error
 
 	if ctx.Err() != nil {
@@ -63,9 +63,9 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 	ctx, span := s.tracer.Start(ctx, "schedule.add")
 	defer tracing.ErrHandler(span, err, "add failed", s.logger)
 
-	if req.sceneReq == nil && req.stateReq == nil {
+	if req == nil || (req.sceneReq == nil && req.stateReq == nil) {
+		span.AddEvent("empty request")
 		err = errors.New("empty request")
-		s.logger.Error(err.Error())
 		return err
 	}
 
@@ -89,9 +89,13 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 		req:    req,
 	}
 
-	go func(ctx context.Context, req request) {
+	go func(ctx context.Context, req *request) {
 		timer := time.NewTimer(time.Until(t))
 		defer timer.Stop()
+
+		if req == nil {
+			return
+		}
 
 		for {
 			select {
@@ -172,8 +176,12 @@ func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceC
 	}
 }
 
-func execRequest(ctx context.Context, req request, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
+func execRequest(ctx context.Context, req *request, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
 	var err error
+
+	if req == nil {
+		return nil
+	}
 
 	if req.sceneReq != nil {
 		_, err = zonekeeperClient.SetScene(ctx, req.sceneReq)
@@ -231,7 +239,15 @@ func (s *schedule) len() int {
 	return len(s.events)
 }
 
-func matched(a, b request) bool {
+func matched(a, b *request) bool {
+	if a == nil && b == nil {
+		return true
+	}
+
+	if a == nil || b == nil {
+		return false
+	}
+
 	if a.sceneReq != nil && b.sceneReq == nil {
 		return false
 	}
