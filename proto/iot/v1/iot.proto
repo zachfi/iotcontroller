@@ -23,12 +23,6 @@ service IOTService {
   rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse);
 }
 
-// message EventRequest {
-//   string name = 1;
-//   map<string, string> labels = 2;
-// }
-// message EventResponse {}
-
 message AlertRequest {
   string name = 1;
   string status = 2;
@@ -45,7 +39,6 @@ message EpochResponse {}
 
 
 service EventReceiverService {
-  // rpc Event(EventRequest) returns (EventResponse);
   rpc Alert(AlertRequest) returns (AlertResponse);
   rpc Epoch(EpochRequest) returns (EpochResponse);
 }
@@ -137,6 +130,13 @@ message Device {
   string name = 1;
   DeviceType type = 2;
 }
+
+// TODO: consider this approach.  A device likely shouldn't have a type at all,
+// since devices "expose" certain functionality, which can mix between clean
+// lines of a device type.  A motion sensor might also expose temperature.  It
+// would be a considerable refactor, but likely worth it.  If we receive an
+// "action", we could select the devices to inform based on their exposures,
+// rather than their type.
 
 enum DeviceType {
   DEVICE_TYPE_UNSPECIFIED = 0;
