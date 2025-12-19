@@ -56,22 +56,25 @@ type ConditionList struct {
 }
 
 type Remediation struct {
-	Zone          string `json:"zone,omitempty"`
+	Zone string `json:"zone,omitempty"`
+
+	// Activate and deacvate the zones to these states/scenes.
+
 	ActiveState   string `json:"active_state,omitempty"`
 	InactiveState string `json:"inactive_state,omitempty"`
 
 	ActiveScene   string `json:"active_scene,omitempty"`
 	InactiveScene string `json:"inactive_scene,omitempty"`
 
-	// WhenGate is used to create a window for the epoch around which this
-	// Remediation is applicable.  When is relative to the "when" label.
-	// i.e. If the epoch in the label is at 10am, and the when.start is -30, then
-	// the event will fire 30 minutes before, at 9:30am.
+	// WhenGate is relative to the Epoch event, and use used to create an
+	// activation window.  When the window opens, the zone is activated, and when
+	// the window window closes, the zone is deactivated.
 	WhenGate When `json:"when_gate,omitempty"`
 
 	// TimeIntervals define the windows during which this remediation is
-	// applicable.  If the conditioner receives an event outside of this range,
-	// the zone will be set to the inactive state, if defined in the condition spec.
+	// applicable for Alerts.  If the conditioner receives an event outside of
+	// this range, the zone will be set to the inactive state, if defined in the
+	// condition spec.
 	TimeIntervals []TimeIntervalSpec `json:"time_intervals,omitempty"`
 }
 

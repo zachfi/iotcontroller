@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 
 	"github.com/grafana/dskit/services"
@@ -96,13 +95,10 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 
 	for i, alert := range m.Alerts {
 		var (
-			name   string
-			zone   string
-			labels = maps.Clone(commonLabels)
+			name string
+			zone string
 		)
 
-		// Include the status label
-		labels[iot.StatusLabel] = m.Status
 		span.SetAttributes(attribute.String(iot.StatusLabel, m.Status))
 
 		for k, v := range alert.Labels {
@@ -122,21 +118,15 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 		span.SetAttributes(attribute.String(fmt.Sprintf("%s_%d", iot.ZoneLabel, i), zone))
 		span.SetAttributes(attribute.String(fmt.Sprintf("%s_%d", iot.AlertNameLabel, i), name))
 
-		in := &iotv1proto.EventRequest{
-			Name:   name,
-			Labels: labels,
-		}
-
 		hookreceiverReceivedTotal.WithLabelValues(name, zone).Inc()
 
-		// Extract the AlertNameLabel
-		for k, v := range alert.Labels {
-			if k == iot.AlertNameLabel {
-				in.Labels[k] = v
-			}
+		a := &iotv1proto.AlertRequest{
+			Name:   name,
+			Status: m.Status,
+			Zone:   zone,
 		}
 
-		_, err := h.eventReceiverClient.Event(ctx, in)
+		_, err := h.eventReceiverClient.Alert(ctx, a)
 		if err != nil {
 			hookreceiverReceiverErrorsTotal.WithLabelValues(name, zone).Inc()
 			h.logger.Error("failed to send event", "err", err)

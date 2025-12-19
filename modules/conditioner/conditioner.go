@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gorhill/cronexpr"
@@ -52,12 +53,7 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		zonekeeperClient: zoneKeeperClient,
 		kubeClient:       k,
 
-		sched: &schedule{
-			events: make(map[string]*event, 1000),
-			itemCh: make(chan item),
-			logger: logger.With("conditioner", "schedule"),
-			tracer: otel.Tracer(module + ".schedule"),
-		},
+		sched: newSchedule(logger),
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
@@ -65,50 +61,189 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 	return c, nil
 }
 
-func (c *Conditioner) Event(ctx context.Context, req *iotv1proto.EventRequest) (*iotv1proto.EventResponse, error) {
-	var err error
-
-	attributes := []attribute.KeyValue{
-		attribute.String("event", req.Name),
-	}
-
-	// Collect the event labels on the span
-	for k, v := range req.Labels {
-		attributes = append(attributes, attribute.String(k, v))
-	}
-
-	ctx, span := c.tracer.Start(ctx, "Conditioner.Event",
-		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithAttributes(attributes...),
-	)
-	defer tracing.ErrHandler(span, err, "conditioner event failed", c.logger)
-
+func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (*iotv1proto.AlertResponse, error) {
 	var (
-		list = &apiv1.ConditionList{}
+		err  error
 		errs []error
 	)
 
+	attributes := []attribute.KeyValue{
+		attribute.String("name", req.Name),
+	}
+
+	ctx, span := c.tracer.Start(ctx, "Conditioner.Alert",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(attributes...),
+	)
+	defer tracing.ErrHandler(span, err, "conditioner alert failed", c.logger)
+
+	list := &apiv1.ConditionList{}
+
 	err = c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
 	if err != nil {
-		return &iotv1proto.EventResponse{}, fmt.Errorf("failed to list conditions: %w", err)
+		return &iotv1proto.AlertResponse{}, fmt.Errorf("failed to list conditions: %w", err)
 	}
 
 	for _, cond := range list.Items {
-		if ok := c.matchCondition(ctx, req.Labels, cond); !ok {
+		// NOTE: We're matching the condition against the alert for location and
+		// zone, but below the remediation may take action against a different
+		// zone.
+
+		labels := map[string]string{
+			iot.AlertNameLabel: req.Name,
+			iot.ZoneLabel:      req.Zone,
+		}
+
+		if ok := c.matchCondition(ctx, labels, cond); !ok {
 			continue
 		}
 
-		err = c.runConditionEvent(ctx, req, cond)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+		for _, rem := range cond.Spec.Remediations {
+			var active bool
+			if status := req.Status; status != "" {
+				span.SetAttributes(attribute.String(iot.StatusLabel, status))
+				switch status {
+				case alertStatusFiring:
+					active = true
+				case alertStatusResolved:
+					// active = false
+				default:
+					continue
+				}
+
+				// Override based on the window.
+				if c.withinActiveWindow(ctx, rem, time.Now()) {
+					active = true
+				}
+			}
+
+			if active {
+				err = activateRemediation(ctx, rem, c.zonekeeperClient)
+				if err != nil {
+					c.logger.Error("failed to activate condition alert", "err", err)
+				}
+			} else {
+				err = deactivateRemediation(ctx, rem, c.zonekeeperClient)
+				if err != nil {
+					c.logger.Error("failed to deactivate condition alert", "err", err)
+				}
+			}
+
 		}
 	}
 
 	if len(errs) > 0 {
-		return &iotv1proto.EventResponse{}, errors.Join(errs...)
+		return &iotv1proto.AlertResponse{}, errors.Join(errs...)
 	}
 
-	return &iotv1proto.EventResponse{}, nil
+	return &iotv1proto.AlertResponse{}, nil
+}
+
+func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (*iotv1proto.EpochResponse, error) {
+	now := time.Now()
+	var err error
+	var errs []error
+
+	attributes := []attribute.KeyValue{
+		attribute.String("name", req.Name),
+	}
+
+	ctx, span := c.tracer.Start(ctx, "Conditioner.Epoch",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(attributes...),
+	)
+	defer tracing.ErrHandler(span, err, "conditioner epoch failed", c.logger)
+
+	list := &apiv1.ConditionList{}
+
+	err = c.kubeClient.List(ctx, list, &kubeclient.ListOptions{})
+	if err != nil {
+		return &iotv1proto.EpochResponse{}, fmt.Errorf("failed to list conditions: %w", err)
+	}
+
+	for _, cond := range list.Items {
+		if req.Location == "" || req.Name == "" {
+			continue
+		}
+
+		// For the condition, match only the location and epoch.
+		labels := map[string]string{
+			iot.LocationLabel: req.Location,
+			iot.EpochLabel:    req.Name,
+		}
+
+		if ok := c.matchCondition(ctx, labels, cond); !ok {
+			continue
+		}
+
+		// Handle the remdiations for this condition
+		for _, rem := range cond.Spec.Remediations {
+			start, stop, err := c.epochWindow(ctx, time.Unix(req.When, 0), rem.WhenGate)
+			if err != nil {
+				c.logger.Error("failed to calculate epoch window", "err", err)
+				errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+
+				continue
+			}
+
+			// If we are within the time window for this remediation, activate it.
+			if c.timeContains(ctx, now, start, stop) {
+				span.AddEvent("within of epoch window",
+					trace.WithAttributes(
+						attribute.String("now", now.Format(time.RFC3339)),
+						attribute.String("start", start.Format(time.RFC3339)),
+						attribute.String("stop", stop.Format(time.RFC3339)),
+					),
+				)
+
+				err = activateRemediation(ctx, rem, c.zonekeeperClient)
+				if err != nil {
+					c.logger.Error("failed to run condition epoch", "err", err)
+				}
+			} else {
+				// Outside of the time window, deactivate the remediation.
+				span.AddEvent("outside of epoch window",
+					trace.WithAttributes(
+						attribute.String("now", now.Format(time.RFC3339)),
+						attribute.String("start", start.Format(time.RFC3339)),
+						attribute.String("stop", stop.Format(time.RFC3339)),
+					),
+				)
+
+				// If we have an Epoch event in the future schedule the activation and deactivation.
+				if now.Before(start) {
+					// Schedule the zone activation
+					activate := activateRequest(ctx, rem)
+					err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "activate"}, "-"), start, activate)
+					if err != nil {
+						c.logger.Error("failed to schedule activation", "err", err)
+						errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+					}
+
+					// Schedule the zone deactivation
+					deactivate := deactivateRequest(ctx, rem)
+					err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
+					if err != nil {
+						c.logger.Error("failed to schedule deactivation", "err", err)
+						errs = append(errs, fmt.Errorf("condition %q: %w", cond.Name, err))
+					}
+				} else if now.After(stop) {
+					// If we are past the stop time, deactivate immediately.
+					err = deactivateRemediation(ctx, rem, c.zonekeeperClient)
+					if err != nil {
+						c.logger.Error("failed to run condition epoch", "err", err)
+					}
+				}
+			}
+		}
+
+	}
+
+	if len(errs) > 0 {
+		return &iotv1proto.EpochResponse{}, errors.Join(errs...)
+	}
+
+	return nil, nil
 }
 
 func (c *Conditioner) Status() []scheduleStatus {
@@ -122,12 +257,14 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 	defer tracing.ErrHandler(span, err, "set schedule failed", c.logger)
 
 	if !cond.Spec.Enabled {
+		span.AddEvent("condition disabled")
 		c.sched.remove(ctx, cond.Name)
 		return
 	}
 
 	if cond.Spec.Schedule == "" {
 		span.AddEvent("no schedule defined")
+		c.sched.remove(ctx, cond.Name)
 		return
 	}
 
@@ -139,30 +276,20 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 
 	next := cron.Next(time.Now())
 	if next.IsZero() {
+		span.AddEvent("zero time")
 		return
 	}
 
+	// The schedule is on the condition, so we execute each remediation at the next cron event.
+
 	var req request
 	for _, rem := range cond.Spec.Remediations {
-		req.sceneReq = nil
-		req.stateReq = nil
+		req = activateRequest(ctx, rem)
 
-		if rem.ActiveScene != "" {
-			req.sceneReq = &iotv1proto.SetSceneRequest{
-				Name:  rem.Zone,
-				Scene: rem.ActiveScene,
-			}
-		}
-
-		if rem.ActiveState != "" {
-			req.stateReq = &iotv1proto.SetStateRequest{
-				Name:  rem.Zone,
-				State: c.zoneState(rem.ActiveState),
-			}
-		}
-
-		if req.sceneReq != nil || req.stateReq != nil {
-			c.sched.add(ctx, cond.Name, next, req)
+		err = c.sched.add(ctx, strings.Join([]string{cond.Name, "schedule", rem.Zone, "activate"}, "-"), next, req)
+		if err != nil {
+			span.AddEvent("failed to set schedule", trace.WithAttributes(attribute.String("err", err.Error())))
+			c.logger.Error("failed to set schedule", "err", err)
 		}
 	}
 }
@@ -192,152 +319,88 @@ func (c *Conditioner) matchCondition(_ context.Context, labels map[string]string
 	return true
 }
 
-func (c *Conditioner) runConditionEvent(ctx context.Context, req *iotv1proto.EventRequest, cond apiv1.Condition) (err error) {
-	attributes := []attribute.KeyValue{
-		attribute.String("condition", cond.Name),
-		attribute.Bool("enabled", cond.Spec.Enabled),
-	}
-
-	ctx, span := c.tracer.Start(ctx, "Conditioner.runConditionEvent",
-		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithAttributes(attributes...),
-	)
+// timeContains checks if the time t is within the start and stop times.
+func (c *Conditioner) timeContains(ctx context.Context, t, start, stop time.Time) bool {
+	_, span := c.tracer.Start(ctx, "Conditioner.timeContains")
 	defer span.End()
 
-	for _, rem := range cond.Spec.Remediations {
-		err = c.handleRemediation(ctx, req, rem)
-		if err != nil {
-			c.logger.Error("remediation failed", "err", err)
-		}
-	}
-
-	return
-}
-
-func (c *Conditioner) zoneState(state string) iotv1proto.ZoneState {
-	zoneState := iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
-
-	switch state {
-	case "on":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_ON
-	case "off":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_OFF
-	case "offtimer":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_OFFTIMER
-	case "color":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_COLOR
-	case "randomcolor":
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR
-	default:
-		// Allow for the direct name lookup, rather than the short-hand strings above
-		if s, ok := iotv1proto.ZoneState_value[state]; ok {
-			zoneState = iotv1proto.ZoneState(s)
-		}
-	}
-
-	return zoneState
-}
-
-func (c *Conditioner) handleRemediation(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) error {
-	var (
-		err   error
-		state string
-		scene string
-
-		zoneState = iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
-	)
-
-	ctx, span := c.tracer.Start(ctx, "Conditioner.handleRemediation")
-	// TODO: add the zone to the error, the req or something to indicate the failure.
-	defer func() { _ = tracing.ErrHandler(span, err, "handle remediation", c.logger) }()
-
-	scene, state = c.getSceneState(ctx, req, rem)
-
-	// Set the scene if we have one
-	if scene != "" {
-		span.SetAttributes(attribute.String("scene", scene))
-
-		_, err = c.zonekeeperClient.SetScene(ctx, &iotv1proto.SetSceneRequest{
-			Name:  rem.Zone,
-			Scene: scene,
-		})
-		if err != nil {
-			c.logger.Error("failed to set zone scene", "err", err)
-			// status.Code(err)
-		}
-	}
-
-	zoneState = c.zoneState(state)
 	span.SetAttributes(
-		attribute.String("state", state),
-		attribute.String("zoneState", zoneState.String()),
+		attribute.String("time", t.Format(time.RFC3339)),
+		attribute.String("start", start.Format(time.RFC3339)),
+		attribute.String("stop", stop.Format(time.RFC3339)),
 	)
 
-	// Set the state if we have one
-	if zoneState > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
-		_, err = c.zonekeeperClient.SetState(ctx, &iotv1proto.SetStateRequest{
-			Name:  rem.Zone,
-			State: zoneState,
-		})
+	if t.Equal(start) || t.Equal(stop) {
+		return true
 	}
 
-	return err
+	if t.After(start) && t.Before(stop) {
+		return true
+	}
+
+	return false
 }
 
-// getSceneState determines the scene and state to set based on the received event request and remediation.
-func (c *Conditioner) getSceneState(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (scene, state string) {
-	_, span := c.tracer.Start(ctx, "Conditioner.runTimer")
+// epochWindow calculates the start and stop times for the epoch window based
+// on the event time and the when configuration.
+func (c *Conditioner) epochWindow(ctx context.Context, eventTime time.Time, when apiv1.When) (start, stop time.Time, err error) {
+	_, span := c.tracer.Start(ctx, "Conditioner.epochWindow")
 	defer span.End()
 
-	// Check if we have an alert status
-	if status, ok := req.Labels[iot.StatusLabel]; ok {
-		span.SetAttributes(attribute.String(iot.StatusLabel, status))
-
-		// Only override the above if we have a value
-		switch status {
-		case alertStatusFiring:
-			if rem.ActiveState != "" {
-				state = rem.ActiveState
-			}
-
-			if rem.ActiveScene != "" {
-				scene = rem.ActiveScene
-			}
-		case alertStatusResolved:
-			if rem.InactiveState != "" {
-				state = rem.InactiveState
-			}
-
-			if rem.InactiveScene != "" {
-				scene = rem.InactiveScene
-			}
-		}
+	if eventTime.IsZero() {
+		span.AddEvent("event time is zero")
+		return start, stop, fmt.Errorf("event time is zero")
 	}
 
-	// Overriding the alert status using the window.  In either firing or
-	// resolved state, the zone is disabled.
-	activeWindow := c.withinActiveWindow(ctx, req, rem)
-	span.SetAttributes(attribute.Bool("activeWindow", activeWindow))
+	var dur time.Duration
 
-	if !activeWindow {
-		if rem.InactiveState != "" {
-			state = rem.InactiveState
+	if when.Start != "" {
+		dur, err = time.ParseDuration(when.Start)
+		if err != nil {
+			return start, stop, err
 		}
-		if rem.InactiveScene != "" {
-			scene = rem.InactiveScene
-		}
+
+		start = eventTime.Add(dur)
+	} else {
+		// If we have no start defined, use a negative one minute to account for
+		// the race between sending and receiving the event.
+		start = eventTime.Add(-time.Minute)
 	}
 
-	return scene, state
+	span.SetAttributes(attribute.String("windowStart", start.Format(time.RFC3339)))
+
+	if when.Stop != "" {
+		dur, err = time.ParseDuration(when.Stop)
+		if err != nil {
+			return start, stop, err
+		}
+
+		stop = eventTime.Add(dur)
+		span.SetAttributes(attribute.String("windowStop", stop.Format(time.RFC3339)))
+	} else {
+		// If we have no stop defined, use the configured epoch time window.
+		stop = eventTime.Add(c.cfg.EpochTimeWindow)
+	}
+
+	return start, stop, nil
 }
 
-func (c *Conditioner) withinActiveWindow(ctx context.Context, req *iotv1proto.EventRequest, rem apiv1.Remediation) (active bool) {
+// withinActiveWindow checks if the current time is within the active window
+// defined in the remediation.  It considers both time intervals and when
+// gates.
+func (c *Conditioner) withinActiveWindow(ctx context.Context, rem apiv1.Remediation, now time.Time) (active bool) {
 	_, span := c.tracer.Start(ctx, "Conditioner.withinActiveWindow")
 	defer func() {
 		span.SetAttributes(attribute.Bool("active", active))
 		span.End()
 	}()
 
+	if len(rem.TimeIntervals) == 0 {
+		active = true
+		return
+	}
+
+	// If any window is active, then set the remdiation as active.
 	for _, ti := range rem.TimeIntervals {
 		tip, err := ti.AsPrometheus()
 		if err != nil {
@@ -345,84 +408,13 @@ func (c *Conditioner) withinActiveWindow(ctx context.Context, req *iotv1proto.Ev
 			continue
 		}
 
-		if tip.ContainsTime(time.Now()) {
+		if tip.ContainsTime(now) {
 			active = true
 			return
 		}
 	}
 
-	// An event has a when label, so check for it.
-	// The Event could have a "when" lebel indicating the time of the event.  Check of it.
-	if when, ok := req.Labels[iot.WhenLabel]; ok {
-		var (
-			now         = time.Now()
-			started     bool
-			stopped     bool
-			windowStart time.Time
-			windowStop  time.Time
-		)
-
-		span.SetAttributes(attribute.String(iot.WhenLabel, when))
-
-		eventTime, err := time.Parse(time.RFC3339, when)
-		if err != nil {
-			c.logger.Error("failed to parse duration", "err", err)
-			active = false
-			return
-		}
-
-		// TODO: consider the duration window to check of 6h.  Should this be configurable?
-
-		// Skip events older than 6 hours to avoid using yesterdays epoch.
-		if time.Since(eventTime) > 6*time.Hour {
-			active = false
-			return
-		}
-
-		// Skip events more than 6 hours in the future
-		if time.Until(eventTime) > 6*time.Hour {
-			active = false
-			return
-		}
-
-		var (
-			start time.Duration
-			stop  time.Duration
-		)
-
-		start, err = time.ParseDuration(rem.WhenGate.Start)
-		if err != nil {
-			c.logger.Error("failed to parse duration", "err", err)
-			active = false
-			return
-		}
-
-		windowStart = eventTime.Add(start)
-		span.SetAttributes(attribute.String("windowStart", windowStart.Format(time.RFC3339)))
-
-		if now.After(windowStart) {
-			started = true
-		}
-
-		stop, err = time.ParseDuration(rem.WhenGate.Stop)
-		if err != nil {
-			c.logger.Error("failed to parse duration", "err", err)
-			active = false
-			return
-		}
-
-		windowStop = eventTime.Add(stop)
-		span.SetAttributes(attribute.String("windowStop", windowStop.Format(time.RFC3339)))
-
-		if now.After(windowStop) {
-			stopped = true
-		}
-
-		active = started && !stopped
-		return
-	}
-
-	active = true
+	active = false
 	return
 }
 
@@ -470,7 +462,7 @@ func (c *Conditioner) starting(ctx context.Context) error {
 	// which lists all conditions.  Currently a list of all conditions against
 	// the k8s api is made to retrieve the schedules for each condition and set
 	// them to fire accordingly.  Making this a watch would allow for immediate
-	// update to the schedule upon change, and reduce teh load onthe k8s API.
+	// update to the schedule upon change, and reduce the load on the k8s API.
 	// watchlist := cache.NewListWatchFromClient(
 	// 	c.kubeClientr
 	// 	apiv1.GroupVersion.WithResource("conditions").Resource,
@@ -491,25 +483,81 @@ func (c *Conditioner) stopping(_ error) error {
 	return nil
 }
 
-func handleStatusLabel(status string, rem apiv1.Remediation) (state string, scene string) {
-	switch status {
-	case alertStatusFiring:
-		if rem.ActiveState != "" {
-			state = rem.ActiveState
-		}
+func activateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
+	return execRequest(ctx, activateRequest(ctx, rem), zonekeeperClient)
+}
 
-		if rem.ActiveScene != "" {
-			scene = rem.ActiveScene
-		}
-	case alertStatusResolved:
-		if rem.InactiveState != "" {
-			state = rem.InactiveState
-		}
+func deactivateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
+	return execRequest(ctx, deactivateRequest(ctx, rem), zonekeeperClient)
+}
 
-		if rem.InactiveScene != "" {
-			scene = rem.InactiveScene
+func activateRequest(_ context.Context, rem apiv1.Remediation) request {
+	var req request
+
+	if rem.ActiveScene != "" {
+		req.sceneReq = &iotv1proto.SetSceneRequest{
+			Name:  rem.Zone,
+			Scene: rem.ActiveScene,
 		}
 	}
 
-	return
+	state := zoneState(rem.ActiveState)
+	// Set the state if we have one
+	if state > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		req.stateReq = &iotv1proto.SetStateRequest{
+			Name:  rem.Zone,
+			State: state,
+		}
+	}
+
+	return req
+}
+
+func deactivateRequest(_ context.Context, rem apiv1.Remediation) request {
+	var req request
+
+	if rem.InactiveScene != "" {
+		req.sceneReq = &iotv1proto.SetSceneRequest{
+			Name:  rem.Zone,
+			Scene: rem.InactiveScene,
+		}
+	}
+
+	state := zoneState(rem.InactiveState)
+	// Set the state if we have one
+	if state > iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		req.stateReq = &iotv1proto.SetStateRequest{
+			Name:  rem.Zone,
+			State: state,
+		}
+	}
+
+	return req
+}
+
+// Using the known short-hand strings for zone states, return the appropriate
+// enum value, or the string representing the enum.  A return of
+// ZONE_STATE_UNSPECIFIED indicates no match.
+func zoneState(state string) iotv1proto.ZoneState {
+	zoneState := iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
+
+	switch state {
+	case "on":
+		zoneState = iotv1proto.ZoneState_ZONE_STATE_ON
+	case "off":
+		zoneState = iotv1proto.ZoneState_ZONE_STATE_OFF
+	case "offtimer":
+		zoneState = iotv1proto.ZoneState_ZONE_STATE_OFFTIMER
+	case "color":
+		zoneState = iotv1proto.ZoneState_ZONE_STATE_COLOR
+	case "randomcolor":
+		zoneState = iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR
+	default:
+		// Allow for the direct name lookup, rather than the short-hand strings above
+		if s, ok := iotv1proto.ZoneState_value[state]; ok {
+			zoneState = iotv1proto.ZoneState(s)
+		}
+	}
+
+	return zoneState
 }

@@ -13,34 +13,16 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/nathan-osman/go-sunrise"
-	"github.com/zachfi/iotcontroller/pkg/iot"
+	"github.com/zachfi/iotcontroller/pkg/epoch"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	"github.com/zachfi/zkit/pkg/tracing"
 )
 
 var module = "weather"
-
-type Epoch int
-
-const (
-	EventSunset Epoch = iota
-	EventSunrise
-)
-
-var stateName = map[Epoch]string{
-	EventSunset:  "sunset",
-	EventSunrise: "sunrise",
-}
-
-func (e Epoch) String() string {
-	if name, ok := stateName[e]; ok {
-		return name
-	}
-	return "unknown"
-}
 
 type Weather struct {
 	services.Service
@@ -128,33 +110,34 @@ func (w *Weather) sendEpochEvents(ctx context.Context) {
 			time.Now().Day(),
 		)
 
-		for _, epoch := range []Epoch{EventSunset, EventSunrise} {
+		for _, e := range []epoch.Epoch{epoch.EventSunset, epoch.EventSunrise} {
 			var eventTime time.Time
 
-			switch epoch {
-			case EventSunset:
+			switch e {
+			case epoch.EventSunset:
 				eventTime = set
-			case EventSunrise:
+			case epoch.EventSunrise:
 				eventTime = rise
 			default:
-				w.logger.Error("unknown epoch", "epoch", epoch)
-				err = fmt.Errorf("unknown epoch: %v", epoch)
+				w.logger.Error("unknown epoch", "epoch", e)
+				err = fmt.Errorf("unknown epoch: %v", e)
 				span.RecordError(err)
 				continue
 			}
 
-			e := &iotv1proto.EventRequest{
-				Name: epoch.String(),
-				Labels: map[string]string{
-					iot.EpochLabel:    epoch.String(),
-					iot.LocationLabel: location.Name,
-					iot.WhenLabel:     eventTime.Format(time.RFC3339),
-					iot.ValueLabel:    fmt.Sprintf("%d", eventTime.Unix()),
-				},
+			locationEpoch := fmt.Sprintf("%s-%s", location.Name, e.String())
+			span.SetAttributes(attribute.String(locationEpoch, eventTime.Format(time.RFC3339)))
+
+			e := &iotv1proto.EpochRequest{
+				Name:     e.String(),
+				Location: location.Name,
+				When:     eventTime.Unix(),
 			}
 
-			_, err := w.eventReceiverClient.Event(ctx, e)
+			_, err := w.eventReceiverClient.Epoch(ctx, e)
 			if err != nil {
+				// TODO: metric
+				// weatherErrorsTotal.WithLabelValues(name, zone).Inc()
 				w.logger.Error("failed to send event", "err", err)
 			}
 		}

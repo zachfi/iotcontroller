@@ -3,12 +3,15 @@ package conditioner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	"github.com/zachfi/zkit/pkg/tracing"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -29,7 +32,7 @@ type event struct {
 	req    request
 }
 
-// item is passed through the itemCh.  Wrap the request with the context to propogate the span context.
+// item is passed through the itemCh.  Wrap the request with the context to propagate the span context.
 type item struct {
 	ctx context.Context
 	request
@@ -40,49 +43,30 @@ type request struct {
 	sceneReq *iotv1proto.SetSceneRequest
 }
 
-func matched(a, b request) bool {
-	if a.sceneReq != nil && b.sceneReq == nil {
-		return false
+func newSchedule(logger *slog.Logger) *schedule {
+	return &schedule{
+		events: make(map[string]*event, 1000),
+		itemCh: make(chan item),
+		logger: logger.With("conditioner", "schedule"),
+		tracer: otel.Tracer(module + ".schedule"),
 	}
-
-	if a.stateReq != nil && b.stateReq == nil {
-		return false
-	}
-
-	if b.sceneReq != nil && a.sceneReq == nil {
-		return false
-	}
-
-	if b.stateReq != nil && a.stateReq == nil {
-		return false
-	}
-
-	if a.sceneReq != nil && b.sceneReq != nil {
-		if a.sceneReq.Name != b.sceneReq.Name || a.sceneReq.Scene != b.sceneReq.Scene {
-			return false
-		}
-	}
-
-	if a.stateReq != nil && b.stateReq != nil {
-		if a.stateReq.Name != b.stateReq.Name || a.stateReq.State != b.stateReq.State {
-			return false
-		}
-	}
-
-	return true
 }
 
 // add schedules a new event or updates an existing event by name.
-func (s *schedule) add(ctx context.Context, name string, t time.Time, req request) {
+func (s *schedule) add(ctx context.Context, name string, t time.Time, req request) error {
 	var err error
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	ctx, span := s.tracer.Start(ctx, "schedule.add")
 	defer tracing.ErrHandler(span, err, "add failed", s.logger)
 
 	if req.sceneReq == nil && req.stateReq == nil {
-		err = errors.New("unable to schedule request with nil scene and nil state")
+		err = errors.New("empty request")
 		s.logger.Error(err.Error())
-		return
+		return err
 	}
 
 	s.Lock()
@@ -91,7 +75,7 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 	// cancel and clear out the previous events
 	if v, ok := s.events[name]; ok {
 		if matched(v.req, req) && t.Equal(v.t) {
-			return
+			return err
 		}
 
 		v.cancel()
@@ -123,16 +107,22 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req reques
 					ctx:     spanCtx,
 					request: req,
 				}
+				// Remove the event after execution
+				s.remove(ctx, name)
 				return
 
 			}
 		}
 	}(ctx, req)
+
+	return nil
 }
 
 // Remove cancels and removes a scheduled event by name.
 func (s *schedule) remove(ctx context.Context, name string) {
-	_, span := s.tracer.Start(ctx, "schedule.remove")
+	_, span := s.tracer.Start(ctx, "schedule.remove", trace.WithAttributes(
+		attribute.String("name", name),
+	))
 	defer span.End()
 
 	s.Lock()
@@ -173,21 +163,33 @@ func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceC
 		case <-ctx.Done():
 			return
 		case i = <-s.itemCh:
-			if i.request.sceneReq != nil {
-				_, err := client.SetScene(i.ctx, i.request.sceneReq)
-				if err != nil {
-					s.logger.Error("failed to set scene", "err", err)
-				}
-			}
-
-			if i.request.stateReq != nil {
-				_, err := client.SetState(i.ctx, i.request.stateReq)
-				if err != nil {
-					s.logger.Error("failed to set state", "err", err)
-				}
+			s.logger.Info("executing scheduled request")
+			err := execRequest(i.ctx, i.request, client)
+			if err != nil {
+				s.logger.Error("failed to run request", "err", err)
 			}
 		}
 	}
+}
+
+func execRequest(ctx context.Context, req request, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
+	var err error
+
+	if req.sceneReq != nil {
+		_, err = zonekeeperClient.SetScene(ctx, req.sceneReq)
+		if err != nil {
+			return fmt.Errorf("failed to deactivate zone %q scene: %w", req.sceneReq.Name, err)
+		}
+	}
+
+	if req.stateReq != nil {
+		_, err = zonekeeperClient.SetState(ctx, req.stateReq)
+		if err != nil {
+			return fmt.Errorf("failed to deactivate zone %q state: %w", req.stateReq.Name, err)
+		}
+	}
+
+	return nil
 }
 
 type scheduleStatus struct {
@@ -201,7 +203,7 @@ func (s *schedule) Status() []scheduleStatus {
 	s.Lock()
 	defer s.Unlock()
 
-	var stati []scheduleStatus
+	var states []scheduleStatus
 
 	for n, e := range s.events {
 		ss := scheduleStatus{
@@ -217,8 +219,46 @@ func (s *schedule) Status() []scheduleStatus {
 			ss.State = e.req.stateReq.State.String()
 		}
 
-		stati = append(stati, ss)
+		states = append(states, ss)
 	}
 
-	return stati
+	return states
+}
+
+func (s *schedule) len() int {
+	s.Lock()
+	defer s.Unlock()
+	return len(s.events)
+}
+
+func matched(a, b request) bool {
+	if a.sceneReq != nil && b.sceneReq == nil {
+		return false
+	}
+
+	if a.stateReq != nil && b.stateReq == nil {
+		return false
+	}
+
+	if b.sceneReq != nil && a.sceneReq == nil {
+		return false
+	}
+
+	if b.stateReq != nil && a.stateReq == nil {
+		return false
+	}
+
+	if a.sceneReq != nil && b.sceneReq != nil {
+		if a.sceneReq.Name != b.sceneReq.Name || a.sceneReq.Scene != b.sceneReq.Scene {
+			return false
+		}
+	}
+
+	if a.stateReq != nil && b.stateReq != nil {
+		if a.stateReq.Name != b.stateReq.Name || a.stateReq.State != b.stateReq.State {
+			return false
+		}
+	}
+
+	return true
 }
