@@ -85,8 +85,9 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 	}
 
 	for _, cond := range list.Items {
-		// NOTE: We're matching against the alert for location and zone, but below
-		// the remediation may take action against a different zone.
+		// NOTE: We're matching the condition against the alert for location and
+		// zone, but below the remediation may take action against a different
+		// zone.
 
 		labels := map[string]string{
 			iot.AlertNameLabel: req.Name,
@@ -248,12 +249,14 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 	defer tracing.ErrHandler(span, err, "set schedule failed", c.logger)
 
 	if !cond.Spec.Enabled {
+		span.AddEvent("condition disabled")
 		c.sched.remove(ctx, cond.Name)
 		return
 	}
 
 	if cond.Spec.Schedule == "" {
 		span.AddEvent("no schedule defined")
+		c.sched.remove(ctx, cond.Name)
 		return
 	}
 
@@ -265,8 +268,11 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 
 	next := cron.Next(time.Now())
 	if next.IsZero() {
+		span.AddEvent("zero time")
 		return
 	}
+
+	// The schedule is on the condition, so we execute each remediation at the next cron event.
 
 	var req request
 	for _, rem := range cond.Spec.Remediations {
@@ -330,6 +336,7 @@ func (c *Conditioner) epochWindow(ctx context.Context, eventTime time.Time, when
 	defer span.End()
 
 	if eventTime.IsZero() {
+		span.AddEvent("event time is zero")
 		return start, stop, fmt.Errorf("event time is zero")
 	}
 
