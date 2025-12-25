@@ -35,3 +35,7 @@ func (z *ZoneKeeperClientMock) GetDeviceZone(_ context.Context, _ *iotv1proto.Ge
 func (z *ZoneKeeperClientMock) SelfAnnounce(_ context.Context, _ *iotv1proto.SelfAnnounceRequest, _ ...grpc.CallOption) (*iotv1proto.SelfAnnounceResponse, error) {
 	return &iotv1proto.SelfAnnounceResponse{}, nil
 }
+
+func (z *ZoneKeeperClientMock) OccupancyHandler(_ context.Context, _ *iotv1proto.OccupancyHandlerRequest, _ ...grpc.CallOption) (*iotv1proto.OccupancyHandlerResponse, error) {
+	return &iotv1proto.OccupancyHandlerResponse{}, nil
+}

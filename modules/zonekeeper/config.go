@@ -1,14 +1,16 @@
 package zonekeeper
 
-import "flag"
+import (
+	"flag"
+	"time"
 
-type Config struct{}
+	"github.com/zachfi/zkit/pkg/util"
+)
+
+type Config struct {
+	OccupancyTimeout time.Duration `yaml:"occupancy_timeout,omitempty"`
+}
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
-	// f.StringVar(
-	// 	&cfg.ServerAddress,
-	// 	util.PrefixConfig(prefix, "server-address"),
-	// 	":9090",
-	// 	"The address of the server to connect to",
-	// )
+	f.DurationVar(&cfg.OccupancyTimeout, util.PrefixConfig(prefix, "occupancy-timeout"), 7*time.Minute, "The time to disable the zone after the last occupancy event")
 }

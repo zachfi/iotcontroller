@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	sync "sync"
 
@@ -45,6 +46,7 @@ var (
 		iotv1proto.ZoneState_ZONE_STATE_COLOR,
 		iotv1proto.ZoneState_ZONE_STATE_ON,
 		iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
+		iotv1proto.ZoneState_ZONE_STATE_OFFTIMER,
 	}
 )
 
@@ -273,10 +275,8 @@ func (z *Zone) Off(ctx context.Context) {
 func (z *Zone) On(ctx context.Context) {
 	state := z.State()
 
-	for _, s := range defaultOnStates {
-		if s == state {
-			return
-		}
+	if slices.Contains(defaultOnStates, state) {
+		return
 	}
 
 	z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
@@ -337,7 +337,11 @@ func (z *Zone) Flush(ctx context.Context, limiter FlushLimiter) error {
 		// Raise the state off the ground
 		z.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_OFF)
 		return nil
-	case iotv1proto.ZoneState_ZONE_STATE_ON:
+	case iotv1proto.ZoneState_ZONE_STATE_ON, iotv1proto.ZoneState_ZONE_STATE_OFFTIMER:
+		// OffTimer is an ON state, but signals that the reason for turning on the
+		// zone.  A background routine is created with this state transition to
+		// turn the zone off.  Using this additional state allows the actions to
+		// override when setting to ON directly.
 		err = z.handleOn(ctx, limiter)
 		if err != nil {
 			errs = append(errs, err)

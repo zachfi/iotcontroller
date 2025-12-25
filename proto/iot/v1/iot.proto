@@ -118,12 +118,20 @@ message SelfAnnounceRequest {
 
 message SelfAnnounceResponse {}
 
+message OccupancyHandlerRequest {
+  string device = 1;
+  string zone = 2;
+}
+
+message OccupancyHandlerResponse {}
+
 service ZoneKeeperService {
   rpc SetState(SetStateRequest) returns (SetStateResponse);
   rpc SetScene(SetSceneRequest) returns (SetSceneResponse);
   rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
   rpc ActionHandler(ActionHandlerRequest) returns (ActionHandlerResponse);
   rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
+  rpc OccupancyHandler(OccupancyHandlerRequest) returns (OccupancyHandlerResponse);
 }
 
 message Device {

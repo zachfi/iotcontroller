@@ -138,11 +138,14 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 		)
 
 		if m.Action != nil {
-			span.SetAttributes(
-				attribute.String("action", *m.Action),
-			)
+			span.SetAttributes(attribute.String("action", *m.Action))
 			wg.Go(func() {
 				z.action(ctx, *m.Action, device.Name, zone)
+			})
+		} else if m.Occupancy != nil && *m.Occupancy {
+			span.SetAttributes(attribute.Bool(PropertyOccupancy, *m.Occupancy))
+			wg.Go(func() {
+				z.occupied(ctx, device.Name, zone)
 			})
 		} else {
 			wg.Go(func() {
@@ -240,6 +243,23 @@ func (z *Zigbee2Mqtt) handleZigbeeBridgeDevice(ctx context.Context, logger *slog
 	}
 
 	return nil
+}
+
+func (z *Zigbee2Mqtt) occupied(ctx context.Context, device, zone string) {
+	var err error
+
+	ctx, span := z.tracer.Start(ctx, "occupied", trace.WithAttributes(
+		attribute.String("device", device),
+		attribute.String("zone", zone),
+	))
+	defer func() { _ = tracing.ErrHandler(span, err, "zone occupied", z.logger) }()
+
+	_, err = z.zonekeeperClient.OccupancyHandler(ctx,
+		&iotv1proto.OccupancyHandlerRequest{
+			Device: device,
+			Zone:   zone,
+		},
+	)
 }
 
 func (z *Zigbee2Mqtt) selfAnnounce(ctx context.Context, device, zone string) {
