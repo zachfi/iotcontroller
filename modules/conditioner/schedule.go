@@ -148,27 +148,6 @@ func (s *schedule) remove(ctx context.Context, name string) {
 	}
 }
 
-// Any names not listed in the map are removed from the event.  This allows us
-// to clean up the currenting running schedules when the backing condition has
-// been removed or renamed.
-func (s *schedule) removeExtraneous(names map[string]struct{}) {
-	s.Lock()
-	defer s.Unlock()
-
-	var namesToDelete []string
-	for k := range s.events {
-		if _, ok := names[k]; !ok {
-			namesToDelete = append(namesToDelete, k)
-		}
-	}
-
-	for _, n := range namesToDelete {
-		s.events[n].cancel()
-
-		delete(s.events, n)
-	}
-}
-
 // run consumes items from the channel and executes the requests with the zonekeeper client.
 func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceClient) {
 	var i item

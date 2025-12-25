@@ -158,22 +158,6 @@ func (a *App) initWeather() (services.Service, error) {
 	return m, nil
 }
 
-/* func (a *App) initTimer() (services.Service, error) { */
-// conn := comms.SlimRPCClient(z.cfg.RPC.ServerAddress, z.logger)
-//
-// t, err := timer.New(z.cfg.Timer, z.logger, conn)
-// if err != nil {
-// 	return nil, errors.Wrap(err, "unable to init timer")
-// }
-//
-// // astro.RegisterAstroServer(z.Server.GRPC, t.Astro)
-// // named.RegisterNamedServer(z.Server.GRPC, t.Named)
-//
-// z.timer = t
-// return t, nil
-/* 	return nil, nil */
-/* } */
-
 func (a *App) initMqttClient() (services.Service, error) {
 	c, err := mqttclient.New(a.cfg.MQTTClient, a.logger)
 	if err != nil {

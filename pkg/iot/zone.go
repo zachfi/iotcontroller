@@ -156,6 +156,7 @@ func (z *Zone) SetDevice(ctx context.Context, device *iotv1proto.Device, handler
 /* 	z.brightnessMap = m */
 /* } */
 
+// TODO: this appears unused
 func (z *Zone) SetColorTemperatureMap(m map[iotv1proto.ColorTemperature]int32) {
 	z.mtx.Lock()
 	defer z.mtx.Unlock()

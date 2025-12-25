@@ -456,28 +456,10 @@ func (c *Conditioner) runTimer(ctx context.Context) {
 		c.setSchedule(ctx, cond)
 		names[cond.Name] = struct{}{}
 	}
-
-	// FIXME: this used to work because there was a 1:1 relationship between the
-	// condition in the k8s API and the event.  Now that we are scheduling epoch
-	// events, we don't want to clean those up before they have fired.  Do we
-	// need this removal if they clean themselves up after execution?
-	// c.sched.removeExtraneous(names)
 }
 
 func (c *Conditioner) starting(ctx context.Context) error {
 	go c.sched.run(ctx, c.zonekeeperClient)
-
-	// TODO: consider creating a watch for conditions in place of the timer loop,
-	// which lists all conditions.  Currently a list of all conditions against
-	// the k8s api is made to retrieve the schedules for each condition and set
-	// them to fire accordingly.  Making this a watch would allow for immediate
-	// update to the schedule upon change, and reduce the load on the k8s API.
-	// watchlist := cache.NewListWatchFromClient(
-	// 	c.kubeClientr
-	// 	apiv1.GroupVersion.WithResource("conditions").Resource,
-	// 	v1.NamespaceAll,
-	// 	fields.Everything(),
-	// )
 
 	return nil
 }
