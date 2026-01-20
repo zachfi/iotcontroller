@@ -3,6 +3,7 @@ module github.com/zachfi/iotcontroller
 go 1.25.0
 
 require (
+	github.com/GreenLightning/zigbee-conductor v0.0.0-00010101000000-000000000000
 	github.com/briandowns/openweathermap v0.21.1
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/go-kit/log v0.2.1
@@ -12,6 +13,7 @@ require (
 	github.com/grafana/dskit v0.0.0-20250616075643-3b7e2f87d946
 	github.com/grafana/e2e v0.1.2-0.20240118170847-db90b84177fc
 	github.com/icodealot/noaa v0.0.2
+	github.com/jacobsa/go-serial v0.0.0-20180131005756-15cf729a72d4
 	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/nathan-osman/go-sunrise v1.1.0
 	github.com/onsi/ginkgo/v2 v2.27.2
@@ -27,6 +29,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
+	golang.org/x/sys v0.38.0
 	google.golang.org/grpc v1.75.1
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v2 v2.4.0
@@ -176,7 +179,6 @@ require (
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.31.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
@@ -199,3 +201,5 @@ require (
 )
 
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
+
+replace github.com/GreenLightning/zigbee-conductor => /home/zach/go/src/github.com/GreenLightning/zigbee-conductor
