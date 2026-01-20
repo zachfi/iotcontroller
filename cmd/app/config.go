@@ -22,6 +22,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/router"
 	"github.com/zachfi/iotcontroller/modules/weather"
+	"github.com/zachfi/iotcontroller/modules/zigbeecoordinator"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 )
 
@@ -45,14 +46,15 @@ type Config struct {
 	Server server.Config `yaml:"server,omitempty"`
 
 	// Modules
-	Conditioner  conditioner.Config  `yaml:"conditioner,omitempty"`
-	Controller   controller.Config   `yaml:"controller,omitempty"`
-	Harvester    harvester.Config    `yaml:"harvester,omitempty"`
-	HookReceiver hookreceiver.Config `yaml:"hookreceiver,omitempty"`
-	MQTTClient   mqttclient.Config   `yaml:"mqttclient,omitempty"`
-	Router       router.Config       `yaml:"router,omitempty"`
-	Weather      weather.Config      `yaml:"weather,omitempty"`
-	ZoneKeeper   zonekeeper.Config   `yaml:"zonekeeper,omitempty"`
+	Conditioner       conditioner.Config       `yaml:"conditioner,omitempty"`
+	Controller        controller.Config        `yaml:"controller,omitempty"`
+	Harvester         harvester.Config         `yaml:"harvester,omitempty"`
+	HookReceiver      hookreceiver.Config      `yaml:"hookreceiver,omitempty"`
+	MQTTClient        mqttclient.Config        `yaml:"mqttclient,omitempty"`
+	Router            router.Config            `yaml:"router,omitempty"`
+	Weather           weather.Config           `yaml:"weather,omitempty"`
+	ZoneKeeper        zonekeeper.Config        `yaml:"zonekeeper,omitempty"`
+	ZigbeeCoordinator zigbeecoordinator.Config `yaml:"zigbeecoordinator,omitempty"`
 }
 
 func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
@@ -78,6 +80,7 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.Router.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "router"), f)
 	c.Weather.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "weather"), f)
 	c.ZoneKeeper.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "zonekeeper"), f)
+	c.ZigbeeCoordinator.RegisterFlagsAndApplyDefaults(util.PrefixConfig(prefix, "zigbeecoordinator"), f)
 
 	c.LogLevel.RegisterFlags(f)
 }
@@ -96,7 +99,7 @@ func LoadConfig(file string) (Config, error) {
 }
 
 // loadYamlFile unmarshals a YAML file into the received interface{} or returns an error.
-func loadYamlFile(filename string, d interface{}) error {
+func loadYamlFile(filename string, d any) error {
 	yamlFile, err := os.ReadFile(filename)
 	if err != nil {
 		return err

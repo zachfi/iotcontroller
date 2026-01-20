@@ -30,6 +30,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/router"
 	"github.com/zachfi/iotcontroller/modules/weather"
+	"github.com/zachfi/iotcontroller/modules/zigbeecoordinator"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -56,12 +57,13 @@ type App struct {
 	harvester   *harvester.Harvester
 	conditioner *conditioner.Conditioner
 	// lights     *lights.Lights
-	mqttclient   *mqttclient.MQTTClient
-	kubeclient   client.Client
-	weather      *weather.Weather
-	zonekeeper   *zonekeeper.ZoneKeeper
-	hookreceiver *hookreceiver.HookReceiver
-	router       *router.Router
+	mqttclient        *mqttclient.MQTTClient
+	kubeclient        client.Client
+	weather           *weather.Weather
+	zonekeeper        *zonekeeper.ZoneKeeper
+	zigbeecoordinator *zigbeecoordinator.ZigbeeCoordinator
+	hookreceiver      *hookreceiver.HookReceiver
+	router            *router.Router
 
 	// Service clients
 	eventReceiverClient iotv1proto.EventReceiverServiceClient
