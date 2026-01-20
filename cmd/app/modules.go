@@ -28,6 +28,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/modules/router"
 	"github.com/zachfi/iotcontroller/modules/weather"
+	"github.com/zachfi/iotcontroller/modules/zigbeecoordinator"
 	"github.com/zachfi/iotcontroller/modules/zonekeeper"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -40,14 +41,15 @@ const (
 	MQTTClient string = "mqttclient"
 
 	// Modules
-	EventClient  string = "eventclient"
-	Conditioner  string = "conditioner"
-	Controller   string = "controller"
-	Harvester    string = "harvester"
-	HookReceiver string = "hook-receiver"
-	Router       string = "router"
-	Weather      string = "weather"
-	ZoneKeeper   string = "zone-keeper"
+	EventClient       string = "eventclient"
+	Conditioner       string = "conditioner"
+	Controller        string = "controller"
+	Harvester         string = "harvester"
+	HookReceiver      string = "hook-receiver"
+	Router            string = "router"
+	Weather           string = "weather"
+	ZoneKeeper        string = "zone-keeper"
+	ZigbeeCoordinator string = "zigbee-coordinator"
 
 	All      string = "all"
 	Core     string = "core"
@@ -68,6 +70,7 @@ func (a *App) setupModuleManager() error {
 	mm.RegisterModule(Router, a.initRouter)
 	mm.RegisterModule(Weather, a.initWeather)
 	mm.RegisterModule(ZoneKeeper, a.initZoneKeeper)
+	mm.RegisterModule(ZigbeeCoordinator, a.initZigbeeCoordinator)
 
 	mm.RegisterModule(All, nil)
 	mm.RegisterModule(Core, nil)
@@ -76,8 +79,10 @@ func (a *App) setupModuleManager() error {
 	deps := map[string][]string{
 		// Server:       nil,
 
-		MQTTClient: {Server}, // MQTT client
+		MQTTClient: {Server},
 		Controller: {Server}, // K8s client
+
+		ZigbeeCoordinator: {Server},
 
 		Conditioner:  {Server, KubeClient},
 		Harvester:    {Server, MQTTClient},
@@ -226,6 +231,18 @@ func (a *App) initZoneKeeper() (services.Service, error) {
 	iotv1proto.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
 
 	a.zonekeeper = z
+	return z, nil
+}
+
+func (a *App) initZigbeeCoordinator() (services.Service, error) {
+	z, err := zigbeecoordinator.New(a.cfg.ZigbeeCoordinator, a.logger)
+	if err != nil {
+		return nil, err
+	}
+
+	// iotv1proto.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
+
+	a.zigbeecoordinator = z
 	return z, nil
 }
 
