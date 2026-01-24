@@ -16,9 +16,11 @@ type Controller struct {
 }
 
 type Settings struct {
-	Port        string
-	LogCommands bool
-	LogErrors   bool
+	Port               string
+	BaudRate           int  // Default: 115200
+	DisableFlowControl bool // Disable RTS/CTS flow control
+	LogCommands        bool
+	LogErrors          bool
 }
 
 func NewController(settings Settings) (*Controller, error) {
@@ -60,7 +62,7 @@ func NewController(settings Settings) (*Controller, error) {
 		}
 	}
 
-	port, err := NewPort(settings.Port, callbacks)
+	port, err := NewPort(settings.Port, settings.BaudRate, settings.DisableFlowControl, callbacks)
 	if err != nil {
 		return nil, err
 	}
@@ -99,16 +101,39 @@ func (c *Controller) HealthCheck(ctx context.Context) error {
 // Start initializes the controller and returns a channel of incoming messages.
 func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, error) {
 	fmt.Printf("[zigbee] starting controller on port %s...\n", c.settings.Port)
+	fmt.Printf("[zigbee] DEBUG: About to perform hardware reset...\n")
 
+	// Perform hardware reset first (similar to zigbee-herdsman and EZSP)
+	// This ensures the device is in a known state before initialization
+	fmt.Printf("[zigbee] performing hardware reset (DTR toggle)...\n")
+	if err := c.port.ResetDevice(); err != nil {
+		// Reset failure is not fatal - device might not support it
+		fmt.Printf("[zigbee] Warning: hardware reset failed (continuing): %v\n", err)
+	} else {
+		fmt.Printf("[zigbee] hardware reset completed successfully\n")
+	}
+
+	// Give device time to stabilize after reset
+	// Z-Stack 3.x devices may need more time to boot
+	fmt.Printf("[zigbee] waiting for device to stabilize after reset...\n")
+	time.Sleep(500 * time.Millisecond) // Increased from 100ms to 500ms for Z-Stack 3.x
+
+	fmt.Printf("[zigbee] sending magic byte (0xEF) to skip bootloader...\n")
 	err := c.port.WriteMagicByteForBootloader()
 	if err != nil {
 		return nil, fmt.Errorf("writing magic byte for bootloader: %w", err)
 	}
+	fmt.Printf("[zigbee] magic byte sent, waiting for device to process...\n")
+
+	// Z-Stack 3.x may need time to process the magic byte and exit bootloader
+	time.Sleep(500 * time.Millisecond)
 
 	// This command is used to test communication with the device.
 	// The response may be slow if the device has to finish booting,
 	// therefore we use a custom timeout value.
-	_, err = c.port.WriteCommandTimeout(SysVersionRequest{}, 10*time.Second)
+	// Z-Stack 3.x might need even longer, so we use 15 seconds
+	fmt.Printf("[zigbee] sending SysVersionRequest (timeout: 15s)...\n")
+	_, err = c.port.WriteCommandTimeout(SysVersionRequest{}, 15*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("getting system version: %w", err)
 	}
@@ -121,16 +146,27 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 	fmt.Printf("[zigbee] device info received, checking state...\n")
 
 	deviceInfo := response.(UtilGetDeviceInfoResponse)
+	fmt.Printf("[zigbee] Device state: %v (Coordinator=%v)\n", deviceInfo.DeviceState, DeviceStateCoordinator)
 	if deviceInfo.DeviceState != DeviceStateCoordinator {
+		fmt.Printf("[zigbee] Device not in coordinator state, starting coordinator...\n")
+		// Register handler BEFORE sending the command
 		handler := c.port.RegisterOneOffHandler(ZdoStateChangeInd{})
+		fmt.Printf("[zigbee] Handler registered for ZdoStateChangeInd\n")
+
 		_, err = c.port.WriteCommand(ZdoStartupFromAppRequest{StartDelay: 100})
 		if err != nil {
 			return nil, fmt.Errorf("sending startup from app: %w", err)
 		}
-		_, err := handler.Receive()
+		fmt.Printf("[zigbee] ZdoStartupFromAppRequest sent, waiting for ZdoStateChangeInd (timeout: 30s)...\n")
+
+		// Use a longer timeout for state change - Z-Stack 3.x might need more time
+		stateChange, err := handler.Receive()
 		if err != nil {
 			return nil, fmt.Errorf("waiting for state change: %w", err)
 		}
+		fmt.Printf("[zigbee] Received state change indication: %+v\n", stateChange)
+	} else {
+		fmt.Printf("[zigbee] Device already in coordinator state, skipping startup\n")
 	}
 
 	// Activate endpoints to receive incoming messages.
@@ -252,6 +288,20 @@ func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, er
 		Channel:               info.Channel,
 		State:                 deviceInfo.DeviceState.String(),
 	}, nil
+}
+
+// FormNetwork creates a new Zigbee network with the specified parameters.
+// For Z-Stack, this requires setting NV memory parameters before calling ZdoStartupFromApp.
+// This is not yet implemented - Z-Stack network formation is more complex than Ember.
+func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParameters) error {
+	// TODO: Implement Z-Stack network formation
+	// This requires:
+	// 1. Setting ZCD_NV_PANID in NV memory
+	// 2. Setting ZCD_NV_EXTENDED_PANID in NV memory
+	// 3. Setting ZCD_NV_CHANLIST in NV memory
+	// 4. Setting ZCD_NV_PRECFGKEY_ENABLE and ZCD_NV_PRECFGKEY in NV memory
+	// 5. Calling ZdoStartupFromApp which will form the network
+	return fmt.Errorf("ZNP FormNetwork not yet implemented - Z-Stack requires NV memory configuration")
 }
 
 // Close closes the controller and releases resources.

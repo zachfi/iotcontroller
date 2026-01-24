@@ -109,3 +109,20 @@ type NetworkInfo struct {
 	Channel               uint16
 	State                 string
 }
+
+// NetworkParameters defines the parameters for forming or joining a network.
+type NetworkParameters struct {
+	PanID         uint16  // 16-bit PAN ID
+	ExtendedPanID uint64  // 64-bit Extended PAN ID
+	Channel       uint8   // Radio channel (11-26 for 2.4GHz)
+	NetworkKey    [16]byte // 128-bit Network Key for encryption
+}
+
+// NetworkState represents the persisted network state that can be saved/loaded.
+// This allows swapping devices while maintaining the same network.
+type NetworkState struct {
+	PanID         uint16
+	ExtendedPanID uint64
+	Channel       uint8
+	NetworkKey    [16]byte
+}
