@@ -29,7 +29,7 @@ import (
 )
 
 // Dongle is the interface for interacting with a Zigbee coordinator dongle.
-// Implementations handle the stack-specific serial protocol (ZNP, EZSP, etc.)
+// Implementations handle the stack-specific serial protocol (ZNP, Ember, etc.)
 // and present a unified view of Zigbee network operations.
 type Dongle interface {
 	io.Closer
@@ -46,6 +46,12 @@ type Dongle interface {
 
 	// GetNetworkInfo returns information about the current network state.
 	GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, error)
+
+	// FormNetwork creates a new Zigbee network with the specified parameters.
+	// This should be called before Start() if the device is not already part of a network.
+	// The network parameters should be persisted so the same network can be restored
+	// when swapping devices.
+	FormNetwork(ctx context.Context, params types.NetworkParameters) error
 }
 
 // Re-export types for convenience

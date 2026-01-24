@@ -3,6 +3,7 @@ package zigbeedongle
 import (
 	"fmt"
 
+	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/ember"
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/znp"
 )
 
@@ -11,7 +12,7 @@ import (
 //
 // Each stack implementation handles its own serial protocol:
 //   - ZNP: Z-Stack Network Processor protocol
-//   - EZSP: EmberZNet Serial Protocol (not yet implemented)
+//   - Ember: Ember stack (uses EZSP protocol)
 //
 // All implementations produce the same stack-agnostic IncomingMessage and OutgoingMessage types.
 func NewDongle(cfg Config) (Dongle, error) {
@@ -23,9 +24,11 @@ func NewDongle(cfg Config) (Dongle, error) {
 	switch stackType {
 	case StackTypeZNP:
 		settings := znp.Settings{
-			Port:        cfg.Port,
-			LogCommands: cfg.LogCommands,
-			LogErrors:   cfg.LogErrors,
+			Port:               cfg.Port,
+			BaudRate:           cfg.BaudRate,
+			DisableFlowControl: cfg.DisableFlowControl,
+			LogCommands:        cfg.LogCommands,
+			LogErrors:          cfg.LogErrors,
 		}
 
 		controller, err := znp.NewController(settings)
@@ -35,10 +38,23 @@ func NewDongle(cfg Config) (Dongle, error) {
 
 		return controller, nil
 
-	case StackTypeEZSP:
-		return nil, fmt.Errorf("EZSP stack not yet implemented")
+	case StackTypeEmber:
+		settings := ember.Settings{
+			Port:               cfg.Port,
+			BaudRate:           cfg.BaudRate,
+			DisableFlowControl: cfg.DisableFlowControl,
+			LogCommands:        cfg.LogCommands,
+			LogErrors:          cfg.LogErrors,
+		}
+
+		controller, err := ember.NewController(settings)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Ember controller: %w", err)
+		}
+
+		return controller, nil
 
 	default:
-		return nil, fmt.Errorf("unknown stack type: %q (supported: %q, %q)", stackType, StackTypeZNP, StackTypeEZSP)
+		return nil, fmt.Errorf("unknown stack type: %q (supported: %q, %q)", stackType, StackTypeZNP, StackTypeEmber)
 	}
 }
