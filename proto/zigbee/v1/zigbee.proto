@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package zigbee.v1;
+
+// Zigbee Network Types
+// These types represent Zigbee network state and configuration.
+// They provide a unified abstraction that works across different Zigbee stack implementations
+// (Ember/EZSP, Z-Stack/ZNP, etc.) and can be used for gRPC services.
+
+// NetworkState represents the current state of a Zigbee network node.
+// Based on EmberNetworkStatus from EmberZNet/EZSP (values 0-6) and DeviceState from Z-Stack.
+// This is a unified abstraction that maps both Ember and Z-Stack states.
+enum NetworkState {
+  NETWORK_STATE_UNSPECIFIED = 0;
+  // The node is not associated with a network in any way.
+  // Maps to: EmberNetworkStatus.NO_NETWORK (0), Z-Stack DeviceState.InitializedNotStarted
+  NETWORK_STATE_NO_NETWORK = 1;
+  // The node is currently attempting to join a network.
+  // Maps to: EmberNetworkStatus.JOINING_NETWORK (1), Z-Stack DeviceState.Joining
+  NETWORK_STATE_JOINING_NETWORK = 2;
+  // The node is joined to a network and operational.
+  // Maps to: EmberNetworkStatus.JOINED_NETWORK (2), Z-Stack DeviceState.Coordinator/Router/EndDevice
+  NETWORK_STATE_JOINED_NETWORK = 3;
+  // The node is an end device joined to a network but its parent is not responding.
+  // Maps to: EmberNetworkStatus.JOINED_NETWORK_NO_PARENT (3), Z-Stack DeviceState.Orphan
+  NETWORK_STATE_JOINED_NETWORK_NO_PARENT = 4;
+  // The node is in the process of leaving its current network.
+  // Maps to: EmberNetworkStatus.LEAVING_NETWORK (6)
+  NETWORK_STATE_LEAVING_NETWORK = 5;
+}
+
+// NetworkInfo contains information about the current Zigbee network state.
+message NetworkInfo {
+  uint32 short_address = 1;           // 16-bit network address (node ID)
+  uint32 pan_id = 2;                  // 16-bit PAN ID
+  uint32 parent_address = 3;          // 16-bit parent node address
+  uint64 extended_pan_id = 4;         // 64-bit Extended PAN ID
+  uint64 extended_parent_address = 5; // 64-bit Extended Parent Address (EUI64)
+  uint32 channel = 6;                 // Radio channel (11-26 for 2.4GHz)
+  NetworkState state = 7;             // Current network state
+}
+
+// NetworkParameters defines the parameters for forming or joining a Zigbee network.
+// These parameters must be consistent across device swaps to maintain the same network.
+message NetworkParameters {
+  uint32 pan_id = 1;                  // 16-bit PAN ID
+  uint64 extended_pan_id = 2;          // 64-bit Extended PAN ID
+  uint32 channel = 3;                  // Radio channel (11-26 for 2.4GHz)
+  bytes network_key = 4;               // 128-bit (16 bytes) Network Key for encryption
+}
+
+// PersistedNetworkState represents the network state saved to disk.
+// This allows the same network to be restored when swapping devices.
+message PersistedNetworkState {
+  uint32 pan_id = 1;
+  uint64 extended_pan_id = 2;
+  uint32 channel = 3;
+  bytes network_key = 4;
+}
