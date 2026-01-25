@@ -118,13 +118,23 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 	fmt.Printf("[zigbee] waiting for device to stabilize after reset...\n")
 	time.Sleep(500 * time.Millisecond) // Increased from 100ms to 500ms for Z-Stack 3.x
 
+	// Note: When RTS/CTS flow control is enabled, the kernel should automatically
+	// manage RTS based on buffer availability. Manual assertion may conflict with
+	// the kernel's automatic management. However, some devices may need RTS asserted
+	// initially. If you're not receiving data with flow control enabled, try:
+	// 1. Disabling flow control (if device doesn't support it)
+	// 2. Checking RTS/CTS wiring
+	// 3. Verifying device firmware supports RTS/CTS flow control
+
 	fmt.Printf("[zigbee] sending magic byte (0xEF) to skip bootloader...\n")
 	err := c.port.WriteMagicByteForBootloader()
 	if err != nil {
 		return nil, fmt.Errorf("writing magic byte for bootloader: %w", err)
 	}
-	fmt.Printf("[zigbee] magic byte sent, waiting for device to process...\n")
+	fmt.Printf("[zigbee] magic byte sent, proceeding immediately (device may send SYS_RESET_IND asynchronously)...\n")
 
+	// Note: The device MAY send SYS_RESET_IND after the magic byte, but we don't wait for it.
+	// The continuous read loop will handle it if it arrives. We proceed immediately like the vendor code.
 	// Z-Stack 3.x may need time to process the magic byte and exit bootloader
 	time.Sleep(500 * time.Millisecond)
 
@@ -138,7 +148,13 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 		return nil, fmt.Errorf("getting system version: %w", err)
 	}
 
-	response, err := c.port.WriteCommand(UtilGetDeviceInfoRequest{})
+	// Give device a moment after SysVersionRequest before sending UtilGetDeviceInfoRequest
+	// Some devices may need time to process the first command
+	time.Sleep(200 * time.Millisecond)
+
+	fmt.Printf("[zigbee] sending UtilGetDeviceInfoRequest (timeout: 10s)...\n")
+	// Use longer timeout - some devices are slow to respond to UtilGetDeviceInfoRequest
+	response, err := c.port.WriteCommandTimeout(UtilGetDeviceInfoRequest{}, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("getting device info: %w", err)
 	}
@@ -279,6 +295,20 @@ func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, er
 	}
 	deviceInfo := deviceInfoResp.(UtilGetDeviceInfoResponse)
 
+	// Map ZNP DeviceState to NetworkState enum
+	var networkState types.NetworkState
+	switch deviceInfo.DeviceState {
+	case DeviceStateCoordinator, DeviceStateRouter, DeviceStateEndDevice:
+		// Device is joined to a network
+		networkState = types.NetworkStateUp
+	case DeviceStateInitializedNotStarted:
+		// Device initialized but not started (not joined)
+		networkState = types.NetworkStateNotJoined
+	default:
+		// Unknown state
+		networkState = types.NetworkStateUnknown
+	}
+
 	return &types.NetworkInfo{
 		ShortAddress:          info.ShortAddress,
 		PanID:                 info.PanID,
@@ -286,7 +316,7 @@ func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, er
 		ExtendedPanID:         info.ExtendedPanID,
 		ExtendedParentAddress: info.ExtendedParentAddress,
 		Channel:               info.Channel,
-		State:                 deviceInfo.DeviceState.String(),
+		State:                 networkState,
 	}, nil
 }
 
