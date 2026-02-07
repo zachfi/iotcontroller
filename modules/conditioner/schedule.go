@@ -15,6 +15,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// schedule holds named events that fire at a given time and send a single
+// request (SetState/SetScene) to the ZoneKeeper. Events are run in a
+// dedicated goroutine (run) that reads from itemCh; each event runs in its
+// own goroutine and sends on itemCh when its timer fires, unless cancelled
+// by remove or add (same name).
 type schedule struct {
 	sync.Mutex
 
@@ -26,24 +31,30 @@ type schedule struct {
 	tracer trace.Tracer
 }
 
+// event is a single scheduled fire: at time t it will send req on itemCh
+// unless cancel is called (e.g. by remove or by re-add with the same name).
 type event struct {
 	cancel context.CancelFunc
 	t      time.Time
 	req    *request
 }
 
-// item is passed through the itemCh.  Wrap the request with the context to propagate the span context.
+// item is passed through the itemCh. The request is executed by run; name
+// is used to remove the event from the schedule after execution.
 type item struct {
 	ctx context.Context
 	*request
 	name string
 }
 
+// request holds either a SetState and/or SetScene call for the ZoneKeeper.
 type request struct {
 	stateReq *iotv1proto.SetStateRequest
 	sceneReq *iotv1proto.SetSceneRequest
 }
 
+// newSchedule creates a schedule with an empty events map and a single
+// itemCh. The caller must start run() in a goroutine to process events.
 func newSchedule(logger *slog.Logger) *schedule {
 	return &schedule{
 		events: make(map[string]*event, 1000),
@@ -53,7 +64,10 @@ func newSchedule(logger *slog.Logger) *schedule {
 	}
 }
 
-// add schedules a new event or updates an existing event by name.
+// add schedules a new event or updates an existing event by name. If an
+// event with the same name already exists, it is cancelled and replaced.
+// Re-adding with the same name, time, and request is a no-op. Returns
+// ErrEmptyRequest if req is nil or has neither stateReq nor sceneReq.
 func (s *schedule) add(ctx context.Context, name string, t time.Time, req *request) error {
 	var err error
 
@@ -86,7 +100,8 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req *reque
 		span.AddEvent("removed existing event")
 	}
 
-	// NOTE: use a background context for the job itself, and only rely on the cancle() method to stop it.
+	// Use a background context for the timer goroutine; cancellation is done
+	// only via cancel() (from remove or re-add), not the incoming ctx.
 	jobCtx, cancel := context.WithCancel(context.Background())
 	s.events[name] = &event{
 		cancel: cancel,
@@ -130,7 +145,10 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req *reque
 	return nil
 }
 
-// Remove cancels and removes a scheduled event by name.
+// remove cancels the event's timer goroutine and deletes it from the schedule.
+// If the event was already firing (sent on itemCh), run will still process
+// that item and then call remove again (no-op). Safe to call with a
+// non-existent name.
 func (s *schedule) remove(ctx context.Context, name string) {
 	s.Lock()
 	defer s.Unlock()
@@ -148,7 +166,10 @@ func (s *schedule) remove(ctx context.Context, name string) {
 	}
 }
 
-// run consumes items from the channel and executes the requests with the zonekeeper client.
+// run is the single consumer of itemCh: it blocks on itemCh or ctx.Done().
+// When an item is received, it executes the request via the ZoneKeeper client
+// and then removes the event by name. When ctx is cancelled, it stops all
+// events and returns. Must be started once per schedule (e.g. from starting).
 func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceClient) {
 	var i item
 	for {
@@ -169,6 +190,8 @@ func (s *schedule) run(ctx context.Context, client iotv1proto.ZoneKeeperServiceC
 	}
 }
 
+// stop cancels all scheduled events and clears the events map. Used when
+// the schedule runner is shutting down.
 func (s *schedule) stop() {
 	s.Lock()
 	defer s.Unlock()
@@ -179,6 +202,9 @@ func (s *schedule) stop() {
 	}
 }
 
+// execRequest sends the request to the ZoneKeeper: SetScene (if sceneReq is
+// set) and/or SetState (if stateReq is set). Returns the first error from
+// either call.
 func (s *schedule) execRequest(ctx context.Context, req *request, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
 	var err error
 
@@ -206,6 +232,7 @@ func (s *schedule) execRequest(ctx context.Context, req *request, zonekeeperClie
 	return nil
 }
 
+// scheduleStatus is a snapshot of one scheduled event for Status().
 type scheduleStatus struct {
 	Name  string
 	Next  string
@@ -213,6 +240,7 @@ type scheduleStatus struct {
 	State string
 }
 
+// Status returns all scheduled events sorted by next run time.
 func (s *schedule) Status() []scheduleStatus {
 	s.Lock()
 	defer s.Unlock()
@@ -243,12 +271,15 @@ func (s *schedule) Status() []scheduleStatus {
 	return states
 }
 
+// len returns the number of scheduled events (for tests).
 func (s *schedule) len() int {
 	s.Lock()
 	defer s.Unlock()
 	return len(s.events)
 }
 
+// matched reports whether two requests are equivalent (same zone/scene or
+// zone/state). Used by add to avoid replacing an event when nothing changed.
 func matched(a, b *request) bool {
 	if a == nil && b == nil {
 		return true

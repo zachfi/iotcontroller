@@ -50,6 +50,10 @@ spec:
                 type: string
               remediations:
                 items:
+                  description: 'Remediation describes what to do to a zone when a
+                    condition matches: which zone, active/inactive state and scene,
+                    optional WhenGate (epoch window), and optional TimeIntervals (alert
+                    windows).'
                   properties:
                     active_scene:
                       type: string
@@ -87,9 +91,9 @@ spec:
                             description: Times is a list of start/end times. We use
                               a local struct here to ensure deepcopy generation works.
                             items:
-                              description: TimePeriod mirrors the `yamlTimeRange`
-                                struct from the upstream package. We use strings here
-                                because Prometheus expects "HH:MM".
+                              description: TimePeriod defines a time range within
+                                a day. StartTime and EndTime use "HH:MM" format (24-hour).
+                                Mirrors the upstream Prometheus timeinterval format.
                               properties:
                                 end_time:
                                   type: string
@@ -114,10 +118,10 @@ spec:
                         type: object
                       type: array
                     when_gate:
-                      description: WhenGate is relative to the Epoch event, and use
-                        used to create an activation window.  When the window opens,
-                        the zone is activated, and when the window window closes,
-                        the zone is deactivated.
+                      description: WhenGate is relative to the Epoch event and is
+                        used to create an activation window. When the window opens,
+                        the zone is activated; when the window closes, the zone is
+                        deactivated.
                       properties:
                         start:
                           type: string

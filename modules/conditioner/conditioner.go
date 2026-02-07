@@ -1,3 +1,18 @@
+// Package conditioner evaluates Conditions (CRDs) and drives zone state and
+// scenes via the ZoneKeeper. It handles three inputs:
+//
+//   - Alert: webhook from Alertmanager. Matching conditions are activated
+//     (firing) or deactivated (resolved). Remediations can use TimeIntervals
+//     so activation only applies during certain times; a background check
+//     deactivates when the window closes.
+//   - Epoch: time-based events (e.g. sunrise). WhenGate defines a window
+//     around the event; activations and deactivations are scheduled at
+//     window start/stop.
+//   - Timer: cron-style schedules on Conditions run remediations at the next
+//     cron time.
+//
+// All activation/deactivation is performed by sending SetState/SetScene
+// to the ZoneKeeper client.
 package conditioner
 
 import (
@@ -38,6 +53,10 @@ func alertActiveKey(conditionName, zone string) string {
 	return conditionName + "/" + zone
 }
 
+// Conditioner evaluates Conditions from the cluster and applies remediations
+// (zone state/scene) via the ZoneKeeper. It runs a timer loop to process
+// cron schedules and to deactivate alert-driven remediations when their
+// TimeIntervals window has closed.
 type Conditioner struct {
 	services.Service
 	cfg *Config
@@ -57,6 +76,9 @@ type Conditioner struct {
 	alertActive   map[string]apiv1.Remediation
 }
 
+// New builds a Conditioner. ZoneKeeper client is required for activation and
+// deactivation; kube client is required for listing Conditions. Either may be
+// nil only in tests that do not call Alert, Epoch, or the timer.
 func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeperServiceClient, k kubeclient.Client) (*Conditioner, error) {
 	c := &Conditioner{
 		cfg:    &cfg,
@@ -75,6 +97,12 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 	return c, nil
 }
 
+// Alert handles an Alertmanager webhook. It lists Conditions, matches on
+// alert name/zone (and status firing/resolved), and activates or deactivates
+// remediations. Remediations with TimeIntervals are only considered active
+// when "now" is inside one of the intervals; if an alert fires during a
+// window, the remediation is tracked so runAlertWindowCheck can deactivate
+// it when the window closes.
 func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (*iotv1proto.AlertResponse, error) {
 	var (
 		err  error
@@ -157,6 +185,11 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 	return &iotv1proto.AlertResponse{}, nil
 }
 
+// Epoch handles a time-based event (e.g. sunrise/sunset). It lists Conditions
+// matching the event location/name, computes each remediation's window from
+// WhenGate (duration strings relative to the event time), and either
+// activates/deactivates immediately or schedules add/remove at window
+// start/stop.
 func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (*iotv1proto.EpochResponse, error) {
 	now := time.Now()
 	var err error
@@ -269,10 +302,14 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 	return nil, nil
 }
 
+// Status returns the current scheduled events (name, next run time, scene/state).
 func (c *Conditioner) Status() []scheduleStatus {
 	return c.sched.Status()
 }
 
+// setSchedule updates the schedule for a Condition: on the next cron tick,
+// each of its remediations is activated. Disabled or empty schedule
+// removes any existing events for this condition.
 func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 	var err error
 
@@ -317,6 +354,8 @@ func (c *Conditioner) setSchedule(ctx context.Context, cond apiv1.Condition) {
 	}
 }
 
+// matchCondition returns true if the condition is enabled and every
+// Spec.Matches entry has a matching label in labels (same key and value).
 func (c *Conditioner) matchCondition(_ context.Context, labels map[string]string, cond apiv1.Condition) bool {
 	if !cond.Spec.Enabled {
 		return false
@@ -342,7 +381,7 @@ func (c *Conditioner) matchCondition(_ context.Context, labels map[string]string
 	return true
 }
 
-// timeContains checks if the time t is within the start and stop times.
+// timeContains reports whether t is inside [start, stop] (inclusive).
 func (c *Conditioner) timeContains(ctx context.Context, t, start, stop time.Time) bool {
 	_, span := c.tracer.Start(ctx, "Conditioner.timeContains")
 	defer span.End()
@@ -364,8 +403,10 @@ func (c *Conditioner) timeContains(ctx context.Context, t, start, stop time.Time
 	return false
 }
 
-// epochWindow calculates the start and stop times for the epoch window based
-// on the event time and the when configuration.
+// epochWindow computes the activation window [start, stop] for an epoch event.
+// When.Start and When.Stop are Go duration strings (e.g. "-30m", "1h") applied
+// relative to eventTime. If Start is empty, start is eventTime - 1 minute; if
+// Stop is empty, stop is eventTime + EpochTimeWindow.
 func (c *Conditioner) epochWindow(ctx context.Context, eventTime time.Time, when apiv1.When) (start, stop time.Time, err error) {
 	_, span := c.tracer.Start(ctx, "Conditioner.epochWindow")
 	defer span.End()
@@ -433,6 +474,12 @@ func (c *Conditioner) untrackAlertActive(conditionName string, rem apiv1.Remedia
 // active window, deactivates it so the zone does not stay in the wrong state
 // when no further alert arrives.
 func (c *Conditioner) runAlertWindowCheck(ctx context.Context) {
+	c.runAlertWindowCheckAt(ctx, time.Now())
+}
+
+// runAlertWindowCheckAt is the same as runAlertWindowCheck but accepts a fixed
+// time for testing. Production code uses runAlertWindowCheck.
+func (c *Conditioner) runAlertWindowCheckAt(ctx context.Context, now time.Time) {
 	c.alertActiveMu.Lock()
 	snapshot := make(map[string]apiv1.Remediation, len(c.alertActive))
 	for k, v := range c.alertActive {
@@ -444,7 +491,6 @@ func (c *Conditioner) runAlertWindowCheck(ctx context.Context) {
 		return
 	}
 
-	now := time.Now()
 	for key, rem := range snapshot {
 		if !c.withinActiveWindow(ctx, rem, now) {
 			c.logger.Info("alert time window closed, deactivating remediation",
@@ -496,6 +542,9 @@ func (c *Conditioner) withinActiveWindow(ctx context.Context, rem apiv1.Remediat
 	return
 }
 
+// runTimerLoop runs the timer ticker: on each tick it processes cron-based
+// schedules (runTimer) and then runs the alert window check so remediations
+// whose TimeIntervals window has closed are deactivated.
 func (c *Conditioner) runTimerLoop(ctx context.Context) {
 	t := time.NewTicker(c.cfg.TimerLoopInterval)
 	defer t.Stop()
@@ -511,6 +560,8 @@ func (c *Conditioner) runTimerLoop(ctx context.Context) {
 	}
 }
 
+// runTimer lists Conditions, updates schedules from Spec.Schedule (cron), and
+// adds the next activation event for each remediation at the next cron time.
 func (c *Conditioner) runTimer(ctx context.Context) {
 	var (
 		list  = &apiv1.ConditionList{}
@@ -557,6 +608,8 @@ func (s *schedule) deactivateRemediation(ctx context.Context, rem apiv1.Remediat
 	return s.execRequest(ctx, deactivateRequest(ctx, rem), zonekeeperClient)
 }
 
+// activateRequest builds a request that applies the remediation's ActiveScene
+// and/or ActiveState to the zone. Returns nil if the remediation has neither.
 func activateRequest(_ context.Context, rem apiv1.Remediation) *request {
 	req := &request{}
 
@@ -583,6 +636,9 @@ func activateRequest(_ context.Context, rem apiv1.Remediation) *request {
 	return nil
 }
 
+// deactivateRequest builds a request that applies the remediation's
+// InactiveScene and/or InactiveState to the zone. Returns nil if the
+// remediation has neither.
 func deactivateRequest(_ context.Context, rem apiv1.Remediation) *request {
 	req := &request{}
 

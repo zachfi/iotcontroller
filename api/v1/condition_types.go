@@ -55,8 +55,23 @@ type ConditionList struct {
 	Items           []Condition `json:"items"`
 }
 
+// Remediation describes what to do to a zone when a condition matches: which
+// zone, active/inactive state and scene, optional WhenGate (epoch window), and
+// optional TimeIntervals (alert windows).
 type Remediation struct {
 	Zone string `json:"zone,omitempty"`
+
+	// TODO: add support for action names.
+	//
+	// Instead of hardcoding the actions, if conditions leveraged an action, we
+	// could have free form and allow the user to define what a 4_single or
+	// quadrupal meant for what zones.
+	//
+	// This would allow a condition to specify what to handle.  Perhaps a single
+	// condition could have multiple actions that set the scene active, etc so
+	// that devices which expose different actions could perform the same zone
+	// actions.  Consider conflicting conditions.
+	//
 
 	// Activate and deacvate the zones to these states/scenes.
 
@@ -66,9 +81,9 @@ type Remediation struct {
 	ActiveScene   string `json:"active_scene,omitempty"`
 	InactiveScene string `json:"inactive_scene,omitempty"`
 
-	// WhenGate is relative to the Epoch event, and use used to create an
-	// activation window.  When the window opens, the zone is activated, and when
-	// the window window closes, the zone is deactivated.
+	// WhenGate is relative to the Epoch event and is used to create an
+	// activation window. When the window opens, the zone is activated; when
+	// the window closes, the zone is deactivated.
 	WhenGate When `json:"when_gate,omitempty"`
 
 	// TimeIntervals define the windows during which this remediation is
@@ -78,6 +93,10 @@ type Remediation struct {
 	TimeIntervals []TimeIntervalSpec `json:"time_intervals,omitempty"`
 }
 
+// When defines an activation window relative to an epoch event time.
+// Start and Stop are Go duration strings (e.g. "-30m", "1h") applied to the
+// event time. Empty Start defaults to event time - 1 minute; empty Stop
+// uses the conditioner's EpochTimeWindow.
 type When struct {
 	Start string `json:"start,omitempty"`
 	Stop  string `json:"stop,omitempty"`

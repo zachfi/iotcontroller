@@ -86,6 +86,35 @@ func Test_schedule(t *testing.T) {
 	require.Equal(t, 0, s.len(), "expected all vents to be processed")
 }
 
+func Test_schedule_remove(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+
+	rec := &recordingZoneKeeper{}
+	s := newSchedule(testlogger)
+	require.NotNil(t, s)
+
+	go s.run(ctx, rec)
+
+	req := &request{
+		stateReq: &iotv1proto.SetStateRequest{
+			Name:  "zone1",
+			State: iotv1proto.ZoneState_ZONE_STATE_OFF,
+		},
+	}
+	err := s.add(ctx, "remove-test", time.Now().Add(2*time.Second), req)
+	require.NoError(t, err)
+	require.Equal(t, 1, s.len())
+
+	time.Sleep(20 * time.Millisecond)
+	s.remove(ctx, "remove-test")
+	require.Equal(t, 0, s.len())
+
+	time.Sleep(2500 * time.Millisecond)
+	require.Equal(t, 0, rec.setStateCount(), "event was removed; SetState should not have been called")
+	require.Equal(t, 0, rec.setSceneCount())
+}
+
 func Test_matched(t *testing.T) {
 	cases := map[string]struct {
 		a      *request

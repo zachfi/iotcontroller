@@ -29,8 +29,8 @@ type TimeIntervalSpec struct {
 	Location string `json:"location,omitempty"`
 }
 
-// TimePeriod mirrors the `yamlTimeRange` struct from the upstream package.
-// We use strings here because Prometheus expects "HH:MM".
+// TimePeriod defines a time range within a day. StartTime and EndTime use
+// "HH:MM" format (24-hour). Mirrors the upstream Prometheus timeinterval format.
 // +kubebuilder:object:generate=true
 type TimePeriod struct {
 	StartTime string `json:"start_time"`
