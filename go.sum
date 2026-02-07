@@ -380,6 +380,14 @@ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 h1:nn5Wsu0esKSJiIVhscUt
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg65j358z/aeFdxmN0P9QXhEzd20vsDc=
 github.com/sercand/kuberesolver/v6 v6.0.0 h1:ScvS2Ga9snVkpOahln/BCLySr3/iBAHJf25u66DweZ0=
 github.com/sercand/kuberesolver/v6 v6.0.0/go.mod h1:Dxkqms3OJadP5zirIBPLi9FV8Qpys3T3w40XPEcVsu0=
+github.com/shimmeringbee/bytecodec v0.0.0-20210228205504-1e9e0677347b/go.mod h1:WYnxfxTJ45UQ+xeAuuTSIalcEepgP8Rb7T/OhCaDdgo=
+github.com/shimmeringbee/bytecodec v0.0.0-20240614104652-9d31c74dcd13 h1:GiNQq9XzoQerCE/eI8/NEPJ7W+iy0FRSn6whgnPlb3w=
+github.com/shimmeringbee/bytecodec v0.0.0-20240614104652-9d31c74dcd13/go.mod h1:WYnxfxTJ45UQ+xeAuuTSIalcEepgP8Rb7T/OhCaDdgo=
+github.com/shimmeringbee/zcl v0.0.0-20240614104719-4eee02c0ffd1 h1:19JMz+jKs8poUPlmF769Z2e+zZjmACS+aLB2BHFTKHE=
+github.com/shimmeringbee/zcl v0.0.0-20240614104719-4eee02c0ffd1/go.mod h1:DeGINQ0C9S61qBON9Zm2RArEBX4ap1LyHClfUgSUTEM=
+github.com/shimmeringbee/zigbee v0.0.0-20240614103911-3a30074e1528/go.mod h1:BDCm9qtlJANPiLY+YRQac/0awPxeUd3FUxUFPh+1w/s=
+github.com/shimmeringbee/zigbee v0.0.0-20240614104723-f4c0c0231568 h1:DnZ/kbXJZtihjqB7mz92hhUeP0+v0jYl5DJIznWdlL4=
+github.com/shimmeringbee/zigbee v0.0.0-20240614104723-f4c0c0231568/go.mod h1:BDCm9qtlJANPiLY+YRQac/0awPxeUd3FUxUFPh+1w/s=
 github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c h1:aqg5Vm5dwtvL+YgDpBcK1ITf3o96N/K7/wsRXQnUTEs=
 github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c/go.mod h1:owqhoLW1qZoYLZzLnBw+QkPP9WZnjlSWihhxAJC1+/M=
 github.com/shurcooL/vfsgen v0.0.0-20230704071429-0000e147ea92 h1:OfRzdxCzDhp+rsKWXuOO2I/quKMJ/+TQwVbIP/gltZg=

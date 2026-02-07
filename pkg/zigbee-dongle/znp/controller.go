@@ -13,6 +13,9 @@ type Controller struct {
 	port     *Port
 	settings *Settings
 	sequence uint32
+
+	// Device join events channel (initialized in NewController, remains open until controller is closed)
+	joinEvents chan DeviceJoinEvent
 }
 
 type Settings struct {
@@ -68,8 +71,9 @@ func NewController(settings Settings) (*Controller, error) {
 	}
 
 	return &Controller{
-		port:     port,
-		settings: &settings,
+		port:       port,
+		settings:   &settings,
+		joinEvents: make(chan DeviceJoinEvent, 10), // Initialize join events channel
 	}, nil
 }
 
@@ -96,6 +100,12 @@ func (c *Controller) HealthCheck(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+// DeviceJoinEvent represents a device joining the network.
+type DeviceJoinEvent struct {
+	NetworkAddress uint16
+	IEEEAddress    uint64
 }
 
 // Start initializes the controller and returns a channel of incoming messages.
@@ -214,6 +224,16 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 	handler := c.port.RegisterPermanentHandler(AfIncomingMsg{})
 	output := make(chan types.IncomingMessage)
 
+	// Ensure join events channel is initialized (should already be initialized in NewController)
+	if c.joinEvents == nil {
+		c.joinEvents = make(chan DeviceJoinEvent, 10) // Buffered channel for join events
+	}
+
+	// Register handlers for device join events (for interview triggering)
+	// These are ZDO async messages, not AF messages, so they need separate handlers
+	deviceJoinHandler := c.port.RegisterPermanentHandler(ZdoEndDeviceAnnceInd{})
+	tcDeviceHandler := c.port.RegisterPermanentHandler(ZdoTcDevInd{})
+
 	go func() {
 		defer close(output)
 		for {
@@ -238,7 +258,66 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 		}
 	}()
 
+	// Handle device join events and send to joinEvents channel
+	go func() {
+		for {
+			cmd, err := deviceJoinHandler.Receive()
+			if err != nil {
+				break
+			}
+			announce := cmd.(ZdoEndDeviceAnnceInd)
+			if c.settings.LogCommands {
+				fmt.Printf("[zigbee] Device joined: NWK=0x%04x, IEEE=0x%016x\n", announce.NwkAddr, announce.IEEEAddr)
+			}
+			// Send join event (non-blocking)
+			if c.joinEvents != nil {
+				select {
+				case c.joinEvents <- DeviceJoinEvent{
+					NetworkAddress: announce.NwkAddr,
+					IEEEAddress:    announce.IEEEAddr,
+				}:
+				default:
+					// Channel full, skip (shouldn't happen with buffered channel)
+				}
+			}
+		}
+	}()
+
+	// Handle Trust Center device events (also indicate device joins)
+	go func() {
+		for {
+			cmd, err := tcDeviceHandler.Receive()
+			if err != nil {
+				break
+			}
+			tcDev := cmd.(ZdoTcDevInd)
+			if c.settings.LogCommands {
+				fmt.Printf("[zigbee] Trust Center device: NWK=0x%04x, IEEE=0x%016x, Parent=0x%04x\n",
+					tcDev.SrcNwkAddr, tcDev.SrcIEEEAddr, tcDev.ParentNwkAddr)
+			}
+			// Trust Center device events also indicate a device joined
+			// Send join event (non-blocking)
+			if c.joinEvents != nil {
+				select {
+				case c.joinEvents <- DeviceJoinEvent{
+					NetworkAddress: tcDev.SrcNwkAddr,
+					IEEEAddress:    tcDev.SrcIEEEAddr,
+				}:
+				default:
+					// Channel full, skip
+				}
+			}
+		}
+	}()
+
 	return output, nil
+}
+
+// DeviceJoinEvents returns a channel of device join events.
+// This channel will receive events when devices join the network.
+// The channel is created when Start() is called and remains open until the controller is closed.
+func (c *Controller) DeviceJoinEvents() <-chan DeviceJoinEvent {
+	return c.joinEvents
 }
 
 // Send sends a message to a device on the Zigbee network.
@@ -315,7 +394,7 @@ func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, er
 		ParentAddress:         info.ParentAddress,
 		ExtendedPanID:         info.ExtendedPanID,
 		ExtendedParentAddress: info.ExtendedParentAddress,
-		Channel:               info.Channel,
+		Channel:               uint16(info.Channel), // Convert uint8 to uint16 for NetworkInfo
 		State:                 networkState,
 	}, nil
 }

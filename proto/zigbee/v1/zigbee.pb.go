@@ -92,6 +92,177 @@ func (NetworkState) EnumDescriptor() ([]byte, []int) {
 	return file_zigbee_v1_zigbee_proto_rawDescGZIP(), []int{0}
 }
 
+// InterviewState represents the state of a device interview process.
+type InterviewState int32
+
+const (
+	InterviewState_INTERVIEW_STATE_UNSPECIFIED InterviewState = 0
+	InterviewState_INTERVIEW_STATE_PENDING     InterviewState = 1 // Interview not yet started
+	InterviewState_INTERVIEW_STATE_IN_PROGRESS InterviewState = 2 // Interview currently in progress
+	InterviewState_INTERVIEW_STATE_SUCCESSFUL  InterviewState = 3 // Interview completed successfully
+	InterviewState_INTERVIEW_STATE_FAILED      InterviewState = 4 // Interview failed
+)
+
+// Enum value maps for InterviewState.
+var (
+	InterviewState_name = map[int32]string{
+		0: "INTERVIEW_STATE_UNSPECIFIED",
+		1: "INTERVIEW_STATE_PENDING",
+		2: "INTERVIEW_STATE_IN_PROGRESS",
+		3: "INTERVIEW_STATE_SUCCESSFUL",
+		4: "INTERVIEW_STATE_FAILED",
+	}
+	InterviewState_value = map[string]int32{
+		"INTERVIEW_STATE_UNSPECIFIED": 0,
+		"INTERVIEW_STATE_PENDING":     1,
+		"INTERVIEW_STATE_IN_PROGRESS": 2,
+		"INTERVIEW_STATE_SUCCESSFUL":  3,
+		"INTERVIEW_STATE_FAILED":      4,
+	}
+)
+
+func (x InterviewState) Enum() *InterviewState {
+	p := new(InterviewState)
+	*p = x
+	return p
+}
+
+func (x InterviewState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (InterviewState) Descriptor() protoreflect.EnumDescriptor {
+	return file_zigbee_v1_zigbee_proto_enumTypes[1].Descriptor()
+}
+
+func (InterviewState) Type() protoreflect.EnumType {
+	return &file_zigbee_v1_zigbee_proto_enumTypes[1]
+}
+
+func (x InterviewState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use InterviewState.Descriptor instead.
+func (InterviewState) EnumDescriptor() ([]byte, []int) {
+	return file_zigbee_v1_zigbee_proto_rawDescGZIP(), []int{1}
+}
+
+// DeviceType represents the type of Zigbee device.
+type DeviceType int32
+
+const (
+	DeviceType_DEVICE_TYPE_UNSPECIFIED DeviceType = 0
+	DeviceType_DEVICE_TYPE_COORDINATOR DeviceType = 1
+	DeviceType_DEVICE_TYPE_ROUTER      DeviceType = 2
+	DeviceType_DEVICE_TYPE_END_DEVICE  DeviceType = 3
+)
+
+// Enum value maps for DeviceType.
+var (
+	DeviceType_name = map[int32]string{
+		0: "DEVICE_TYPE_UNSPECIFIED",
+		1: "DEVICE_TYPE_COORDINATOR",
+		2: "DEVICE_TYPE_ROUTER",
+		3: "DEVICE_TYPE_END_DEVICE",
+	}
+	DeviceType_value = map[string]int32{
+		"DEVICE_TYPE_UNSPECIFIED": 0,
+		"DEVICE_TYPE_COORDINATOR": 1,
+		"DEVICE_TYPE_ROUTER":      2,
+		"DEVICE_TYPE_END_DEVICE":  3,
+	}
+)
+
+func (x DeviceType) Enum() *DeviceType {
+	p := new(DeviceType)
+	*p = x
+	return p
+}
+
+func (x DeviceType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeviceType) Descriptor() protoreflect.EnumDescriptor {
+	return file_zigbee_v1_zigbee_proto_enumTypes[2].Descriptor()
+}
+
+func (DeviceType) Type() protoreflect.EnumType {
+	return &file_zigbee_v1_zigbee_proto_enumTypes[2]
+}
+
+func (x DeviceType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DeviceType.Descriptor instead.
+func (DeviceType) EnumDescriptor() ([]byte, []int) {
+	return file_zigbee_v1_zigbee_proto_rawDescGZIP(), []int{2}
+}
+
+// PowerSource represents the power source of a Zigbee device.
+type PowerSource int32
+
+const (
+	PowerSource_POWER_SOURCE_UNSPECIFIED  PowerSource = 0
+	PowerSource_POWER_SOURCE_UNKNOWN      PowerSource = 1
+	PowerSource_POWER_SOURCE_MAINS        PowerSource = 2 // Mains power (single phase)
+	PowerSource_POWER_SOURCE_BATTERY      PowerSource = 3 // Battery power
+	PowerSource_POWER_SOURCE_DC           PowerSource = 4 // DC source
+	PowerSource_POWER_SOURCE_EMERGENCY    PowerSource = 5 // Emergency mains constantly powered
+	PowerSource_POWER_SOURCE_EMERGENCY_DC PowerSource = 6 // Emergency mains with transfer switch
+)
+
+// Enum value maps for PowerSource.
+var (
+	PowerSource_name = map[int32]string{
+		0: "POWER_SOURCE_UNSPECIFIED",
+		1: "POWER_SOURCE_UNKNOWN",
+		2: "POWER_SOURCE_MAINS",
+		3: "POWER_SOURCE_BATTERY",
+		4: "POWER_SOURCE_DC",
+		5: "POWER_SOURCE_EMERGENCY",
+		6: "POWER_SOURCE_EMERGENCY_DC",
+	}
+	PowerSource_value = map[string]int32{
+		"POWER_SOURCE_UNSPECIFIED":  0,
+		"POWER_SOURCE_UNKNOWN":      1,
+		"POWER_SOURCE_MAINS":        2,
+		"POWER_SOURCE_BATTERY":      3,
+		"POWER_SOURCE_DC":           4,
+		"POWER_SOURCE_EMERGENCY":    5,
+		"POWER_SOURCE_EMERGENCY_DC": 6,
+	}
+)
+
+func (x PowerSource) Enum() *PowerSource {
+	p := new(PowerSource)
+	*p = x
+	return p
+}
+
+func (x PowerSource) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PowerSource) Descriptor() protoreflect.EnumDescriptor {
+	return file_zigbee_v1_zigbee_proto_enumTypes[3].Descriptor()
+}
+
+func (PowerSource) Type() protoreflect.EnumType {
+	return &file_zigbee_v1_zigbee_proto_enumTypes[3]
+}
+
+func (x PowerSource) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PowerSource.Descriptor instead.
+func (PowerSource) EnumDescriptor() ([]byte, []int) {
+	return file_zigbee_v1_zigbee_proto_rawDescGZIP(), []int{3}
+}
+
 // NetworkInfo contains information about the current Zigbee network state.
 type NetworkInfo struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
@@ -325,6 +496,318 @@ func (x *PersistedNetworkState) GetNetworkKey() []byte {
 	return nil
 }
 
+// EndpointDescriptor describes a single endpoint on a Zigbee device.
+type EndpointDescriptor struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             uint32                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`                                                      // Endpoint ID (1-240)
+	ProfileId      uint32                 `protobuf:"varint,2,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`                       // Application profile ID (e.g., 0x0104 for Home Automation)
+	DeviceId       uint32                 `protobuf:"varint,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`                          // Device ID within the profile
+	DeviceVersion  uint32                 `protobuf:"varint,4,opt,name=device_version,json=deviceVersion,proto3" json:"device_version,omitempty"`           // Device version
+	InputClusters  []uint32               `protobuf:"varint,5,rep,packed,name=input_clusters,json=inputClusters,proto3" json:"input_clusters,omitempty"`    // List of input cluster IDs
+	OutputClusters []uint32               `protobuf:"varint,6,rep,packed,name=output_clusters,json=outputClusters,proto3" json:"output_clusters,omitempty"` // List of output cluster IDs
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *EndpointDescriptor) Reset() {
+	*x = EndpointDescriptor{}
+	mi := &file_zigbee_v1_zigbee_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointDescriptor) ProtoMessage() {}
+
+func (x *EndpointDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_zigbee_v1_zigbee_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointDescriptor.ProtoReflect.Descriptor instead.
+func (*EndpointDescriptor) Descriptor() ([]byte, []int) {
+	return file_zigbee_v1_zigbee_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *EndpointDescriptor) GetId() uint32 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *EndpointDescriptor) GetProfileId() uint32 {
+	if x != nil {
+		return x.ProfileId
+	}
+	return 0
+}
+
+func (x *EndpointDescriptor) GetDeviceId() uint32 {
+	if x != nil {
+		return x.DeviceId
+	}
+	return 0
+}
+
+func (x *EndpointDescriptor) GetDeviceVersion() uint32 {
+	if x != nil {
+		return x.DeviceVersion
+	}
+	return 0
+}
+
+func (x *EndpointDescriptor) GetInputClusters() []uint32 {
+	if x != nil {
+		return x.InputClusters
+	}
+	return nil
+}
+
+func (x *EndpointDescriptor) GetOutputClusters() []uint32 {
+	if x != nil {
+		return x.OutputClusters
+	}
+	return nil
+}
+
+// DeviceCapabilities describes the capabilities of a Zigbee device.
+type DeviceCapabilities struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	AlternatePanCoordinator bool                   `protobuf:"varint,1,opt,name=alternate_pan_coordinator,json=alternatePanCoordinator,proto3" json:"alternate_pan_coordinator,omitempty"` // Device can become PAN coordinator
+	ReceiverOnWhenIdle      bool                   `protobuf:"varint,2,opt,name=receiver_on_when_idle,json=receiverOnWhenIdle,proto3" json:"receiver_on_when_idle,omitempty"`              // Receiver stays on when idle
+	SecurityCapability      bool                   `protobuf:"varint,3,opt,name=security_capability,json=securityCapability,proto3" json:"security_capability,omitempty"`                  // Device supports security
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *DeviceCapabilities) Reset() {
+	*x = DeviceCapabilities{}
+	mi := &file_zigbee_v1_zigbee_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceCapabilities) ProtoMessage() {}
+
+func (x *DeviceCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_zigbee_v1_zigbee_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceCapabilities.ProtoReflect.Descriptor instead.
+func (*DeviceCapabilities) Descriptor() ([]byte, []int) {
+	return file_zigbee_v1_zigbee_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *DeviceCapabilities) GetAlternatePanCoordinator() bool {
+	if x != nil {
+		return x.AlternatePanCoordinator
+	}
+	return false
+}
+
+func (x *DeviceCapabilities) GetReceiverOnWhenIdle() bool {
+	if x != nil {
+		return x.ReceiverOnWhenIdle
+	}
+	return false
+}
+
+func (x *DeviceCapabilities) GetSecurityCapability() bool {
+	if x != nil {
+		return x.SecurityCapability
+	}
+	return false
+}
+
+// DeviceInterviewResult contains the results of a device interview.
+// This message is sent to the router when a device interview completes (or fails).
+type DeviceInterviewResult struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	IeeeAddress        string                 `protobuf:"bytes,1,opt,name=ieee_address,json=ieeeAddress,proto3" json:"ieee_address,omitempty"`                                         // 64-bit IEEE address in hex format (e.g., "0x00124b0037e6f451")
+	NetworkAddress     uint32                 `protobuf:"varint,2,opt,name=network_address,json=networkAddress,proto3" json:"network_address,omitempty"`                               // 16-bit network address
+	InterviewState     InterviewState         `protobuf:"varint,3,opt,name=interview_state,json=interviewState,proto3,enum=zigbee.v1.InterviewState" json:"interview_state,omitempty"` // Current interview state
+	DeviceType         DeviceType             `protobuf:"varint,4,opt,name=device_type,json=deviceType,proto3,enum=zigbee.v1.DeviceType" json:"device_type,omitempty"`                 // Device type (Coordinator/Router/EndDevice)
+	ManufacturerId     uint32                 `protobuf:"varint,5,opt,name=manufacturer_id,json=manufacturerId,proto3" json:"manufacturer_id,omitempty"`                               // Manufacturer code
+	ManufacturerName   string                 `protobuf:"bytes,6,opt,name=manufacturer_name,json=manufacturerName,proto3" json:"manufacturer_name,omitempty"`                          // Manufacturer name (from genBasic)
+	ModelId            string                 `protobuf:"bytes,7,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`                                                     // Model ID (from genBasic)
+	PowerSource        PowerSource            `protobuf:"varint,8,opt,name=power_source,json=powerSource,proto3,enum=zigbee.v1.PowerSource" json:"power_source,omitempty"`             // Power source
+	ZclVersion         uint32                 `protobuf:"varint,9,opt,name=zcl_version,json=zclVersion,proto3" json:"zcl_version,omitempty"`                                           // ZCL version
+	ApplicationVersion uint32                 `protobuf:"varint,10,opt,name=application_version,json=applicationVersion,proto3" json:"application_version,omitempty"`                  // Application version
+	StackVersion       uint32                 `protobuf:"varint,11,opt,name=stack_version,json=stackVersion,proto3" json:"stack_version,omitempty"`                                    // Stack version
+	HardwareVersion    uint32                 `protobuf:"varint,12,opt,name=hardware_version,json=hardwareVersion,proto3" json:"hardware_version,omitempty"`                           // Hardware version
+	DateCode           string                 `protobuf:"bytes,13,opt,name=date_code,json=dateCode,proto3" json:"date_code,omitempty"`                                                 // Manufacturing date code
+	SoftwareBuildId    string                 `protobuf:"bytes,14,opt,name=software_build_id,json=softwareBuildId,proto3" json:"software_build_id,omitempty"`                          // Software build ID
+	Endpoints          []*EndpointDescriptor  `protobuf:"bytes,15,rep,name=endpoints,proto3" json:"endpoints,omitempty"`                                                               // List of endpoints and their clusters
+	Capabilities       *DeviceCapabilities    `protobuf:"bytes,16,opt,name=capabilities,proto3" json:"capabilities,omitempty"`                                                         // Device capabilities from node descriptor
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *DeviceInterviewResult) Reset() {
+	*x = DeviceInterviewResult{}
+	mi := &file_zigbee_v1_zigbee_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceInterviewResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceInterviewResult) ProtoMessage() {}
+
+func (x *DeviceInterviewResult) ProtoReflect() protoreflect.Message {
+	mi := &file_zigbee_v1_zigbee_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceInterviewResult.ProtoReflect.Descriptor instead.
+func (*DeviceInterviewResult) Descriptor() ([]byte, []int) {
+	return file_zigbee_v1_zigbee_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DeviceInterviewResult) GetIeeeAddress() string {
+	if x != nil {
+		return x.IeeeAddress
+	}
+	return ""
+}
+
+func (x *DeviceInterviewResult) GetNetworkAddress() uint32 {
+	if x != nil {
+		return x.NetworkAddress
+	}
+	return 0
+}
+
+func (x *DeviceInterviewResult) GetInterviewState() InterviewState {
+	if x != nil {
+		return x.InterviewState
+	}
+	return InterviewState_INTERVIEW_STATE_UNSPECIFIED
+}
+
+func (x *DeviceInterviewResult) GetDeviceType() DeviceType {
+	if x != nil {
+		return x.DeviceType
+	}
+	return DeviceType_DEVICE_TYPE_UNSPECIFIED
+}
+
+func (x *DeviceInterviewResult) GetManufacturerId() uint32 {
+	if x != nil {
+		return x.ManufacturerId
+	}
+	return 0
+}
+
+func (x *DeviceInterviewResult) GetManufacturerName() string {
+	if x != nil {
+		return x.ManufacturerName
+	}
+	return ""
+}
+
+func (x *DeviceInterviewResult) GetModelId() string {
+	if x != nil {
+		return x.ModelId
+	}
+	return ""
+}
+
+func (x *DeviceInterviewResult) GetPowerSource() PowerSource {
+	if x != nil {
+		return x.PowerSource
+	}
+	return PowerSource_POWER_SOURCE_UNSPECIFIED
+}
+
+func (x *DeviceInterviewResult) GetZclVersion() uint32 {
+	if x != nil {
+		return x.ZclVersion
+	}
+	return 0
+}
+
+func (x *DeviceInterviewResult) GetApplicationVersion() uint32 {
+	if x != nil {
+		return x.ApplicationVersion
+	}
+	return 0
+}
+
+func (x *DeviceInterviewResult) GetStackVersion() uint32 {
+	if x != nil {
+		return x.StackVersion
+	}
+	return 0
+}
+
+func (x *DeviceInterviewResult) GetHardwareVersion() uint32 {
+	if x != nil {
+		return x.HardwareVersion
+	}
+	return 0
+}
+
+func (x *DeviceInterviewResult) GetDateCode() string {
+	if x != nil {
+		return x.DateCode
+	}
+	return ""
+}
+
+func (x *DeviceInterviewResult) GetSoftwareBuildId() string {
+	if x != nil {
+		return x.SoftwareBuildId
+	}
+	return ""
+}
+
+func (x *DeviceInterviewResult) GetEndpoints() []*EndpointDescriptor {
+	if x != nil {
+		return x.Endpoints
+	}
+	return nil
+}
+
+func (x *DeviceInterviewResult) GetCapabilities() *DeviceCapabilities {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
 var File_zigbee_v1_zigbee_proto protoreflect.FileDescriptor
 
 const file_zigbee_v1_zigbee_proto_rawDesc = "" +
@@ -349,14 +832,66 @@ const file_zigbee_v1_zigbee_proto_rawDesc = "" +
 	"\x0fextended_pan_id\x18\x02 \x01(\x04R\rextendedPanId\x12\x18\n" +
 	"\achannel\x18\x03 \x01(\rR\achannel\x12\x1f\n" +
 	"\vnetwork_key\x18\x04 \x01(\fR\n" +
-	"networkKey*\xdf\x01\n" +
+	"networkKey\"\xd7\x01\n" +
+	"\x12EndpointDescriptor\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\rR\x02id\x12\x1d\n" +
+	"\n" +
+	"profile_id\x18\x02 \x01(\rR\tprofileId\x12\x1b\n" +
+	"\tdevice_id\x18\x03 \x01(\rR\bdeviceId\x12%\n" +
+	"\x0edevice_version\x18\x04 \x01(\rR\rdeviceVersion\x12%\n" +
+	"\x0einput_clusters\x18\x05 \x03(\rR\rinputClusters\x12'\n" +
+	"\x0foutput_clusters\x18\x06 \x03(\rR\x0eoutputClusters\"\xb4\x01\n" +
+	"\x12DeviceCapabilities\x12:\n" +
+	"\x19alternate_pan_coordinator\x18\x01 \x01(\bR\x17alternatePanCoordinator\x121\n" +
+	"\x15receiver_on_when_idle\x18\x02 \x01(\bR\x12receiverOnWhenIdle\x12/\n" +
+	"\x13security_capability\x18\x03 \x01(\bR\x12securityCapability\"\xf6\x05\n" +
+	"\x15DeviceInterviewResult\x12!\n" +
+	"\fieee_address\x18\x01 \x01(\tR\vieeeAddress\x12'\n" +
+	"\x0fnetwork_address\x18\x02 \x01(\rR\x0enetworkAddress\x12B\n" +
+	"\x0finterview_state\x18\x03 \x01(\x0e2\x19.zigbee.v1.InterviewStateR\x0einterviewState\x126\n" +
+	"\vdevice_type\x18\x04 \x01(\x0e2\x15.zigbee.v1.DeviceTypeR\n" +
+	"deviceType\x12'\n" +
+	"\x0fmanufacturer_id\x18\x05 \x01(\rR\x0emanufacturerId\x12+\n" +
+	"\x11manufacturer_name\x18\x06 \x01(\tR\x10manufacturerName\x12\x19\n" +
+	"\bmodel_id\x18\a \x01(\tR\amodelId\x129\n" +
+	"\fpower_source\x18\b \x01(\x0e2\x16.zigbee.v1.PowerSourceR\vpowerSource\x12\x1f\n" +
+	"\vzcl_version\x18\t \x01(\rR\n" +
+	"zclVersion\x12/\n" +
+	"\x13application_version\x18\n" +
+	" \x01(\rR\x12applicationVersion\x12#\n" +
+	"\rstack_version\x18\v \x01(\rR\fstackVersion\x12)\n" +
+	"\x10hardware_version\x18\f \x01(\rR\x0fhardwareVersion\x12\x1b\n" +
+	"\tdate_code\x18\r \x01(\tR\bdateCode\x12*\n" +
+	"\x11software_build_id\x18\x0e \x01(\tR\x0fsoftwareBuildId\x12;\n" +
+	"\tendpoints\x18\x0f \x03(\v2\x1d.zigbee.v1.EndpointDescriptorR\tendpoints\x12A\n" +
+	"\fcapabilities\x18\x10 \x01(\v2\x1d.zigbee.v1.DeviceCapabilitiesR\fcapabilities*\xdf\x01\n" +
 	"\fNetworkState\x12\x1d\n" +
 	"\x19NETWORK_STATE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18NETWORK_STATE_NO_NETWORK\x10\x01\x12!\n" +
 	"\x1dNETWORK_STATE_JOINING_NETWORK\x10\x02\x12 \n" +
 	"\x1cNETWORK_STATE_JOINED_NETWORK\x10\x03\x12*\n" +
 	"&NETWORK_STATE_JOINED_NETWORK_NO_PARENT\x10\x04\x12!\n" +
-	"\x1dNETWORK_STATE_LEAVING_NETWORK\x10\x05B\x9b\x01\n" +
+	"\x1dNETWORK_STATE_LEAVING_NETWORK\x10\x05*\xab\x01\n" +
+	"\x0eInterviewState\x12\x1f\n" +
+	"\x1bINTERVIEW_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17INTERVIEW_STATE_PENDING\x10\x01\x12\x1f\n" +
+	"\x1bINTERVIEW_STATE_IN_PROGRESS\x10\x02\x12\x1e\n" +
+	"\x1aINTERVIEW_STATE_SUCCESSFUL\x10\x03\x12\x1a\n" +
+	"\x16INTERVIEW_STATE_FAILED\x10\x04*z\n" +
+	"\n" +
+	"DeviceType\x12\x1b\n" +
+	"\x17DEVICE_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17DEVICE_TYPE_COORDINATOR\x10\x01\x12\x16\n" +
+	"\x12DEVICE_TYPE_ROUTER\x10\x02\x12\x1a\n" +
+	"\x16DEVICE_TYPE_END_DEVICE\x10\x03*\xc7\x01\n" +
+	"\vPowerSource\x12\x1c\n" +
+	"\x18POWER_SOURCE_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14POWER_SOURCE_UNKNOWN\x10\x01\x12\x16\n" +
+	"\x12POWER_SOURCE_MAINS\x10\x02\x12\x18\n" +
+	"\x14POWER_SOURCE_BATTERY\x10\x03\x12\x13\n" +
+	"\x0fPOWER_SOURCE_DC\x10\x04\x12\x1a\n" +
+	"\x16POWER_SOURCE_EMERGENCY\x10\x05\x12\x1d\n" +
+	"\x19POWER_SOURCE_EMERGENCY_DC\x10\x06B\x9b\x01\n" +
 	"\rcom.zigbee.v1B\vZigbeeProtoP\x01Z8github.com/zachfi/iotcontroller/proto/zigbee/v1;zigbeev1\xa2\x02\x03ZXX\xaa\x02\tZigbee.V1\xca\x02\tZigbee\\V1\xe2\x02\x15Zigbee\\V1\\GPBMetadata\xea\x02\n" +
 	"Zigbee::V1b\x06proto3"
 
@@ -372,21 +907,32 @@ func file_zigbee_v1_zigbee_proto_rawDescGZIP() []byte {
 	return file_zigbee_v1_zigbee_proto_rawDescData
 }
 
-var file_zigbee_v1_zigbee_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_zigbee_v1_zigbee_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_zigbee_v1_zigbee_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_zigbee_v1_zigbee_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_zigbee_v1_zigbee_proto_goTypes = []any{
 	(NetworkState)(0),             // 0: zigbee.v1.NetworkState
-	(*NetworkInfo)(nil),           // 1: zigbee.v1.NetworkInfo
-	(*NetworkParameters)(nil),     // 2: zigbee.v1.NetworkParameters
-	(*PersistedNetworkState)(nil), // 3: zigbee.v1.PersistedNetworkState
+	(InterviewState)(0),           // 1: zigbee.v1.InterviewState
+	(DeviceType)(0),               // 2: zigbee.v1.DeviceType
+	(PowerSource)(0),              // 3: zigbee.v1.PowerSource
+	(*NetworkInfo)(nil),           // 4: zigbee.v1.NetworkInfo
+	(*NetworkParameters)(nil),     // 5: zigbee.v1.NetworkParameters
+	(*PersistedNetworkState)(nil), // 6: zigbee.v1.PersistedNetworkState
+	(*EndpointDescriptor)(nil),    // 7: zigbee.v1.EndpointDescriptor
+	(*DeviceCapabilities)(nil),    // 8: zigbee.v1.DeviceCapabilities
+	(*DeviceInterviewResult)(nil), // 9: zigbee.v1.DeviceInterviewResult
 }
 var file_zigbee_v1_zigbee_proto_depIdxs = []int32{
 	0, // 0: zigbee.v1.NetworkInfo.state:type_name -> zigbee.v1.NetworkState
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 1: zigbee.v1.DeviceInterviewResult.interview_state:type_name -> zigbee.v1.InterviewState
+	2, // 2: zigbee.v1.DeviceInterviewResult.device_type:type_name -> zigbee.v1.DeviceType
+	3, // 3: zigbee.v1.DeviceInterviewResult.power_source:type_name -> zigbee.v1.PowerSource
+	7, // 4: zigbee.v1.DeviceInterviewResult.endpoints:type_name -> zigbee.v1.EndpointDescriptor
+	8, // 5: zigbee.v1.DeviceInterviewResult.capabilities:type_name -> zigbee.v1.DeviceCapabilities
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_zigbee_v1_zigbee_proto_init() }
@@ -399,8 +945,8 @@ func file_zigbee_v1_zigbee_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_zigbee_v1_zigbee_proto_rawDesc), len(file_zigbee_v1_zigbee_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   3,
+			NumEnums:      4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

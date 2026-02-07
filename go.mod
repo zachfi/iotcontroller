@@ -22,6 +22,9 @@ require (
 	github.com/prometheus/alertmanager v0.29.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.67.1
+	github.com/shimmeringbee/bytecodec v0.0.0-20240614104652-9d31c74dcd13
+	github.com/shimmeringbee/zcl v0.0.0-20240614104719-4eee02c0ffd1
+	github.com/shimmeringbee/zigbee v0.0.0-20240614104723-f4c0c0231568
 	github.com/stretchr/testify v1.11.1
 	github.com/zachfi/zkit v0.1.2
 	github.com/zachfi/znet v0.32.16
@@ -142,6 +145,7 @@ require (
 	github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c // indirect
 	github.com/shurcooL/vfsgen v0.0.0-20230704071429-0000e147ea92 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/uber/jaeger-client-go v2.29.1+incompatible // indirect
 	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
 	github.com/x448/float16 v0.8.4 // indirect

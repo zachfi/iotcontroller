@@ -235,7 +235,22 @@ func (a *App) initZoneKeeper() (services.Service, error) {
 }
 
 func (a *App) initZigbeeCoordinator() (services.Service, error) {
-	z, err := zigbeecoordinator.New(a.cfg.ZigbeeCoordinator, a.logger)
+	// Create router client connection if router client is configured
+	// This allows the coordinator to run standalone (without router) or as a client (with router)
+	var routeClient iotv1proto.RouteServiceClient
+	if a.cfg.ZigbeeCoordinator.RouterClient.ServerAddress != "" {
+		c, err := common.NewClientConn(a.cfg.ZigbeeCoordinator.RouterClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create router client connection: %w", err)
+		}
+		routeClient = iotv1proto.NewRouteServiceClient(c)
+		a.logger.Info("Zigbee coordinator configured as router client",
+			"router_address", a.cfg.ZigbeeCoordinator.RouterClient.ServerAddress)
+	} else {
+		a.logger.Info("Zigbee coordinator running standalone (no router client configured)")
+	}
+
+	z, err := zigbeecoordinator.New(a.cfg.ZigbeeCoordinator, a.logger, routeClient)
 	if err != nil {
 		return nil, err
 	}

@@ -54,7 +54,7 @@ func NewPort(name string, baudRate int, disableFlowControl bool) (*Port, error) 
 
 	port := &Port{
 		sp:     sp,
-		reader: bufio.NewReaderSize(sp, 256),
+		reader: bufio.NewReaderSize(sp, 4096), // Increased buffer size to reduce overruns when flow control is disabled
 		done:   make(chan struct{}),
 	}
 
@@ -204,6 +204,9 @@ func (p *Port) Close() error {
 func (p *Port) Drain() error {
 	// First, drain the bufio.Reader buffer completely (non-blocking)
 	// Keep reading until buffer is empty
+	// NOTE: This is critical - if we don't drain the buffer, we might start reading
+	// in the middle of a frame, causing "skipping bytes" messages. We need to ensure
+	// the buffer is completely empty before starting to read frames.
 	for {
 		buffered := p.reader.Buffered()
 		if buffered == 0 {
@@ -219,6 +222,7 @@ func (p *Port) Drain() error {
 
 	// Use ReadRawBytes with a very short timeout to drain without blocking
 	// This will read any immediately available data from the underlying connection
+	// NOTE: We read and discard this data to ensure the serial port buffer is clear
 	_, err := p.ReadRawBytes(10*time.Millisecond, 256)
 	if err != nil && err != io.ErrNoProgress {
 		return err
@@ -234,6 +238,59 @@ func (p *Port) Drain() error {
 		}
 	}
 	return nil
+}
+
+// SyncToFrameBoundary ensures we're synchronized to a frame boundary by reading
+// until we find a FLAG byte. This prevents starting to read in the middle of a frame.
+// Returns true if a FLAG byte was found, false if timeout/error.
+// NOTE: This method uses Peek() to check for FLAG bytes without consuming them,
+// ensuring that ReadASHFrame() will see the FLAG byte when it starts reading.
+func (p *Port) SyncToFrameBoundary(timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+
+	// First, check if there's already a FLAG byte in the bufio.Reader buffer
+	// by peeking at buffered data (without consuming it)
+	for p.reader.Buffered() > 0 {
+		peeked, err := p.reader.Peek(1)
+		if err != nil {
+			return false, err
+		}
+		if peeked[0] == ASH_FLAG {
+			// Found FLAG at start of buffer - we're synchronized
+			// Don't consume it - let ReadASHFrame() read it
+			return true, nil
+		}
+		// Not a FLAG, discard this byte (it's garbage/partial frame)
+		_, _ = p.reader.ReadByte()
+	}
+
+	// Buffer is empty - wait for a FLAG byte to arrive
+	// Use ReadByte() which will read through bufio.Reader, ensuring synchronization
+	// But we'll peek first to avoid consuming the FLAG
+	for time.Now().Before(deadline) {
+		select {
+		case <-p.done:
+			return false, io.EOF
+		default:
+		}
+
+		// Check if data arrived in buffer
+		if p.reader.Buffered() > 0 {
+			peeked, err := p.reader.Peek(1)
+			if err == nil && len(peeked) > 0 && peeked[0] == ASH_FLAG {
+				// Found FLAG - don't consume it, let ReadASHFrame() read it
+				return true, nil
+			}
+			// Not a FLAG, discard
+			_, _ = p.reader.ReadByte()
+			continue
+		}
+
+		// Buffer empty, wait a bit for data to arrive
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return false, io.ErrNoProgress
 }
 
 // ReadASHFrameWithTimeout reads a complete ASH frame with a timeout.
@@ -275,6 +332,12 @@ func (p *Port) ReadASHFrame() ([]byte, error) {
 	// Read until we find a flag byte (start of frame)
 	// If we read non-FLAG bytes, they might be part of a frame that started
 	// before we began reading (the leading FLAG was already consumed)
+	// NOTE: This "skipping" is expected behavior - it means we started reading
+	// in the middle of a frame. We reconstruct the frame by adding FLAG bytes.
+	// However, if this happens frequently, it may indicate:
+	// 1. Buffer not properly drained before starting to read
+	// 2. Starting to read before device is ready
+	// 3. Device sending data faster than we can process
 	skippedBytes := 0
 	var potentialFrameData []byte
 
@@ -303,14 +366,25 @@ func (p *Port) ReadASHFrame() ([]byte, error) {
 				// Try to parse it
 				_, parseErr := ParseASHFrame(potentialFrame)
 				if parseErr == nil {
-					fmt.Printf("[ember] ReadASHFrame: reconstructed frame from %d skipped bytes: %X\n", skippedBytes, potentialFrame)
-					os.Stdout.Sync()
+					// Successfully reconstructed frame - this is normal when starting mid-frame
+					// Only log if we're debugging, as this is expected behavior
+					if false { // Disable verbose logging for normal operation
+						fmt.Printf("[ember] ReadASHFrame: reconstructed frame from %d skipped bytes: %X\n", skippedBytes, potentialFrame)
+						os.Stdout.Sync()
+					}
 					return potentialFrame, nil
 				}
 
-				// Not a valid frame, log and continue
-				fmt.Printf("[ember] ReadASHFrame: skipped %d non-FLAG bytes before finding FLAG (could not reconstruct: %v)\n", skippedBytes, parseErr)
-				os.Stdout.Sync()
+				// Not a valid frame - discard the garbage bytes and start fresh from this FLAG
+				// This happens when we start reading in the middle of corrupted/invalid data
+				// Just log a warning and continue with the FLAG we found
+				if skippedBytes > 3 {
+					fmt.Printf("[ember] ReadASHFrame: discarded %d non-FLAG bytes before finding FLAG (could not reconstruct: %v)\n", skippedBytes, parseErr)
+					os.Stdout.Sync()
+				}
+				// Reset and start fresh from this FLAG
+				skippedBytes = 0
+				potentialFrameData = nil
 			}
 			frame = append(frame, b)
 			break
@@ -318,9 +392,11 @@ func (p *Port) ReadASHFrame() ([]byte, error) {
 		// Not a FLAG byte - might be frame data
 		potentialFrameData = append(potentialFrameData, b)
 		skippedBytes++
-		if skippedBytes <= 10 {
-			// Log first few bytes for debugging
-			fmt.Printf("[ember] ReadASHFrame: skipping non-FLAG byte: 0x%02X\n", b)
+		// Only log if we skip many bytes (indicates a real problem)
+		// Small amounts of skipped bytes (1-3) are normal when starting mid-frame
+		// and the frame will be reconstructed successfully
+		if skippedBytes > 10 {
+			fmt.Printf("[ember] ReadASHFrame: WARNING - skipped %d non-FLAG bytes before finding FLAG (may indicate sync issue)\n", skippedBytes)
 			os.Stdout.Sync()
 		}
 	}
@@ -382,6 +458,12 @@ func (p *Port) NextSequence() uint8 {
 // Buffered returns the number of bytes currently buffered in the reader.
 func (p *Port) Buffered() int {
 	return p.reader.Buffered()
+}
+
+// BufferedReadByte reads a single byte from the buffered reader.
+// This is used by the continuous byte reader goroutine.
+func (p *Port) BufferedReadByte() (byte, error) {
+	return p.reader.ReadByte()
 }
 
 // CheckBootloaderMode attempts to detect if the device is in bootloader mode.

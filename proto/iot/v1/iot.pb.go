@@ -1174,12 +1174,11 @@ func (*SelfAnnounceResponse) Descriptor() ([]byte, []int) {
 }
 
 type OccupancyHandlerRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Device          string                 `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
-	Zone            string                 `protobuf:"bytes,2,opt,name=zone,proto3" json:"zone,omitempty"`
-	DurationSeconds string                 `protobuf:"bytes,3,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Device        string                 `protobuf:"bytes,1,opt,name=device,proto3" json:"device,omitempty"`
+	Zone          string                 `protobuf:"bytes,2,opt,name=zone,proto3" json:"zone,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OccupancyHandlerRequest) Reset() {
@@ -1222,13 +1221,6 @@ func (x *OccupancyHandlerRequest) GetDevice() string {
 func (x *OccupancyHandlerRequest) GetZone() string {
 	if x != nil {
 		return x.Zone
-	}
-	return ""
-}
-
-func (x *OccupancyHandlerRequest) GetDurationSeconds() string {
-	if x != nil {
-		return x.DurationSeconds
 	}
 	return ""
 }
@@ -1370,11 +1362,10 @@ const file_iot_v1_iot_proto_rawDesc = "" +
 	"\x13SelfAnnounceRequest\x12\x16\n" +
 	"\x06device\x18\x01 \x01(\tR\x06device\x12\x12\n" +
 	"\x04zone\x18\x02 \x01(\tR\x04zone\"\x16\n" +
-	"\x14SelfAnnounceResponse\"p\n" +
+	"\x14SelfAnnounceResponse\"E\n" +
 	"\x17OccupancyHandlerRequest\x12\x16\n" +
 	"\x06device\x18\x01 \x01(\tR\x06device\x12\x12\n" +
-	"\x04zone\x18\x02 \x01(\tR\x04zone\x12)\n" +
-	"\x10duration_seconds\x18\x03 \x01(\tR\x0fdurationSeconds\"\x1a\n" +
+	"\x04zone\x18\x02 \x01(\tR\x04zone\"\x1a\n" +
 	"\x18OccupancyHandlerResponse\"D\n" +
 	"\x06Device\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12&\n" +

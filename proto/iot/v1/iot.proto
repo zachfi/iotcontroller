@@ -38,9 +38,18 @@ message EpochRequest {
 message EpochResponse {}
 
 
+// message ActionRequest {
+//   string name = 1;
+//   string action = 2;
+//   string device = 3;
+//   string zone = 4;
+// }
+
 service EventReceiverService {
   rpc Alert(AlertRequest) returns (AlertResponse);
   rpc Epoch(EpochRequest) returns (EpochResponse);
+  // rpc Action(ActionRequest) returns (ActionResponse);
+  // TODO: rpc Motion(MotionRequest) returns (MotionResponse);
 }
 
 message SendRequest {

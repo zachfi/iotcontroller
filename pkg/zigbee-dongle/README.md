@@ -15,7 +15,7 @@ Each Zigbee stack uses a different serial protocol to communicate with the USB d
   - Commands organized by subsystem (SYS, AF, ZDO, etc.)
   - Used by: Texas Instruments CC253X-based dongles, Sonoff Dongle Plus P
 
-- **Ember (EZSP)**: Uses EmberZNet Serial Protocol over ASH framing
+- **Ember**: Uses EmberZNet Serial Protocol (EZSP) over ASH framing
   - ASH (Asynchronous Serial Host) framing layer
   - EZSP frames with sequence numbers and frame IDs
   - Used by: Silicon Labs coordinators, Sonoff Dongle Max, Sonoff ZBDongle-E
@@ -47,12 +47,17 @@ pkg/zigbee-dongle/
 ├── factory.go         # Factory function to create dongles
 ├── scf/               # Simple Command Format serialization (used by ZNP)
 │   └── scf.go
-└── znp/               # Z-Stack implementation
-    ├── frame.go       # ZNP frame serialization
-    ├── command.go     # Command registration system
+├── znp/               # Z-Stack implementation
+│   ├── frame.go       # ZNP frame serialization
+│   ├── command.go     # Command registration system
+│   ├── port.go        # Serial port communication
+│   ├── commands.go    # ZNP command definitions
+│   └── controller.go  # ZNP controller implementing Dongle interface
+└── ember/             # Ember stack implementation
+    ├── frame.go       # ASH frame serialization
+    ├── ezsp_frame.go  # EZSP frame parsing
     ├── port.go        # Serial port communication
-    ├── commands.go    # ZNP command definitions
-    └── controller.go  # ZNP controller implementing Dongle interface
+    └── controller.go  # Ember controller implementing Dongle interface
 ```
 
 ## Usage
@@ -82,7 +87,7 @@ if err != nil {
 
 // All operations use the same interface regardless of stack
 for msg := range messages {
-    // Handle IncomingMessage - same structure for ZNP, EZSP, etc.
+    // Handle IncomingMessage - same structure for ZNP, Ember, etc.
     fmt.Printf("Received from %v: cluster=%d, data=%x\n",
         msg.Source, msg.ClusterID, msg.Data)
 }
@@ -108,9 +113,9 @@ info, err := dongle.GetNetworkInfo(ctx)
 
 ## Adding New Stack Implementations
 
-To add support for a new Zigbee stack (e.g., EZSP):
+To add support for a new Zigbee stack (e.g., Ember):
 
-1. Create a new subdirectory (e.g., `ezsp/`)
+1. Create a new subdirectory (e.g., `ember/`)
 2. Implement the stack-specific serial protocol handling
 3. Implement the `Dongle` interface, converting stack-specific frames to `IncomingMessage`/`OutgoingMessage`
 4. Update `factory.go` to support the new stack type

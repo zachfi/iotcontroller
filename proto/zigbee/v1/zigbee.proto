@@ -57,3 +57,69 @@ message PersistedNetworkState {
   uint32 channel = 3;
   bytes network_key = 4;
 }
+
+// InterviewState represents the state of a device interview process.
+enum InterviewState {
+  INTERVIEW_STATE_UNSPECIFIED = 0;
+  INTERVIEW_STATE_PENDING = 1;      // Interview not yet started
+  INTERVIEW_STATE_IN_PROGRESS = 2; // Interview currently in progress
+  INTERVIEW_STATE_SUCCESSFUL = 3;   // Interview completed successfully
+  INTERVIEW_STATE_FAILED = 4;       // Interview failed
+}
+
+// DeviceType represents the type of Zigbee device.
+enum DeviceType {
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  DEVICE_TYPE_COORDINATOR = 1;
+  DEVICE_TYPE_ROUTER = 2;
+  DEVICE_TYPE_END_DEVICE = 3;
+}
+
+// PowerSource represents the power source of a Zigbee device.
+enum PowerSource {
+  POWER_SOURCE_UNSPECIFIED = 0;
+  POWER_SOURCE_UNKNOWN = 1;
+  POWER_SOURCE_MAINS = 2;    // Mains power (single phase)
+  POWER_SOURCE_BATTERY = 3;  // Battery power
+  POWER_SOURCE_DC = 4;       // DC source
+  POWER_SOURCE_EMERGENCY = 5; // Emergency mains constantly powered
+  POWER_SOURCE_EMERGENCY_DC = 6; // Emergency mains with transfer switch
+}
+
+// EndpointDescriptor describes a single endpoint on a Zigbee device.
+message EndpointDescriptor {
+  uint32 id = 1;                    // Endpoint ID (1-240)
+  uint32 profile_id = 2;            // Application profile ID (e.g., 0x0104 for Home Automation)
+  uint32 device_id = 3;             // Device ID within the profile
+  uint32 device_version = 4;        // Device version
+  repeated uint32 input_clusters = 5;   // List of input cluster IDs
+  repeated uint32 output_clusters = 6;  // List of output cluster IDs
+}
+
+// DeviceCapabilities describes the capabilities of a Zigbee device.
+message DeviceCapabilities {
+  bool alternate_pan_coordinator = 1; // Device can become PAN coordinator
+  bool receiver_on_when_idle = 2;     // Receiver stays on when idle
+  bool security_capability = 3;        // Device supports security
+}
+
+// DeviceInterviewResult contains the results of a device interview.
+// This message is sent to the router when a device interview completes (or fails).
+message DeviceInterviewResult {
+  string ieee_address = 1;           // 64-bit IEEE address in hex format (e.g., "0x00124b0037e6f451")
+  uint32 network_address = 2;        // 16-bit network address
+  InterviewState interview_state = 3; // Current interview state
+  DeviceType device_type = 4;        // Device type (Coordinator/Router/EndDevice)
+  uint32 manufacturer_id = 5;         // Manufacturer code
+  string manufacturer_name = 6;       // Manufacturer name (from genBasic)
+  string model_id = 7;                // Model ID (from genBasic)
+  PowerSource power_source = 8;       // Power source
+  uint32 zcl_version = 9;             // ZCL version
+  uint32 application_version = 10;    // Application version
+  uint32 stack_version = 11;          // Stack version
+  uint32 hardware_version = 12;       // Hardware version
+  string date_code = 13;              // Manufacturing date code
+  string software_build_id = 14;      // Software build ID
+  repeated EndpointDescriptor endpoints = 15; // List of endpoints and their clusters
+  DeviceCapabilities capabilities = 16; // Device capabilities from node descriptor
+}

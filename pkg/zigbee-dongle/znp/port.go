@@ -2,6 +2,7 @@ package znp
 
 import (
 	"bufio"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -145,11 +146,8 @@ func (p *Port) BufferedReadByte() (byte, error) {
 func (p *Port) Close() error {
 	var err error
 	p.closeOnce.Do(func() {
-		// Close the serial port - this will cause readFrame() to return os.ErrClosed
-		// which will cause the loop to exit when it checks for os.ErrClosed
-		err = p.sp.Close()
-
-		// Signal that we're closing - loop will exit on next iteration check
+		// Signal that we're closing FIRST - this allows read loops to exit quickly
+		// The read loops check p.done before and after reads
 		close(p.done)
 
 		// Fail all pending handlers so they don't block forever
@@ -159,6 +157,24 @@ func (p *Port) Close() error {
 		}
 		p.handlers = make(map[FrameHeader]*Handler)
 		p.handlerMutex.Unlock()
+
+		// Close the serial port in a goroutine with timeout to prevent blocking
+		// The read loop should exit when p.done is closed, but if it's stuck in a read,
+		// closing the port will cause the read to return an error
+		portCloseDone := make(chan error, 1)
+		go func() {
+			portCloseDone <- p.sp.Close()
+		}()
+
+		// Don't wait long - if port close blocks, we'll timeout and continue
+		// The loop() function already has a timeout when waiting for parserDone
+		select {
+		case err = <-portCloseDone:
+			// Port closed successfully
+		case <-time.After(50 * time.Millisecond):
+			// Port close timed out - continue anyway since read loop should exit via p.done
+			// The loop() function will timeout waiting for parserDone if needed
+		}
 	})
 	return err
 }
@@ -397,8 +413,9 @@ func (p *Port) loop() {
 	for {
 		select {
 		case <-p.done:
-			// Wait for parser to finish
-			<-parserDone
+			// We're closing - don't wait for parser, just exit
+			// The parser will exit when it sees p.done or when the port is closed
+			// If it's stuck in a blocking read, closing the port will cause it to return
 			return
 		case frame, ok := <-frameCh:
 			if !ok {
@@ -424,14 +441,24 @@ func (p *Port) chunkReaderAndParser(frameCh chan<- Frame, done chan<- struct{}) 
 	chunkBuf := make([]byte, 256) // Read chunks of 256 bytes
 
 	for {
+		// Check if we're closing before attempting to read
 		select {
 		case <-p.done:
 			return
 		default:
 		}
 
-		// Read a chunk from the serial port
+		// Read a chunk from the serial port (blocking, but will return error when port is closed)
+		// We check p.done before and after the read to exit quickly
 		n, err := p.reader.Read(chunkBuf)
+
+		// Check done again after read (in case it was closed during the read)
+		select {
+		case <-p.done:
+			return
+		default:
+		}
+
 		if err != nil {
 			if errors.Is(err, os.ErrClosed) || err == io.EOF {
 				return
@@ -813,16 +840,52 @@ func parseFrameFromBytes(data []byte) (Frame, error) {
 func (p *Port) handleFrame(frame Frame) {
 	command, err := parseCommandFromFrame(frame)
 	if err != nil {
-		handling := ErrorHandlingStop
-		if p.cbs.OnParseError != nil {
-			handling = p.cbs.OnParseError(err, frame)
+		// Special handling for ZdoNodeDescriptor: manually parse if SCF fails
+		// This handles the case where status != 0 and frame is only 5 bytes (error response)
+		if frame.FrameHeader == (FrameHeader{Type: FRAME_TYPE_AREQ, Subsystem: FRAME_SUBSYSTEM_ZDO, ID: 0x82}) {
+			if len(frame.Data) >= 5 {
+				// Manually parse: [srcaddr:2] [status:1] [nwkaddr:2]
+				desc := ZdoNodeDescriptor{
+					SrcAddr: binary.LittleEndian.Uint16(frame.Data[0:2]),
+					Status:  frame.Data[2],
+					NWKAddr: binary.LittleEndian.Uint16(frame.Data[3:5]),
+				}
+				// If status is 0 and we have more data, parse the rest
+				if desc.Status == 0 && len(frame.Data) >= 20 {
+					// Parse full descriptor (minimum 20 bytes for success case)
+					desc.LogicalType = frame.Data[5]
+					desc.ComplexDescriptor = frame.Data[6]
+					desc.UserDescriptor = frame.Data[7]
+					desc.Reserved = frame.Data[8]
+					desc.APSFlags = frame.Data[9]
+					desc.FrequencyBand = frame.Data[10]
+					desc.MACCapabilityFlags = frame.Data[11]
+					desc.ManufacturerCode = binary.LittleEndian.Uint16(frame.Data[12:14])
+					desc.MaxBufferSize = frame.Data[14]
+					desc.MaxInTransferSize = binary.LittleEndian.Uint16(frame.Data[15:17])
+					desc.ServerMask = binary.LittleEndian.Uint16(frame.Data[17:19])
+					desc.MaxOutTransferSize = binary.LittleEndian.Uint16(frame.Data[19:21])
+					if len(frame.Data) > 21 {
+						desc.DescriptorCap = frame.Data[21]
+					}
+				}
+				command = desc
+				err = nil // Successfully manually parsed
+			}
 		}
-		if handling == ErrorHandlingContinue {
-			return
-		} else if handling == ErrorHandlingStop {
-			return
-		} else {
-			panic(err)
+
+		if err != nil {
+			handling := ErrorHandlingStop
+			if p.cbs.OnParseError != nil {
+				handling = p.cbs.OnParseError(err, frame)
+			}
+			if handling == ErrorHandlingContinue {
+				return
+			} else if handling == ErrorHandlingStop {
+				return
+			} else {
+				panic(err)
+			}
 		}
 	}
 
