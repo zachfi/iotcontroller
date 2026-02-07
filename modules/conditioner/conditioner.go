@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorhill/cronexpr"
@@ -31,6 +32,12 @@ const (
 	alertStatusResolved = "resolved"
 )
 
+// alertActiveKey returns a unique key for a condition+remediation used to track
+// which remediations are currently active due to an alert time window.
+func alertActiveKey(conditionName, zone string) string {
+	return conditionName + "/" + zone
+}
+
 type Conditioner struct {
 	services.Service
 	cfg *Config
@@ -42,6 +49,12 @@ type Conditioner struct {
 	kubeClient       kubeclient.Client
 
 	sched *schedule
+
+	// alertActive tracks remediations that were activated by an alert and have
+	// TimeIntervals. When the time window closes (and no further alert arrives),
+	// a background check deactivates them.
+	alertActiveMu sync.Mutex
+	alertActive   map[string]apiv1.Remediation
 }
 
 func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeperServiceClient, k kubeclient.Client) (*Conditioner, error) {
@@ -53,7 +66,8 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		zonekeeperClient: zoneKeeperClient,
 		kubeClient:       k,
 
-		sched: newSchedule(logger),
+		sched:       newSchedule(logger),
+		alertActive: make(map[string]apiv1.Remediation),
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
@@ -121,8 +135,12 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 				err = c.sched.activateRemediation(ctx, rem, c.zonekeeperClient)
 				if err != nil {
 					c.logger.Error("failed to activate condition alert", "err", err)
+				} else if len(rem.TimeIntervals) > 0 {
+					// Track so the background window check can deactivate when the window closes.
+					c.trackAlertActive(cond.Name, rem)
 				}
 			} else {
+				c.untrackAlertActive(cond.Name, rem)
 				err = c.sched.deactivateRemediation(ctx, rem, c.zonekeeperClient)
 				if err != nil {
 					c.logger.Error("failed to deactivate condition alert", "err", err)
@@ -390,14 +408,69 @@ func (c *Conditioner) epochWindow(ctx context.Context, eventTime time.Time, when
 	return start, stop, nil
 }
 
+// trackAlertActive records that this remediation is currently active due to an
+// alert and has TimeIntervals, so the background window check can deactivate
+// when the window closes.
+func (c *Conditioner) trackAlertActive(conditionName string, rem apiv1.Remediation) {
+	c.alertActiveMu.Lock()
+	defer c.alertActiveMu.Unlock()
+	if c.alertActive == nil {
+		c.alertActive = make(map[string]apiv1.Remediation)
+	}
+	c.alertActive[alertActiveKey(conditionName, rem.Zone)] = rem
+}
+
+// untrackAlertActive removes this remediation from the set of alert-active
+// remediations (e.g. when we deactivate due to resolved or outside window).
+func (c *Conditioner) untrackAlertActive(conditionName string, rem apiv1.Remediation) {
+	c.alertActiveMu.Lock()
+	defer c.alertActiveMu.Unlock()
+	delete(c.alertActive, alertActiveKey(conditionName, rem.Zone))
+}
+
+// runAlertWindowCheck runs periodically; for each remediation that is active
+// due to an alert and has TimeIntervals, if the current time is outside the
+// active window, deactivates it so the zone does not stay in the wrong state
+// when no further alert arrives.
+func (c *Conditioner) runAlertWindowCheck(ctx context.Context) {
+	c.alertActiveMu.Lock()
+	snapshot := make(map[string]apiv1.Remediation, len(c.alertActive))
+	for k, v := range c.alertActive {
+		snapshot[k] = v
+	}
+	c.alertActiveMu.Unlock()
+
+	if len(snapshot) == 0 {
+		return
+	}
+
+	now := time.Now()
+	for key, rem := range snapshot {
+		if !c.withinActiveWindow(ctx, rem, now) {
+			c.logger.Info("alert time window closed, deactivating remediation",
+				slog.String("key", key),
+				slog.String("zone", rem.Zone),
+			)
+			if err := c.sched.deactivateRemediation(ctx, rem, c.zonekeeperClient); err != nil {
+				c.logger.Error("failed to deactivate remediation after window close", "err", err, "zone", rem.Zone)
+			}
+			c.alertActiveMu.Lock()
+			delete(c.alertActive, key)
+			c.alertActiveMu.Unlock()
+		}
+	}
+}
+
 // withinActiveWindow checks if the current time is within the active window
 // defined in the remediation.  It considers both time intervals and when
 // gates.
 func (c *Conditioner) withinActiveWindow(ctx context.Context, rem apiv1.Remediation, now time.Time) (active bool) {
+	var err error
+
 	_, span := c.tracer.Start(ctx, "Conditioner.withinActiveWindow")
 	defer func() {
 		span.SetAttributes(attribute.Bool("active", active))
-		span.End()
+		defer tracing.ErrHandler(span, err, "failed to check active window", c.logger)
 	}()
 
 	if len(rem.TimeIntervals) == 0 {
@@ -425,6 +498,7 @@ func (c *Conditioner) withinActiveWindow(ctx context.Context, rem apiv1.Remediat
 
 func (c *Conditioner) runTimerLoop(ctx context.Context) {
 	t := time.NewTicker(c.cfg.TimerLoopInterval)
+	defer t.Stop()
 
 	for {
 		select {
@@ -432,6 +506,7 @@ func (c *Conditioner) runTimerLoop(ctx context.Context) {
 			return
 		case <-t.C:
 			c.runTimer(ctx)
+			c.runAlertWindowCheck(ctx)
 		}
 	}
 }
