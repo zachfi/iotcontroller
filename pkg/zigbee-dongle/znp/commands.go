@@ -266,11 +266,12 @@ type ZdoExtNwkInfoRequest struct{}
 
 type ZdoExtNwkInfoResponse struct {
 	ShortAddress          uint16
+	DeviceState           uint8 // Device state (not used, but present in response)
 	PanID                 uint16
 	ParentAddress         uint16
 	ExtendedPanID         uint64
 	ExtendedParentAddress uint64
-	Channel               uint16
+	Channel               uint8 // Channel is uint8 (11-26), not uint16
 }
 
 func init() {
@@ -279,6 +280,91 @@ func init() {
 
 type ZdoStateChangeInd struct {
 	State DeviceState
+}
+
+func init() {
+	registerCommand(FRAME_TYPE_SREQ, FRAME_SUBSYSTEM_ZDO, 0x02, ZdoNodeDescriptorRequest{})
+	registerCommand(FRAME_TYPE_SRSP, FRAME_SUBSYSTEM_ZDO, 0x02, ZdoNodeDescriptorResponse{})
+	registerCommand(FRAME_TYPE_AREQ, FRAME_SUBSYSTEM_ZDO, 0x82, ZdoNodeDescriptor{})
+}
+
+// ZdoNodeDescriptorRequest requests the node descriptor from a device.
+// ZNP Command ID: 0x02 (ZDO subsystem)
+type ZdoNodeDescriptorRequest struct {
+	DstAddr uint16 // Network address of target device
+}
+
+// ZdoNodeDescriptorResponse is the synchronous response to NodeDescriptorRequest.
+type ZdoNodeDescriptorResponse struct {
+	Status byte // Status code (0x00 = SUCCESS)
+}
+
+// ZdoNodeDescriptor is the asynchronous response containing the node descriptor.
+// ZNP protocol format: [srcaddr:2] [status:1] [nwkaddr:2] [logicaltype:1] [complexdesc:1] [userdesc:1] [reserved:1]
+//
+//	[apsflags:1] [freqband:1] [maccapflags:1] [manufacturercode:2] [maxbuffersize:1]
+//	[maxintransfersize:2] [servermask:2] [maxouttransfersize:2] [descriptorcap:1]
+//
+// Note: ZNP sends this as a flat byte array, not a nested struct. We parse it manually in interview.go.
+type ZdoNodeDescriptor struct {
+	SrcAddr            uint16
+	Status             byte
+	NWKAddr            uint16
+	LogicalType        byte   // 0x00=Coordinator, 0x01=Router, 0x02=EndDevice
+	ComplexDescriptor  byte   // Complex descriptor available (0x00=no, 0x01=yes)
+	UserDescriptor     byte   // User descriptor available (0x00=no, 0x01=yes)
+	Reserved           byte   // Reserved field
+	APSFlags           byte   // APS flags
+	FrequencyBand      byte   // Frequency band
+	MACCapabilityFlags byte   // MAC capability flags (bit flags)
+	ManufacturerCode   uint16 // Manufacturer code
+	MaxBufferSize      byte   // Maximum buffer size
+	MaxInTransferSize  uint16 // Maximum incoming transfer size
+	ServerMask         uint16 // Server mask (bit flags for server capabilities)
+	MaxOutTransferSize uint16 // Maximum outgoing transfer size
+	DescriptorCap      byte   // Descriptor capability field
+}
+
+func init() {
+	registerCommand(FRAME_TYPE_SREQ, FRAME_SUBSYSTEM_ZDO, 0x04, ZdoSimpleDescriptorRequest{})
+	registerCommand(FRAME_TYPE_SRSP, FRAME_SUBSYSTEM_ZDO, 0x04, ZdoSimpleDescriptorResponse{})
+	registerCommand(FRAME_TYPE_AREQ, FRAME_SUBSYSTEM_ZDO, 0x84, ZdoSimpleDescriptor{})
+}
+
+// ZdoSimpleDescriptorRequest requests the simple descriptor for a specific endpoint.
+// ZNP Command ID: 0x04 (ZDO subsystem)
+type ZdoSimpleDescriptorRequest struct {
+	DstAddr           uint16 // Network address of target device
+	NWKAddrOfInterest uint16 // Usually same as DstAddr
+	Endpoint          uint8  // Endpoint to query (1-240)
+}
+
+// ZdoSimpleDescriptorResponse is the synchronous response to SimpleDescriptorRequest.
+type ZdoSimpleDescriptorResponse struct {
+	Status byte // Status code (0x00 = SUCCESS)
+}
+
+// ZdoSimpleDescriptor is the asynchronous response containing the simple descriptor.
+// ZNP protocol format: [srcaddr:2] [status:1] [nwkaddr:2] [len:1] [endpoint:1] [profileid:2] [deviceid:2]
+//
+//	[deviceversion:1] [numinclusters:1] [inclusterlist:2*numinclusters] [numoutclusters:1] [outclusterlist:2*numoutclusters]
+//
+// Note: ZNP sends this as a flat byte array with variable-length cluster lists. We parse it manually in interview.go.
+// The 'len' field indicates the length of the simple descriptor data (excluding srcaddr, status, nwkaddr, len itself).
+type ZdoSimpleDescriptor struct {
+	SrcAddr        uint16
+	Status         byte
+	NWKAddr        uint16
+	Length         uint8    // Length of simple descriptor data (excluding header fields)
+	Endpoint       uint8    // Endpoint ID
+	AppProfileID   uint16   // Application profile ID
+	AppDeviceID    uint16   // Application device ID
+	AppDeviceVer   uint8    // Application device version
+	Reserved       uint8    // Reserved field (not always present, depends on Z-Stack version)
+	NumInClusters  uint8    // Number of input clusters
+	InClusters     []uint16 // Input cluster IDs
+	NumOutClusters uint8    // Number of output clusters
+	OutClusters    []uint16 // Output cluster IDs
 }
 
 func init() {

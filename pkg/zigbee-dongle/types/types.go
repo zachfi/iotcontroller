@@ -99,7 +99,43 @@ func (id ProfileID) String() string {
 	}
 }
 
+// NetworkState represents the current state of the Zigbee network.
+// NOTE: The canonical source of truth for network state types is proto/zigbee/v1/zigbee.proto.
+// This internal type is maintained for backward compatibility and will eventually be replaced
+// by the proto-generated types. Use zigbeedongle conversion functions to convert to/from proto types.
+type NetworkState byte
+
+const (
+	// NetworkStateUnknown indicates an unknown or unrecognized network state.
+	NetworkStateUnknown NetworkState = iota
+	// NetworkStateUp indicates the network is up and operational.
+	// Maps to: zigbee.v1.NetworkState.NETWORK_STATE_JOINED_NETWORK
+	NetworkStateUp
+	// NetworkStateDown indicates the network is down.
+	// Maps to: zigbee.v1.NetworkState.NETWORK_STATE_NO_NETWORK or NETWORK_STATE_JOINED_NETWORK_NO_PARENT
+	NetworkStateDown
+	// NetworkStateNotJoined indicates the device is not joined to any network.
+	// Maps to: zigbee.v1.NetworkState.NETWORK_STATE_NO_NETWORK
+	NetworkStateNotJoined
+)
+
+// String returns a human-readable string representation of the network state.
+func (s NetworkState) String() string {
+	switch s {
+	case NetworkStateUp:
+		return "NetworkUp"
+	case NetworkStateDown:
+		return "NetworkDown"
+	case NetworkStateNotJoined:
+		return "NotJoined"
+	default:
+		return "Unknown"
+	}
+}
+
 // NetworkInfo contains information about the current network state.
+// NOTE: The canonical source of truth is proto/zigbee/v1/zigbee.proto NetworkInfo.
+// Use zigbeedongle conversion functions to convert to/from proto types.
 type NetworkInfo struct {
 	ShortAddress          uint16
 	PanID                 uint16
@@ -107,20 +143,24 @@ type NetworkInfo struct {
 	ExtendedPanID         uint64
 	ExtendedParentAddress uint64
 	Channel               uint16
-	State                 string
+	State                 NetworkState
 }
 
 // NetworkParameters defines the parameters for forming or joining a network.
+// NOTE: The canonical source of truth is proto/zigbee/v1/zigbee.proto NetworkParameters.
+// Use zigbeedongle conversion functions to convert to/from proto types.
 type NetworkParameters struct {
-	PanID         uint16  // 16-bit PAN ID
-	ExtendedPanID uint64  // 64-bit Extended PAN ID
-	Channel       uint8   // Radio channel (11-26 for 2.4GHz)
+	PanID         uint16   // 16-bit PAN ID
+	ExtendedPanID uint64   // 64-bit Extended PAN ID
+	Channel       uint8    // Radio channel (11-26 for 2.4GHz)
 	NetworkKey    [16]byte // 128-bit Network Key for encryption
 }
 
-// NetworkState represents the persisted network state that can be saved/loaded.
+// PersistedNetworkState represents the persisted network state that can be saved/loaded.
 // This allows swapping devices while maintaining the same network.
-type NetworkState struct {
+// NOTE: The canonical source of truth is proto/zigbee/v1/zigbee.proto PersistedNetworkState.
+// Use zigbeedongle conversion functions to convert to/from proto types.
+type PersistedNetworkState struct {
 	PanID         uint16
 	ExtendedPanID uint64
 	Channel       uint8

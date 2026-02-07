@@ -56,13 +56,23 @@ type Dongle interface {
 
 // Re-export types for convenience
 type (
-	AddressMode     = types.AddressMode
-	MACAddress      = types.MACAddress
-	Address         = types.Address
-	IncomingMessage = types.IncomingMessage
-	OutgoingMessage = types.OutgoingMessage
-	ProfileID       = types.ProfileID
-	NetworkInfo     = types.NetworkInfo
+	AddressMode       = types.AddressMode
+	MACAddress        = types.MACAddress
+	Address           = types.Address
+	IncomingMessage   = types.IncomingMessage
+	OutgoingMessage   = types.OutgoingMessage
+	ProfileID         = types.ProfileID
+	NetworkInfo       = types.NetworkInfo
+	NetworkParameters = types.NetworkParameters
+	NetworkState      = types.NetworkState
+)
+
+// Re-export network state constants
+const (
+	NetworkStateUnknown   = types.NetworkStateUnknown
+	NetworkStateUp        = types.NetworkStateUp
+	NetworkStateDown      = types.NetworkStateDown
+	NetworkStateNotJoined = types.NetworkStateNotJoined
 )
 
 // Re-export constants

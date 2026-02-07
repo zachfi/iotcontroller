@@ -540,6 +540,18 @@ github.com/sean-/seed
 # github.com/sercand/kuberesolver/v6 v6.0.0
 ## explicit; go 1.22.0
 github.com/sercand/kuberesolver/v6
+# github.com/shimmeringbee/bytecodec v0.0.0-20240614104652-9d31c74dcd13
+## explicit; go 1.14
+github.com/shimmeringbee/bytecodec
+github.com/shimmeringbee/bytecodec/bitbuffer
+# github.com/shimmeringbee/zcl v0.0.0-20240614104719-4eee02c0ffd1
+## explicit; go 1.14
+github.com/shimmeringbee/zcl
+github.com/shimmeringbee/zcl/commands/global
+github.com/shimmeringbee/zcl/commands/local/onoff
+# github.com/shimmeringbee/zigbee v0.0.0-20240614104723-f4c0c0231568
+## explicit; go 1.14
+github.com/shimmeringbee/zigbee
 # github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c
 ## explicit; go 1.19
 github.com/shurcooL/httpfs/filter
@@ -551,10 +563,14 @@ github.com/shurcooL/vfsgen
 # github.com/spf13/pflag v1.0.9
 ## explicit; go 1.12
 github.com/spf13/pflag
+# github.com/stretchr/objx v0.5.2
+## explicit; go 1.20
+github.com/stretchr/objx
 # github.com/stretchr/testify v1.11.1
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/assert/yaml
+github.com/stretchr/testify/mock
 github.com/stretchr/testify/require
 # github.com/uber/jaeger-client-go v2.29.1+incompatible
 ## explicit

@@ -1,0 +1,479 @@
+syntax = "proto3";
+
+package zcl.v1;
+
+// ZCL (Zigbee Cluster Library) Message Definitions
+//
+// This file defines proto messages for ZCL commands and attributes.
+// The structure aligns with ZAP XML cluster definitions to enable future
+// code generation from ZAP XML files.
+//
+// Design Principles:
+// 1. Align with Zigbee ZCL specification (not application-specific)
+// 2. Structure matches ZAP XML: cluster -> command -> fields
+// 3. Preserve Zigbee semantics (cluster IDs, command IDs, attribute IDs)
+// 4. Portable across languages (proto3)
+//
+// Future: Generate from ZAP XML (src/zap/zcl-builtin/dotdot/*.xml)
+// See: src/zigbee-herdsman/scripts/zap-update-clusters.ts
+
+// ============================================================================
+// ZCL Frame and Message Wrapper
+// ============================================================================
+
+// ZclMessage wraps a ZCL frame with addressing and metadata.
+// This is the top-level message sent via gRPC.
+message ZclMessage {
+  // Source device addressing
+  string source_ieee = 1;           // IEEE address (hex string, e.g., "0x00124b0037e6f451")
+  uint32 source_network = 2;        // 16-bit network address
+  uint32 source_endpoint = 3;       // Source endpoint (1-240)
+  uint32 destination_endpoint = 4;  // Destination endpoint (1-240)
+  
+  // Cluster information
+  uint32 cluster_id = 5;            // Cluster ID (e.g., 0x0006 for genOnOff)
+  string cluster_name = 6;          // Cluster name (e.g., "genOnOff") - for convenience
+  
+  // ZCL frame
+  ZclFrame frame = 7;
+  
+  // Metadata
+  uint32 link_quality = 8;          // Link quality indicator (0-255)
+  uint64 timestamp = 9;              // Unix timestamp in nanoseconds
+}
+
+// ZclFrame represents a ZCL frame header and command.
+message ZclFrame {
+  // Frame Control (bitfield)
+  ZclFrameControl frame_control = 1;
+  
+  // Transaction sequence number (0-255)
+  uint32 transaction_sequence = 2;
+  
+  // Manufacturer code (only present if manufacturer-specific bit is set)
+  uint32 manufacturer_code = 3;    // 0 = standard ZCL command
+  
+  // Command (oneof based on cluster and frame type)
+  ZclCommand command = 4;
+}
+
+// ZclFrameControl represents the ZCL frame control byte.
+message ZclFrameControl {
+  // Frame type (0 = global, 1 = local/cluster-specific)
+  ZclFrameType frame_type = 1;
+  
+  // Direction (0 = client to server, 1 = server to client)
+  ZclDirection direction = 2;
+  
+  // Manufacturer-specific command
+  bool manufacturer_specific = 3;
+  
+  // Disable default response
+  bool disable_default_response = 4;
+}
+
+enum ZclFrameType {
+  ZCL_FRAME_TYPE_UNSPECIFIED = 0;
+  ZCL_FRAME_TYPE_GLOBAL = 1;        // Global command (0x00)
+  ZCL_FRAME_TYPE_LOCAL = 2;         // Local/cluster-specific command (0x01)
+}
+
+enum ZclDirection {
+  ZCL_DIRECTION_UNSPECIFIED = 0;
+  ZCL_DIRECTION_CLIENT_TO_SERVER = 1;  // Client to server (0)
+  ZCL_DIRECTION_SERVER_TO_CLIENT = 2;  // Server to client (1)
+}
+
+// ============================================================================
+// ZCL Command (oneof)
+// ============================================================================
+
+// ZclCommand is a oneof containing either a global or local command.
+// The specific command type is determined by:
+// - frame_type (global vs local)
+// - cluster_id (for local commands)
+// - command_id (within the command message)
+message ZclCommand {
+  oneof command {
+    // Global commands (frame_type = GLOBAL)
+    GlobalReportAttributes global_report_attributes = 1;
+    GlobalReadAttributes global_read_attributes = 2;
+    GlobalReadAttributesResponse global_read_attributes_response = 3;
+    GlobalWriteAttributes global_write_attributes = 4;
+    GlobalWriteAttributesResponse global_write_attributes_response = 5;
+    GlobalDefaultResponse global_default_response = 6;
+    
+    // Local commands - genOnOff cluster (0x0006)
+    GenOnOffOff gen_onoff_off = 10;
+    GenOnOffOn gen_onoff_on = 11;
+    GenOnOffToggle gen_onoff_toggle = 12;
+    
+    // Local commands - genLevelControl cluster (0x0008)
+    GenLevelControlMoveToLevel gen_levelcontrol_move_to_level = 20;
+    GenLevelControlMove gen_levelcontrol_move = 21;
+    GenLevelControlStep gen_levelcontrol_step = 22;
+    GenLevelControlStop gen_levelcontrol_stop = 23;
+    
+    // Local commands - genColorControl cluster (0x0300)
+    GenColorControlMoveToHue gen_colorcontrol_move_to_hue = 30;
+    GenColorControlMoveToSaturation gen_colorcontrol_move_to_saturation = 31;
+    GenColorControlMoveToHueAndSaturation gen_colorcontrol_move_to_hue_and_saturation = 32;
+    
+    // Add more clusters as needed...
+  }
+}
+
+// ============================================================================
+// Global Commands (Foundation Commands)
+// ============================================================================
+
+// ReportAttributes (0x0A) - Server reports attribute values to client
+message GlobalReportAttributes {
+  repeated AttributeRecord records = 1;
+}
+
+// ReadAttributes (0x00) - Client requests attribute values from server
+message GlobalReadAttributes {
+  repeated uint32 attribute_ids = 1;  // List of attribute IDs to read
+}
+
+// ReadAttributesResponse (0x01) - Server responds with attribute values
+message GlobalReadAttributesResponse {
+  repeated AttributeResponseRecord records = 1;
+}
+
+// WriteAttributes (0x02) - Client writes attribute values to server
+message GlobalWriteAttributes {
+  repeated AttributeRecord records = 1;
+}
+
+// WriteAttributesResponse (0x04) - Server responds to write request
+message GlobalWriteAttributesResponse {
+  repeated WriteAttributeStatusRecord records = 1;
+}
+
+// DefaultResponse (0x0B) - Default response to any command
+message GlobalDefaultResponse {
+  uint32 command_id = 1;  // Command ID that this is a response to
+  ZclStatus status = 2;    // Status code
+}
+
+// AttributeRecord represents an attribute ID and its value.
+// Used in ReportAttributes and WriteAttributes.
+message AttributeRecord {
+  uint32 attribute_id = 1;      // Attribute ID (e.g., 0x0000 for OnOff)
+  AttributeValue value = 2;      // Attribute value
+}
+
+// AttributeResponseRecord represents an attribute read response.
+message AttributeResponseRecord {
+  uint32 attribute_id = 1;      // Attribute ID
+  ZclStatus status = 2;          // Status (SUCCESS = 0x00)
+  AttributeValue value = 3;     // Value (only present if status == SUCCESS)
+}
+
+// WriteAttributeStatusRecord represents a write attribute response.
+message WriteAttributeStatusRecord {
+  ZclStatus status = 1;          // Status (SUCCESS = 0x00)
+  uint32 attribute_id = 2;       // Attribute ID
+}
+
+// AttributeValue represents a ZCL attribute value with its data type.
+message AttributeValue {
+  ZclDataType data_type = 1;
+  
+  oneof value {
+    // Boolean (0x10)
+    bool bool_value = 10;
+    
+    // Unsigned integers
+    uint32 uint8_value = 11;     // uint8 (0x20)
+    uint32 uint16_value = 12;    // uint16 (0x21)
+    uint32 uint32_value = 13;    // uint32 (0x23)
+    uint64 uint64_value = 14;    // uint64 (0x27)
+    
+    // Signed integers
+    int32 int8_value = 15;        // int8 (0x28)
+    int32 int16_value = 16;       // int16 (0x29)
+    int32 int32_value = 17;       // int32 (0x2B)
+    int64 int64_value = 18;       // int64 (0x2F)
+    
+    // Floating point
+    float float32_value = 19;     // float32 (0x39)
+    double float64_value = 20;    // float64 (0x3A)
+    
+    // Strings
+    string string_value = 21;     // Character string (0x42 or 0x44)
+    bytes octet_string_value = 22; // Octet string (0x41 or 0x43)
+    
+    // Special types
+    bytes ieee_address_value = 23; // IEEE address (0xF0) - 8 bytes
+    bytes data_value = 24;         // Generic data (0x08-0x0F) - for unknown types
+  }
+}
+
+// ZclDataType represents ZCL data types.
+// Values match ZCL specification (ZCL Revision 6, Section 2.6.2).
+enum ZclDataType {
+  ZCL_DATA_TYPE_UNSPECIFIED = 0;
+  
+  // Data types (0x08-0x0F)
+  ZCL_DATA_TYPE_DATA8 = 0x08;
+  ZCL_DATA_TYPE_DATA16 = 0x09;
+  ZCL_DATA_TYPE_DATA24 = 0x0A;
+  ZCL_DATA_TYPE_DATA32 = 0x0B;
+  ZCL_DATA_TYPE_DATA40 = 0x0C;
+  ZCL_DATA_TYPE_DATA48 = 0x0D;
+  ZCL_DATA_TYPE_DATA56 = 0x0E;
+  ZCL_DATA_TYPE_DATA64 = 0x0F;
+  
+  // Boolean (0x10)
+  ZCL_DATA_TYPE_BOOLEAN = 0x10;
+  
+  // Bitmap types (0x18-0x1F)
+  ZCL_DATA_TYPE_BITMAP8 = 0x18;
+  ZCL_DATA_TYPE_BITMAP16 = 0x19;
+  ZCL_DATA_TYPE_BITMAP24 = 0x1A;
+  ZCL_DATA_TYPE_BITMAP32 = 0x1B;
+  
+  // Unsigned integers (0x20-0x27)
+  ZCL_DATA_TYPE_UINT8 = 0x20;
+  ZCL_DATA_TYPE_UINT16 = 0x21;
+  ZCL_DATA_TYPE_UINT24 = 0x22;
+  ZCL_DATA_TYPE_UINT32 = 0x23;
+  ZCL_DATA_TYPE_UINT40 = 0x24;
+  ZCL_DATA_TYPE_UINT48 = 0x25;
+  ZCL_DATA_TYPE_UINT56 = 0x26;
+  ZCL_DATA_TYPE_UINT64 = 0x27;
+  
+  // Signed integers (0x28-0x2F)
+  ZCL_DATA_TYPE_INT8 = 0x28;
+  ZCL_DATA_TYPE_INT16 = 0x29;
+  ZCL_DATA_TYPE_INT24 = 0x2A;
+  ZCL_DATA_TYPE_INT32 = 0x2B;
+  ZCL_DATA_TYPE_INT40 = 0x2C;
+  ZCL_DATA_TYPE_INT48 = 0x2D;
+  ZCL_DATA_TYPE_INT56 = 0x2E;
+  ZCL_DATA_TYPE_INT64 = 0x2F;
+  
+  // Enumeration (0x30-0x31)
+  ZCL_DATA_TYPE_ENUM8 = 0x30;
+  ZCL_DATA_TYPE_ENUM16 = 0x31;
+  
+  // Floating point (0x38-0x3A)
+  ZCL_DATA_TYPE_FLOAT_SEMI = 0x38;
+  ZCL_DATA_TYPE_FLOAT_SINGLE = 0x39;
+  ZCL_DATA_TYPE_FLOAT_DOUBLE = 0x3A;
+  
+  // Strings (0x41-0x44)
+  ZCL_DATA_TYPE_STRING_OCTET8 = 0x41;
+  ZCL_DATA_TYPE_STRING_CHARACTER8 = 0x42;
+  ZCL_DATA_TYPE_STRING_OCTET16 = 0x43;
+  ZCL_DATA_TYPE_STRING_CHARACTER16 = 0x44;
+  
+  // Arrays and structures (0x48-0x51)
+  ZCL_DATA_TYPE_ARRAY = 0x48;
+  ZCL_DATA_TYPE_STRUCTURE = 0x4C;
+  ZCL_DATA_TYPE_SET = 0x50;
+  ZCL_DATA_TYPE_BAG = 0x51;
+  
+  // Special types (0xE0-0xF1)
+  ZCL_DATA_TYPE_TIME_OF_DAY = 0xE0;
+  ZCL_DATA_TYPE_DATE = 0xE1;
+  ZCL_DATA_TYPE_UTC_TIME = 0xE2;
+  ZCL_DATA_TYPE_CLUSTER_ID = 0xE9;
+  ZCL_DATA_TYPE_ATTRIBUTE_ID = 0xEA;
+  ZCL_DATA_TYPE_BACNET_OID = 0xEB;
+  ZCL_DATA_TYPE_IEEE_ADDRESS = 0xF0;
+  ZCL_DATA_TYPE_SECURITY_KEY128 = 0xF1;
+  
+  // Unknown
+  ZCL_DATA_TYPE_UNKNOWN = 0xFF;
+}
+
+// ZclStatus represents ZCL status codes.
+// Note: Proto values are shifted by +1 from ZCL spec values to avoid conflict with UNSPECIFIED.
+// ZCL value 0x00 maps to SUCCESS = 1, ZCL value 0x01 maps to FAILURE = 2, etc.
+enum ZclStatus {
+  ZCL_STATUS_UNSPECIFIED = 0;  // Not set (proto default)
+  ZCL_STATUS_SUCCESS = 1;      // ZCL 0x00 - Success
+  ZCL_STATUS_FAILURE = 2;       // ZCL 0x01 - Failure
+  ZCL_STATUS_NOT_AUTHORIZED = 127;      // ZCL 0x7E (126 + 1)
+  ZCL_STATUS_RESERVED_FIELD_NOT_ZERO = 128;  // ZCL 0x7F (127 + 1)
+  ZCL_STATUS_MALFORMED_COMMAND = 129;   // ZCL 0x80 (128 + 1)
+  ZCL_STATUS_UNSUP_CLUSTER_COMMAND = 130;  // ZCL 0x81 (129 + 1)
+  ZCL_STATUS_UNSUP_GENERAL_COMMAND = 131;  // ZCL 0x82 (130 + 1)
+  ZCL_STATUS_UNSUP_MANUF_CLUSTER_COMMAND = 132;  // ZCL 0x83 (131 + 1)
+  ZCL_STATUS_UNSUP_MANUF_GENERAL_COMMAND = 133;  // ZCL 0x84 (132 + 1)
+  ZCL_STATUS_INVALID_FIELD = 134;       // ZCL 0x85 (133 + 1)
+  ZCL_STATUS_UNSUPPORTED_ATTRIBUTE = 135;  // ZCL 0x86 (134 + 1)
+  ZCL_STATUS_INVALID_VALUE = 136;       // ZCL 0x87 (135 + 1)
+  ZCL_STATUS_READ_ONLY = 137;           // ZCL 0x88 (136 + 1)
+  ZCL_STATUS_INSUFFICIENT_SPACE = 138;  // ZCL 0x89 (137 + 1)
+  ZCL_STATUS_DUPLICATE_EXISTS = 139;    // ZCL 0x8A (138 + 1)
+  ZCL_STATUS_NOT_FOUND = 140;           // ZCL 0x8B (139 + 1)
+  ZCL_STATUS_UNREPORTABLE_ATTRIBUTE = 141;  // ZCL 0x8C (140 + 1)
+  ZCL_STATUS_INVALID_DATA_TYPE = 142;   // ZCL 0x8D (141 + 1)
+  ZCL_STATUS_INVALID_SELECTOR = 143;    // ZCL 0x8E (142 + 1)
+  ZCL_STATUS_WRITE_ONLY = 144;          // ZCL 0x8F (143 + 1)
+  ZCL_STATUS_INCONSISTENT_STARTUP_STATE = 145;  // ZCL 0x90 (144 + 1)
+  ZCL_STATUS_DEFINED_OUT_OF_BAND = 146; // ZCL 0x91 (145 + 1)
+  ZCL_STATUS_INCONSISTENT = 147;        // ZCL 0x92 (146 + 1)
+  ZCL_STATUS_ACTION_DENIED = 148;      // ZCL 0x93 (147 + 1)
+  ZCL_STATUS_TIMEOUT = 149;             // ZCL 0x94 (148 + 1)
+  ZCL_STATUS_ABORT = 150;               // ZCL 0x95 (149 + 1)
+  ZCL_STATUS_INVALID_IMAGE = 151;       // ZCL 0x96 (150 + 1)
+  ZCL_STATUS_WAIT_FOR_DATA = 152;       // ZCL 0x97 (151 + 1)
+  ZCL_STATUS_NO_IMAGE_AVAILABLE = 153;  // ZCL 0x98 (152 + 1)
+  ZCL_STATUS_REQUIRE_MORE_IMAGE = 154;  // ZCL 0x99 (153 + 1)
+  ZCL_STATUS_NOTIFICATION_PENDING = 155;  // ZCL 0x9A (154 + 1)
+  ZCL_STATUS_HARDWARE_FAILURE = 193;    // ZCL 0xC0 (192 + 1)
+  ZCL_STATUS_SOFTWARE_FAILURE = 194;    // ZCL 0xC1 (193 + 1)
+  ZCL_STATUS_CALIBRATION_ERROR = 195;  // ZCL 0xC2 (194 + 1)
+  ZCL_STATUS_UNSUPPORTED_CLUSTER = 196; // ZCL 0xC3 (195 + 1)
+}
+
+// ============================================================================
+// Local Commands - genOnOff Cluster (0x0006)
+// ============================================================================
+
+// Off (0x00) - Turn device off
+message GenOnOffOff {
+  // No parameters
+}
+
+// On (0x01) - Turn device on
+message GenOnOffOn {
+  // No parameters
+}
+
+// Toggle (0x02) - Toggle device state
+message GenOnOffToggle {
+  // No parameters
+}
+
+// ============================================================================
+// Local Commands - genLevelControl Cluster (0x0008)
+// ============================================================================
+
+// MoveToLevel (0x00) - Move to a specific level
+message GenLevelControlMoveToLevel {
+  uint32 level = 1;              // Level (0-254)
+  uint32 transition_time = 2;    // Transition time in 1/10 seconds
+}
+
+// Move (0x01) - Move continuously
+message GenLevelControlMove {
+  ZclMoveMode move_mode = 1;     // Move mode (up/down)
+  uint32 rate = 2;               // Rate of movement
+}
+
+// Step (0x02) - Step by one unit
+message GenLevelControlStep {
+  ZclStepMode step_mode = 1;     // Step mode (up/down)
+  uint32 step_size = 2;          // Step size
+  uint32 transition_time = 3;    // Transition time in 1/10 seconds
+}
+
+// Stop (0x03) - Stop any ongoing move/step
+message GenLevelControlStop {
+  // No parameters
+}
+
+// ZclMoveMode represents ZCL move mode values.
+// Note: Proto values are shifted by +1 from ZCL spec values.
+// ZCL value 0x00 maps to UP = 1, ZCL value 0x01 maps to DOWN = 2.
+enum ZclMoveMode {
+  ZCL_MOVE_MODE_UNSPECIFIED = 0;  // Not set (proto default)
+  ZCL_MOVE_MODE_UP = 1;            // ZCL 0x00 - Move up
+  ZCL_MOVE_MODE_DOWN = 2;          // ZCL 0x01 - Move down
+}
+
+// ZclStepMode represents ZCL step mode values.
+// Note: Proto values are shifted by +1 from ZCL spec values.
+// ZCL value 0x00 maps to UP = 1, ZCL value 0x01 maps to DOWN = 2.
+enum ZclStepMode {
+  ZCL_STEP_MODE_UNSPECIFIED = 0;  // Not set (proto default)
+  ZCL_STEP_MODE_UP = 1;           // ZCL 0x00 - Step up
+  ZCL_STEP_MODE_DOWN = 2;          // ZCL 0x01 - Step down
+}
+
+// ============================================================================
+// Local Commands - genColorControl Cluster (0x0300)
+// ============================================================================
+
+// MoveToHue (0x00) - Move to a specific hue
+message GenColorControlMoveToHue {
+  uint32 hue = 1;                // Hue (0-254)
+  ZclHueDirection direction = 2;  // Direction (shortest/longest)
+  uint32 transition_time = 3;    // Transition time in 1/10 seconds
+}
+
+// MoveToSaturation (0x03) - Move to a specific saturation
+message GenColorControlMoveToSaturation {
+  uint32 saturation = 1;         // Saturation (0-254)
+  uint32 transition_time = 2;    // Transition time in 1/10 seconds
+}
+
+// MoveToHueAndSaturation (0x06) - Move to hue and saturation
+message GenColorControlMoveToHueAndSaturation {
+  uint32 hue = 1;                // Hue (0-254)
+  uint32 saturation = 2;         // Saturation (0-254)
+  uint32 transition_time = 3;    // Transition time in 1/10 seconds
+}
+
+// ZclHueDirection represents ZCL hue direction values.
+// Note: Proto values are shifted by +1 from ZCL spec values.
+// ZCL value 0x00 maps to SHORTEST = 1, ZCL value 0x01 maps to LONGEST = 2.
+enum ZclHueDirection {
+  ZCL_HUE_DIRECTION_UNSPECIFIED = 0;  // Not set (proto default)
+  ZCL_HUE_DIRECTION_SHORTEST = 1;     // ZCL 0x00 - Shortest direction
+  ZCL_HUE_DIRECTION_LONGEST = 2;      // ZCL 0x01 - Longest direction
+}
+
+// ============================================================================
+// Common Attribute IDs (for reference - used in AttributeRecord)
+// ============================================================================
+
+// genOnOff cluster (0x0006) attributes:
+//   0x0000 - OnOff (boolean)
+
+// genBasic cluster (0x0000) attributes:
+//   0x0000 - ZCLVersion (uint8)
+//   0x0001 - ApplicationVersion (uint8)
+//   0x0002 - StackVersion (uint8)
+//   0x0003 - HardwareVersion (uint8)
+//   0x0004 - ManufacturerName (string)
+//   0x0005 - ModelIdentifier (string)
+//   0x0006 - DateCode (string)
+//   0x0007 - PowerSource (enum8)
+//   0x0010 - LocationDescription (string)
+//   0x0011 - PhysicalEnvironment (enum8)
+//   0x0012 - DeviceEnabled (boolean)
+//   0x0013 - AlarmMask (bitmap8)
+//   0x0014 - DisableLocalConfig (bitmap8)
+//   0x4000 - SWBuildID (string)
+
+// genPowerCfg cluster (0x0001) attributes:
+//   0x0000 - MainsVoltage (uint16)
+//   0x0001 - MainsFrequency (uint8)
+//   0x0010 - MainsAlarmMask (bitmap16)
+//   0x0011 - MainsVoltageMinThreshold (uint16)
+//   0x0012 - MainsVoltageMaxThreshold (uint16)
+//   0x0020 - BatteryVoltage (uint8)
+//   0x0021 - BatteryPercentageRemaining (uint8)
+//   0x0022 - BatteryManufacturer (string)
+//   0x0023 - BatterySize (enum8)
+//   0x0024 - BatteryAHrRating (uint16)
+//   0x0025 - BatteryQuantity (uint8)
+//   0x0026 - BatteryRatedVoltage (uint8)
+//   0x0027 - BatteryAlarmMask (bitmap8)
+//   0x0028 - BatteryVoltageMinThreshold (uint8)
+//   0x0030 - BatteryVoltageThreshold1 (uint8)
+//   0x0031 - BatteryVoltageThreshold2 (uint8)
+//   0x0032 - BatteryVoltageThreshold3 (uint8)
+//   0x0033 - BatteryPercentageMinThreshold (uint8)
+//   0x0034 - BatteryPercentageThreshold1 (uint8)
+//   0x0035 - BatteryPercentageThreshold2 (uint8)
+//   0x0036 - BatteryPercentageThreshold3 (uint8)
+//   0x0037 - BatteryAlarmState (bitmap32)
