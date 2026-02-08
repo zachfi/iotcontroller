@@ -3,6 +3,7 @@ package zigbeedongle
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,18 +13,89 @@ import (
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/types"
 )
 
+// networkKeyYAML is a 16-byte key that marshals as a hex string (32 chars) and
+// unmarshals from either a hex string or a YAML list of 16 integers (0-255).
+// This lets users set the key via e.g. openssl rand -hex 16.
+type networkKeyYAML [16]byte
+
+func (n *networkKeyYAML) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var v interface{}
+	if err := unmarshal(&v); err != nil {
+		return err
+	}
+	switch val := v.(type) {
+	case string:
+		decoded, err := hex.DecodeString(val)
+		if err != nil {
+			return fmt.Errorf("network key hex decode: %w", err)
+		}
+		if len(decoded) != 16 {
+			return fmt.Errorf("network key must be 32 hex chars (16 bytes), got %d bytes", len(decoded))
+		}
+		copy((*n)[:], decoded)
+		return nil
+	case []interface{}:
+		if len(val) != 16 {
+			return fmt.Errorf("network key must be 16 bytes, got %d elements", len(val))
+		}
+		for i := 0; i < 16; i++ {
+			var b int
+			switch num := val[i].(type) {
+			case int:
+				b = num
+			case float64:
+				b = int(num)
+			default:
+				return fmt.Errorf("network key byte[%d]: expected number, got %T", i, val[i])
+			}
+			if b < 0 || b > 255 {
+				return fmt.Errorf("network key byte[%d]: must be 0-255, got %d", i, b)
+			}
+			(*n)[i] = byte(b)
+		}
+		return nil
+	default:
+		return fmt.Errorf("network key must be hex string (32 chars) or list of 16 bytes, got %T", v)
+	}
+}
+
+func (n networkKeyYAML) MarshalYAML() (interface{}, error) {
+	return hex.EncodeToString(n[:]), nil
+}
+
 // StateFile is the default filename for persisting network state.
 const StateFile = "zigbee-network-state.yaml"
 
+// IsZeroNetworkKey returns true if the 16-byte key is all zeros.
+// An all-zero key is insecure and can appear when state was saved after
+// adopting an already-joined device (the key cannot be read from the dongle).
+func IsZeroNetworkKey(key [16]byte) bool {
+	for _, b := range key {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// persistedFileFormat is the YAML file layout. Network key is stored as hex for readability.
+type persistedFileFormat struct {
+	PanID         uint16         `yaml:"panid"`
+	ExtendedPanID uint64         `yaml:"extendedpanid"`
+	Channel       uint8          `yaml:"channel"`
+	NetworkKey    networkKeyYAML `yaml:"networkkey"`
+}
+
 // SaveNetworkState saves the network state to a YAML file.
-// This allows the same network to be restored when swapping devices.
-// The file is human-readable and can be edited by users.
+// The network key is written as a 32-character hex string so users can edit it
+// (e.g. generate with: openssl rand -hex 16). This allows the same network to
+// be restored when swapping devices.
 func SaveNetworkState(statePath string, params types.NetworkParameters) error {
-	state := types.PersistedNetworkState{
+	state := persistedFileFormat{
 		PanID:         params.PanID,
 		ExtendedPanID: params.ExtendedPanID,
 		Channel:       params.Channel,
-		NetworkKey:    params.NetworkKey,
+		NetworkKey:    networkKeyYAML(params.NetworkKey),
 	}
 
 	// Create directory if it doesn't exist
@@ -34,7 +106,7 @@ func SaveNetworkState(statePath string, params types.NetworkParameters) error {
 		}
 	}
 
-	data, err := yaml.Marshal(state)
+	data, err := yaml.Marshal(&state)
 	if err != nil {
 		return fmt.Errorf("marshaling network state: %w", err)
 	}
@@ -48,7 +120,10 @@ func SaveNetworkState(statePath string, params types.NetworkParameters) error {
 
 // LoadNetworkState loads the network state from a YAML file.
 // Returns nil if the file doesn't exist (network not yet formed).
-// The file can be edited by users, so we validate the loaded data.
+// The file can be edited by users; network key may be hex (32 chars) or a list of 16 bytes.
+// If the loaded NetworkKey is all zeros (e.g. placeholder from adopting an
+// already-joined device), the caller must not use it for forming a new
+// network; use IsZeroNetworkKey to check and replace with a random key.
 func LoadNetworkState(statePath string) (*types.NetworkParameters, error) {
 	data, err := os.ReadFile(statePath)
 	if err != nil {
@@ -58,7 +133,7 @@ func LoadNetworkState(statePath string) (*types.NetworkParameters, error) {
 		return nil, fmt.Errorf("reading network state file: %w", err)
 	}
 
-	var state types.PersistedNetworkState
+	var state persistedFileFormat
 	if err := yaml.Unmarshal(data, &state); err != nil {
 		return nil, fmt.Errorf("unmarshaling network state: %w", err)
 	}
@@ -72,7 +147,7 @@ func LoadNetworkState(statePath string) (*types.NetworkParameters, error) {
 		PanID:         state.PanID,
 		ExtendedPanID: state.ExtendedPanID,
 		Channel:       state.Channel,
-		NetworkKey:    state.NetworkKey,
+		NetworkKey:    [16]byte(state.NetworkKey),
 	}, nil
 }
 
