@@ -27,8 +27,10 @@ func NewDongle(cfg Config) (Dongle, error) {
 			Port:               cfg.Port,
 			BaudRate:           cfg.BaudRate,
 			DisableFlowControl: cfg.DisableFlowControl,
+			SkipHardwareReset:  cfg.SkipHardwareReset,
 			LogCommands:        cfg.LogCommands,
 			LogErrors:          cfg.LogErrors,
+			Logger:             cfg.Logger,
 		}
 
 		controller, err := znp.NewController(settings)
@@ -43,8 +45,10 @@ func NewDongle(cfg Config) (Dongle, error) {
 			Port:               cfg.Port,
 			BaudRate:           cfg.BaudRate,
 			DisableFlowControl: cfg.DisableFlowControl,
+			SkipForcedLeave:    cfg.EmberSkipForcedLeave,
 			LogCommands:        cfg.LogCommands,
 			LogErrors:          cfg.LogErrors,
+			Logger:             cfg.Logger,
 		}
 
 		controller, err := ember.NewController(settings)
