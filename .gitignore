@@ -27,3 +27,13 @@ Dockerfile.cross
 integration/e2e/e2e_integration_test*
 dist/
 cover.cov
+
+# Local reference/scratch directories (not part of the module)
+old/
+docs/
+COMPARISON.md
+CHANGELOG.md
+breadcrumbs.spec.yaml
+network.yaml
+zigbee2mqtt-data/
+tools/zigbee2mqtt-docker-run.sh

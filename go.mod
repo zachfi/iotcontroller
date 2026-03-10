@@ -3,7 +3,6 @@ module github.com/zachfi/iotcontroller
 go 1.25.0
 
 require (
-	github.com/GreenLightning/zigbee-conductor v0.0.0-00010101000000-000000000000
 	github.com/briandowns/openweathermap v0.21.1
 	github.com/eclipse/paho.mqtt.golang v1.5.0
 	github.com/go-kit/log v0.2.1
@@ -205,5 +204,3 @@ require (
 )
 
 replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
-
-replace github.com/GreenLightning/zigbee-conductor => /home/zach/go/src/github.com/GreenLightning/zigbee-conductor
