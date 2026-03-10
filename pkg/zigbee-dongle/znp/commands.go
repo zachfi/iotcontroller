@@ -58,8 +58,28 @@ func (state DeviceState) String() string {
 /* FRAME_SUBSYSTEM_SYS */
 
 func init() {
+	registerCommand(FRAME_TYPE_SREQ, FRAME_SUBSYSTEM_SYS, 0x00, SysResetRequest{})
+	registerCommand(FRAME_TYPE_SRSP, FRAME_SUBSYSTEM_SYS, 0x00, SysResetResponse{})
+	registerCommand(FRAME_TYPE_SREQ, FRAME_SUBSYSTEM_SYS, 0x01, SysPingRequest{})
+	registerCommand(FRAME_TYPE_SRSP, FRAME_SUBSYSTEM_SYS, 0x01, SysPingResponse{})
 	registerCommand(FRAME_TYPE_SREQ, FRAME_SUBSYSTEM_SYS, 0x02, SysVersionRequest{})
 	registerCommand(FRAME_TYPE_SRSP, FRAME_SUBSYSTEM_SYS, 0x02, SysVersionResponse{})
+}
+
+// SysResetRequest triggers a software reset of the ZNP. Type is typically 0 (reset).
+type SysResetRequest struct {
+	Type uint8
+}
+
+type SysResetResponse struct {
+	Status uint8
+}
+
+// SysPingRequest is SYS ping (command 1). Used by zigbee-herdsman to probe if device is in ZNP app mode (250ms timeout).
+type SysPingRequest struct{}
+
+type SysPingResponse struct {
+	Capabilities uint16
 }
 
 type SysVersionRequest struct{}

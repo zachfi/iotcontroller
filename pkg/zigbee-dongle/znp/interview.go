@@ -3,6 +3,7 @@ package znp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -35,7 +36,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		if err != nil {
 			if attempt < 5 {
 				if c.settings.LogErrors {
-					fmt.Printf("[zigbee] Node descriptor request failed (attempt %d/%d): %v\n", attempt+1, 6, err)
+					c.zigbeeLog.Warn("node descriptor request failed", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("error", err))
 				}
 				continue
 			}
@@ -47,7 +48,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		if err != nil {
 			if attempt < 5 {
 				if c.settings.LogErrors {
-					fmt.Printf("[zigbee] Node descriptor response timeout (attempt %d/%d): %v\n", attempt+1, 6, err)
+					c.zigbeeLog.Warn("node descriptor response timeout", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("error", err))
 				}
 				continue
 			}
@@ -60,14 +61,13 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 			// Increase delay between retries for this specific error
 			retryDelay := 500 * time.Millisecond
 			if resp.Status == 0x80 && attempt < 5 {
-				// For INVALID_REQTYPE, wait longer - device may still be initializing
 				retryDelay = 2 * time.Second
 				if c.settings.LogErrors {
-					fmt.Printf("[zigbee] Node descriptor status error (attempt %d/%d): 0x%02x (INVALID_REQTYPE - device may not be ready, waiting longer)\n", attempt+1, 6, resp.Status)
+					c.zigbeeLog.Warn("node descriptor status error (INVALID_REQTYPE, waiting longer)", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("status", resp.Status))
 				}
 			} else if attempt < 5 {
 				if c.settings.LogErrors {
-					fmt.Printf("[zigbee] Node descriptor status error (attempt %d/%d): 0x%02x\n", attempt+1, 6, resp.Status)
+					c.zigbeeLog.Warn("node descriptor status error", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("status", resp.Status))
 				}
 			}
 			if attempt < 5 {
@@ -125,7 +125,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		if err != nil {
 			if attempt < 1 {
 				if c.settings.LogErrors {
-					fmt.Printf("[zigbee] Active endpoints request failed (attempt %d/2): %v\n", attempt+1, err)
+					c.zigbeeLog.Warn("active endpoints request failed", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("error", err))
 				}
 				continue
 			}
@@ -136,7 +136,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		if err != nil {
 			if attempt < 1 {
 				if c.settings.LogErrors {
-					fmt.Printf("[zigbee] Active endpoints response timeout (attempt %d/2): %v\n", attempt+1, err)
+					c.zigbeeLog.Warn("active endpoints response timeout", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("error", err))
 				}
 				continue
 			}
@@ -147,7 +147,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		if activeEPResp.Status != 0 {
 			if attempt < 1 {
 				if c.settings.LogErrors {
-					fmt.Printf("[zigbee] Active endpoints status error (attempt %d/2): 0x%02x\n", attempt+1, activeEPResp.Status)
+					c.zigbeeLog.Warn("active endpoints status error", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("status", activeEPResp.Status))
 				}
 				continue
 			}
@@ -176,15 +176,15 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 
 		if err != nil {
 			if c.settings.LogErrors {
-				fmt.Printf("[zigbee] Simple descriptor request failed for endpoint %d: %v\n", endpointID, err)
+				c.zigbeeLog.Warn("simple descriptor request failed", slog.Uint64("endpoint", uint64(endpointID)), slog.Any("error", err))
 			}
-			continue // Skip this endpoint but continue with others
+			continue
 		}
 
 		response, err := handler.Receive()
 		if err != nil {
 			if c.settings.LogErrors {
-				fmt.Printf("[zigbee] Simple descriptor response timeout for endpoint %d: %v\n", endpointID, err)
+				c.zigbeeLog.Warn("simple descriptor response timeout", slog.Uint64("endpoint", uint64(endpointID)), slog.Any("error", err))
 			}
 			continue
 		}
@@ -192,7 +192,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		simpleDescResp := response.(ZdoSimpleDescriptor)
 		if simpleDescResp.Status != 0 {
 			if c.settings.LogErrors {
-				fmt.Printf("[zigbee] Simple descriptor status error for endpoint %d: 0x%02x\n", endpointID, simpleDescResp.Status)
+				c.zigbeeLog.Warn("simple descriptor status error", slog.Uint64("endpoint", uint64(endpointID)), slog.Any("status", simpleDescResp.Status))
 			}
 			continue
 		}

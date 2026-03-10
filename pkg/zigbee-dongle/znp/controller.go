@@ -2,19 +2,36 @@ package znp
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/types"
 )
 
+// Formation/startup timeouts. zigbee-herdsman uses 40s for startupFromApp and 30s for reset
+// (see zigbee-herdsman src/adapter/z-stack/znp/znp.ts: timeouts.SREQ=6s, reset=30s, startupFromApp=40s).
+const (
+	startupVersionTimeout     = 30 * time.Second // SysVersionRequest after reset (herdsman default 10s; we allow more for slow boot)
+	startupDeviceInfoTimeout  = 15 * time.Second // UtilGetDeviceInfoRequest
+	startupFromAppTimeout     = 40 * time.Second // ZdoStartupFromAppRequest (matches zigbee-herdsman)
+	startupStateChangeTimeout = 40 * time.Second // ZdoStateChangeInd after startup (same as startupFromApp)
+	postResetDelay            = 2 * time.Second  // after hardware reset before first command
+	postMagicByteDelay        = 1 * time.Second  // after magic byte (herdsman uses 1s)
+)
+
+// Controller implements the Zigbee dongle interface using the ZNP (Z-Stack Network Processor) protocol.
+// Logs use "layer" attribute: "znp" = ZNP protocol (serial, framing, commands), "zigbee" = dongle/coordinator (startup, joins, interview).
 type Controller struct {
 	port     *Port
 	settings *Settings
 	sequence uint32
 
-	// Device join events channel (initialized in NewController, remains open until controller is closed)
+	znpLog    *slog.Logger // layer=znp: protocol, serial, commands
+	zigbeeLog *slog.Logger // layer=zigbee: startup, device state, joins, interview
+
 	joinEvents chan DeviceJoinEvent
 }
 
@@ -22,17 +39,25 @@ type Settings struct {
 	Port               string
 	BaudRate           int  // Default: 115200
 	DisableFlowControl bool // Disable RTS/CTS flow control
+	SkipHardwareReset  bool // If true, skip DTR reset before magic byte (old/znp does not reset)
 	LogCommands        bool
 	LogErrors          bool
+	Logger             *slog.Logger // If nil, slog.Default() is used; logs get layer=znp or layer=zigbee
 }
 
 func NewController(settings Settings) (*Controller, error) {
+	logger := settings.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	znpLog := logger.With("layer", "znp")
+	zigbeeLog := logger.With("layer", "zigbee")
+
 	callbacks := Callbacks{
 		OnReadError: func(err error) ErrorHandling {
 			if err == ErrInvalidFrame || err == ErrGarbage {
 				if settings.LogErrors {
-					// TODO: use proper logger
-					fmt.Printf("[zigbee] %v\n", err)
+					zigbeeLog.Warn("read error", slog.Any("error", err))
 				}
 				return ErrorHandlingContinue
 			}
@@ -42,13 +67,13 @@ func NewController(settings Settings) (*Controller, error) {
 		OnParseError: func(err error, frame Frame) ErrorHandling {
 			if err == ErrCommandInvalidFrame {
 				if settings.LogErrors {
-					fmt.Printf("[zigbee] invalid serial frame\n")
+					zigbeeLog.Warn("invalid serial frame")
 				}
 				return ErrorHandlingContinue
 			}
 			if err == ErrCommandUnknownFrameHeader {
 				if settings.LogErrors {
-					fmt.Printf("[zigbee] unknown serial frame: %v\n", frame)
+					zigbeeLog.Warn("unknown serial frame", slog.Any("frame", frame))
 				}
 				return ErrorHandlingContinue
 			}
@@ -58,14 +83,14 @@ func NewController(settings Settings) (*Controller, error) {
 
 	if settings.LogCommands {
 		callbacks.BeforeWrite = func(command interface{}) {
-			fmt.Printf("--> %T%+v\n", command, command)
+			znpLog.Debug("command send", slog.Any("command", command))
 		}
 		callbacks.AfterRead = func(command interface{}) {
-			fmt.Printf("<-- %T%+v\n", command, command)
+			znpLog.Debug("command recv", slog.Any("command", command))
 		}
 	}
 
-	port, err := NewPort(settings.Port, settings.BaudRate, settings.DisableFlowControl, callbacks)
+	port, err := NewPort(settings.Port, settings.BaudRate, settings.DisableFlowControl, callbacks, znpLog)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +98,9 @@ func NewController(settings Settings) (*Controller, error) {
 	return &Controller{
 		port:       port,
 		settings:   &settings,
-		joinEvents: make(chan DeviceJoinEvent, 10), // Initialize join events channel
+		znpLog:     znpLog,
+		zigbeeLog:  zigbeeLog,
+		joinEvents: make(chan DeviceJoinEvent, 10),
 	}, nil
 }
 
@@ -110,89 +137,83 @@ type DeviceJoinEvent struct {
 
 // Start initializes the controller and returns a channel of incoming messages.
 func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, error) {
-	fmt.Printf("[zigbee] starting controller on port %s...\n", c.settings.Port)
-	fmt.Printf("[zigbee] DEBUG: About to perform hardware reset...\n")
+	c.zigbeeLog.Info("starting controller", slog.String("port", c.settings.Port))
 
-	// Perform hardware reset first (similar to zigbee-herdsman and EZSP)
-	// This ensures the device is in a known state before initialization
-	fmt.Printf("[zigbee] performing hardware reset (DTR toggle)...\n")
-	if err := c.port.ResetDevice(); err != nil {
-		// Reset failure is not fatal - device might not support it
-		fmt.Printf("[zigbee] Warning: hardware reset failed (continuing): %v\n", err)
+	if !c.settings.SkipHardwareReset {
+		c.zigbeeLog.Debug("about to perform hardware reset")
+		if err := c.port.ResetDevice(); err != nil {
+			c.zigbeeLog.Warn("hardware reset failed (continuing)", slog.Any("error", err))
+		} else {
+			c.zigbeeLog.Debug("hardware reset completed successfully")
+		}
+		c.zigbeeLog.Debug("waiting for device to stabilize after reset...")
+		time.Sleep(postResetDelay)
 	} else {
-		fmt.Printf("[zigbee] hardware reset completed successfully\n")
+		c.zigbeeLog.Debug("skipping hardware reset (skip-hardware-reset)")
 	}
 
-	// Give device time to stabilize after reset
-	// Z-Stack 3.x devices may need more time to boot
-	fmt.Printf("[zigbee] waiting for device to stabilize after reset...\n")
-	time.Sleep(500 * time.Millisecond) // Increased from 100ms to 500ms for Z-Stack 3.x
-
-	// Note: When RTS/CTS flow control is enabled, the kernel should automatically
-	// manage RTS based on buffer availability. Manual assertion may conflict with
-	// the kernel's automatic management. However, some devices may need RTS asserted
-	// initially. If you're not receiving data with flow control enabled, try:
-	// 1. Disabling flow control (if device doesn't support it)
-	// 2. Checking RTS/CTS wiring
-	// 3. Verifying device firmware supports RTS/CTS flow control
-
-	fmt.Printf("[zigbee] sending magic byte (0xEF) to skip bootloader...\n")
-	err := c.port.WriteMagicByteForBootloader()
-	if err != nil {
-		return nil, fmt.Errorf("writing magic byte for bootloader: %w", err)
+	// zigbee-herdsman skipBootloader: try SYS ping (250ms) first; if fail, magic byte + 1s + ping again (old/zigbee-herdsman src/adapter/z-stack/znp/znp.ts).
+	// No unconditional magic byte — only send it when ping fails (device may already be in ZNP app mode).
+	var err error
+	gotVersion := false
+	if _, err = c.port.WriteCommandTimeout(SysPingRequest{}, 250*time.Millisecond); err != nil {
+		c.zigbeeLog.Debug("SYS ping failed (device may be in bootloader), sending magic byte", slog.Any("error", err))
+		if err := c.port.WriteMagicByteForBootloader(); err != nil {
+			return nil, fmt.Errorf("writing magic byte for bootloader: %w", err)
+		}
+		c.zigbeeLog.Debug("magic byte sent, waiting 1s (herdsman skipBootloader)", slog.Duration("delay", postMagicByteDelay))
+		time.Sleep(postMagicByteDelay)
+		if _, err = c.port.WriteCommandTimeout(SysPingRequest{}, 250*time.Millisecond); err != nil {
+			c.zigbeeLog.Debug("SYS ping still failed after magic byte, trying version with long timeout", slog.Any("error", err))
+			_, err = c.port.WriteCommandTimeout(SysVersionRequest{}, startupVersionTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("getting system version: %w", err)
+			}
+			gotVersion = true
+		}
+	} else {
+		c.zigbeeLog.Debug("SYS ping succeeded (device already in ZNP app mode)")
 	}
-	fmt.Printf("[zigbee] magic byte sent, proceeding immediately (device may send SYS_RESET_IND asynchronously)...\n")
 
-	// Note: The device MAY send SYS_RESET_IND after the magic byte, but we don't wait for it.
-	// The continuous read loop will handle it if it arrives. We proceed immediately like the vendor code.
-	// Z-Stack 3.x may need time to process the magic byte and exit bootloader
-	time.Sleep(500 * time.Millisecond)
-
-	// This command is used to test communication with the device.
-	// The response may be slow if the device has to finish booting,
-	// therefore we use a custom timeout value.
-	// Z-Stack 3.x might need even longer, so we use 15 seconds
-	fmt.Printf("[zigbee] sending SysVersionRequest (timeout: 15s)...\n")
-	_, err = c.port.WriteCommandTimeout(SysVersionRequest{}, 15*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("getting system version: %w", err)
+	if !gotVersion {
+		c.zigbeeLog.Debug("sending SysVersionRequest", slog.Duration("timeout", startupVersionTimeout))
+		if _, err = c.port.WriteCommandTimeout(SysVersionRequest{}, startupVersionTimeout); err != nil {
+			return nil, fmt.Errorf("getting system version: %w", err)
+		}
 	}
 
 	// Give device a moment after SysVersionRequest before sending UtilGetDeviceInfoRequest
 	// Some devices may need time to process the first command
 	time.Sleep(200 * time.Millisecond)
 
-	fmt.Printf("[zigbee] sending UtilGetDeviceInfoRequest (timeout: 10s)...\n")
-	// Use longer timeout - some devices are slow to respond to UtilGetDeviceInfoRequest
-	response, err := c.port.WriteCommandTimeout(UtilGetDeviceInfoRequest{}, 10*time.Second)
+	c.zigbeeLog.Debug("sending UtilGetDeviceInfoRequest", slog.Duration("timeout", startupDeviceInfoTimeout))
+	response, err := c.port.WriteCommandTimeout(UtilGetDeviceInfoRequest{}, startupDeviceInfoTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("getting device info: %w", err)
 	}
 
-	fmt.Printf("[zigbee] device info received, checking state...\n")
+	c.zigbeeLog.Debug("device info received, checking state")
 
 	deviceInfo := response.(UtilGetDeviceInfoResponse)
-	fmt.Printf("[zigbee] Device state: %v (Coordinator=%v)\n", deviceInfo.DeviceState, DeviceStateCoordinator)
+	c.zigbeeLog.Debug("device state", slog.Any("state", deviceInfo.DeviceState), slog.Bool("is_coordinator", deviceInfo.DeviceState == DeviceStateCoordinator))
 	if deviceInfo.DeviceState != DeviceStateCoordinator {
-		fmt.Printf("[zigbee] Device not in coordinator state, starting coordinator...\n")
-		// Register handler BEFORE sending the command
+		c.zigbeeLog.Info("device not in coordinator state, starting coordinator")
 		handler := c.port.RegisterOneOffHandler(ZdoStateChangeInd{})
-		fmt.Printf("[zigbee] Handler registered for ZdoStateChangeInd\n")
+		c.zigbeeLog.Debug("handler registered for ZdoStateChangeInd")
 
-		_, err = c.port.WriteCommand(ZdoStartupFromAppRequest{StartDelay: 100})
+		_, err = c.port.WriteCommandTimeout(ZdoStartupFromAppRequest{StartDelay: 100}, startupFromAppTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("sending startup from app: %w", err)
 		}
-		fmt.Printf("[zigbee] ZdoStartupFromAppRequest sent, waiting for ZdoStateChangeInd (timeout: 30s)...\n")
+		c.zigbeeLog.Debug("ZDO startup from app request sent, waiting for ZdoStateChangeInd", slog.Duration("timeout", startupStateChangeTimeout))
 
-		// Use a longer timeout for state change - Z-Stack 3.x might need more time
 		stateChange, err := handler.Receive()
 		if err != nil {
 			return nil, fmt.Errorf("waiting for state change: %w", err)
 		}
-		fmt.Printf("[zigbee] Received state change indication: %+v\n", stateChange)
+		c.zigbeeLog.Debug("received state change indication", slog.Any("state_change", stateChange))
 	} else {
-		fmt.Printf("[zigbee] Device already in coordinator state, skipping startup\n")
+		c.zigbeeLog.Debug("device already in coordinator state, skipping startup")
 	}
 
 	// Activate endpoints to receive incoming messages.
@@ -267,7 +288,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 			}
 			announce := cmd.(ZdoEndDeviceAnnceInd)
 			if c.settings.LogCommands {
-				fmt.Printf("[zigbee] Device joined: NWK=0x%04x, IEEE=0x%016x\n", announce.NwkAddr, announce.IEEEAddr)
+				c.zigbeeLog.Info("device joined", slog.String("nwk", fmt.Sprintf("0x%04x", announce.NwkAddr)), slog.String("ieee", fmt.Sprintf("0x%016x", announce.IEEEAddr)))
 			}
 			// Send join event (non-blocking)
 			if c.joinEvents != nil {
@@ -292,8 +313,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 			}
 			tcDev := cmd.(ZdoTcDevInd)
 			if c.settings.LogCommands {
-				fmt.Printf("[zigbee] Trust Center device: NWK=0x%04x, IEEE=0x%016x, Parent=0x%04x\n",
-					tcDev.SrcNwkAddr, tcDev.SrcIEEEAddr, tcDev.ParentNwkAddr)
+				c.zigbeeLog.Info("trust center device", slog.String("nwk", fmt.Sprintf("0x%04x", tcDev.SrcNwkAddr)), slog.String("ieee", fmt.Sprintf("0x%016x", tcDev.SrcIEEEAddr)), slog.String("parent", fmt.Sprintf("0x%04x", tcDev.ParentNwkAddr)))
 			}
 			// Trust Center device events also indicate a device joined
 			// Send join event (non-blocking)
@@ -399,18 +419,105 @@ func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, er
 	}, nil
 }
 
-// FormNetwork creates a new Zigbee network with the specified parameters.
-// For Z-Stack, this requires setting NV memory parameters before calling ZdoStartupFromApp.
-// This is not yet implemented - Z-Stack network formation is more complex than Ember.
+// Z-Stack NV item IDs (ZCD_NV_*). Values may vary by Z-Stack version; these are for Z-Stack 2.x/3.x.
+const (
+	nvStartupOption   uint16 = 0x0003 // ZCD_NV_STARTUP_OPTION: bit 1 = CLEAR_STATE
+	nvPANID           uint16 = 0x0083 // ZCD_NV_PANID, 2 bytes
+	nvExtendedPANID   uint16 = 0x002D // ZCD_NV_EXTENDED_PANID, 8 bytes (Z-Stack 2.x)
+	nvChannelList     uint16 = 0x0084 // ZCD_NV_CHANLIST, 4 bytes (bitmask)
+	nvPrecfgKeyEnable uint16 = 0x0063 // ZCD_NV_PRECFGKEY_ENABLE, 1 byte
+	nvPrecfgKey       uint16 = 0x0062 // ZCD_NV_PRECFGKEY, 16 bytes
+)
+
+// FormNetwork creates a new Zigbee network by writing NV parameters and resetting the device.
+// After reset, the device will use the new PAN ID, extended PAN ID, channel, and network key.
+// This implementation writes NV via SYS_OSAL_NV_WRITE then triggers a software reset and
+// re-runs the startup sequence (magic byte, ZdoStartupFromApp).
 func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParameters) error {
-	// TODO: Implement Z-Stack network formation
-	// This requires:
-	// 1. Setting ZCD_NV_PANID in NV memory
-	// 2. Setting ZCD_NV_EXTENDED_PANID in NV memory
-	// 3. Setting ZCD_NV_CHANLIST in NV memory
-	// 4. Setting ZCD_NV_PRECFGKEY_ENABLE and ZCD_NV_PRECFGKEY in NV memory
-	// 5. Calling ZdoStartupFromApp which will form the network
-	return fmt.Errorf("ZNP FormNetwork not yet implemented - Z-Stack requires NV memory configuration")
+	// 1. Set CLEAR_STATE so the device clears previous network state on next boot.
+	if err := c.nvWrite(nvStartupOption, 0, []byte{0x02}); err != nil {
+		return fmt.Errorf("writing startup option: %w", err)
+	}
+	// 2. PAN ID (2 bytes, little endian)
+	panIDBytes := make([]byte, 2)
+	binary.LittleEndian.PutUint16(panIDBytes, params.PanID)
+	if err := c.nvWrite(nvPANID, 0, panIDBytes); err != nil {
+		return fmt.Errorf("writing PAN ID: %w", err)
+	}
+	// 3. Extended PAN ID (8 bytes, little endian)
+	extPanIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(extPanIDBytes, params.ExtendedPanID)
+	if err := c.nvWrite(nvExtendedPANID, 0, extPanIDBytes); err != nil {
+		return fmt.Errorf("writing extended PAN ID: %w", err)
+	}
+	// 4. Channel list (4 bytes): bitmask, bit 0 = channel 11, bit 1 = channel 12, ...
+	if params.Channel < 11 || params.Channel > 26 {
+		return fmt.Errorf("channel must be 11-26, got %d", params.Channel)
+	}
+	chanMask := uint32(1 << (params.Channel - 11))
+	chanListBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(chanListBytes, chanMask)
+	if err := c.nvWrite(nvChannelList, 0, chanListBytes); err != nil {
+		return fmt.Errorf("writing channel list: %w", err)
+	}
+	// 5. Preconfigured key enable = 1
+	if err := c.nvWrite(nvPrecfgKeyEnable, 0, []byte{1}); err != nil {
+		return fmt.Errorf("writing precfg key enable: %w", err)
+	}
+	// 6. Preconfigured network key (16 bytes)
+	if err := c.nvWrite(nvPrecfgKey, 0, params.NetworkKey[:]); err != nil {
+		return fmt.Errorf("writing precfg key: %w", err)
+	}
+
+	// 7. Register for reset indication before sending reset. The device does not send
+	// an SRSP for reset; it sends SysResetInd (AREQ) when it is about to reset.
+	handler := c.port.RegisterOneOffHandler(SysResetInd{})
+	go func() {
+		_, _ = c.port.WriteCommandTimeout(SysResetRequest{Type: 0}, 2*time.Second) // SRSP may not come; we wait for SysResetInd
+	}()
+	_, err := handler.Receive()
+	if err != nil {
+		return fmt.Errorf("waiting for reset indication: %w", err)
+	}
+
+	// 8. Re-run startup: magic byte, version, device info, ZdoStartupFromApp (zigbee-herdsman uses 40s for startupFromApp)
+	time.Sleep(postResetDelay)
+	if err := c.port.WriteMagicByteForBootloader(); err != nil {
+		return fmt.Errorf("magic byte after reset: %w", err)
+	}
+	time.Sleep(postMagicByteDelay)
+	if _, err := c.port.WriteCommandTimeout(SysVersionRequest{}, startupVersionTimeout); err != nil {
+		return fmt.Errorf("version after reset: %w", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := c.port.WriteCommandTimeout(UtilGetDeviceInfoRequest{}, startupDeviceInfoTimeout); err != nil {
+		return fmt.Errorf("device info after reset: %w", err)
+	}
+	stateHandler := c.port.RegisterOneOffHandler(ZdoStateChangeInd{})
+	if _, err := c.port.WriteCommandTimeout(ZdoStartupFromAppRequest{StartDelay: 100}, startupFromAppTimeout); err != nil {
+		return fmt.Errorf("startup from app: %w", err)
+	}
+	if _, err := stateHandler.Receive(); err != nil {
+		return fmt.Errorf("waiting for state change: %w", err)
+	}
+	return nil
+}
+
+// nvWrite writes a single NV item. Offset is 0 for full-item writes.
+func (c *Controller) nvWrite(id uint16, offset uint8, value []byte) error {
+	resp, err := c.port.WriteCommandTimeout(SysOsalNvWriteRequest{
+		ID:     id,
+		Offset: offset,
+		Value:  value,
+	}, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	r := resp.(SysOsalNvWriteResponse)
+	if r.Status != 0 {
+		return fmt.Errorf("NV write id=0x%04x status=0x%02x", id, r.Status)
+	}
+	return nil
 }
 
 // Close closes the controller and releases resources.

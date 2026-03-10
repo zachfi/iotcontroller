@@ -6,10 +6,10 @@ import (
 
 	"github.com/shimmeringbee/bytecodec"
 	"github.com/shimmeringbee/bytecodec/bitbuffer"
-	"github.com/shimmeringbee/zigbee"
 	"github.com/shimmeringbee/zcl"
 	"github.com/shimmeringbee/zcl/commands/global"
 	"github.com/shimmeringbee/zcl/commands/local/onoff"
+	"github.com/shimmeringbee/zigbee"
 	zclv1proto "github.com/zachfi/iotcontroller/proto/zcl/v1"
 )
 
@@ -22,14 +22,14 @@ type Parser struct {
 // NewParser creates a new ZCL parser with registered commands.
 func NewParser(logger *slog.Logger) *Parser {
 	registry := zcl.NewCommandRegistry()
-	
+
 	// Register global commands
 	global.Register(registry)
-	
+
 	// Register local commands
 	onoff.Register(registry)
 	// TODO: Add more clusters as needed
-	
+
 	return &Parser{
 		registry: registry,
 		logger:   logger.With("component", "zcl-parser"),
@@ -90,17 +90,17 @@ func (p *Parser) convertToProto(
 ) (*zclv1proto.ZclMessage, error) {
 	// Build frame control
 	frameControl := &zclv1proto.ZclFrameControl{
-		FrameType:           p.convertFrameType(zclMsg.FrameType),
-		Direction:           p.convertDirection(zclMsg.Direction),
-		ManufacturerSpecific: zclMsg.isManufacturerSpecific(),
+		FrameType:              p.convertFrameType(zclMsg.FrameType),
+		Direction:              p.convertDirection(zclMsg.Direction),
+		ManufacturerSpecific:   zclMsg.Manufacturer > 0,
 		DisableDefaultResponse: false, // TODO: Extract from frame control byte
 	}
 
 	// Build frame
 	frame := &zclv1proto.ZclFrame{
-		FrameControl:       frameControl,
+		FrameControl:        frameControl,
 		TransactionSequence: uint32(zclMsg.TransactionSequence),
-		ManufacturerCode:   uint32(zclMsg.Manufacturer),
+		ManufacturerCode:    uint32(zclMsg.Manufacturer),
 	}
 
 	// Convert command based on type
@@ -223,19 +223,19 @@ func (p *Parser) convertCommand(zclMsg zcl.Message, clusterID uint16) (*zclv1pro
 // convertReportAttributes converts shimmeringbee ReportAttributes to proto.
 func (p *Parser) convertReportAttributes(cmd *global.ReportAttributes) (*zclv1proto.GlobalReportAttributes, error) {
 	records := make([]*zclv1proto.AttributeRecord, 0, len(cmd.Records))
-	
+
 	for _, rec := range cmd.Records {
 		attrValue, err := p.convertAttributeValue(rec.DataTypeValue)
 		if err != nil {
 			return nil, fmt.Errorf("converting attribute value: %w", err)
 		}
-		
+
 		records = append(records, &zclv1proto.AttributeRecord{
 			AttributeId: uint32(rec.Identifier),
 			Value:       attrValue,
 		})
 	}
-	
+
 	return &zclv1proto.GlobalReportAttributes{
 		Records: records,
 	}, nil
@@ -247,7 +247,7 @@ func (p *Parser) convertReadAttributes(cmd *global.ReadAttributes) (*zclv1proto.
 	for _, id := range cmd.Identifier {
 		ids = append(ids, uint32(id))
 	}
-	
+
 	return &zclv1proto.GlobalReadAttributes{
 		AttributeIds: ids,
 	}, nil
@@ -256,13 +256,13 @@ func (p *Parser) convertReadAttributes(cmd *global.ReadAttributes) (*zclv1proto.
 // convertReadAttributesResponse converts shimmeringbee ReadAttributesResponse to proto.
 func (p *Parser) convertReadAttributesResponse(cmd *global.ReadAttributesResponse) (*zclv1proto.GlobalReadAttributesResponse, error) {
 	records := make([]*zclv1proto.AttributeResponseRecord, 0, len(cmd.Records))
-	
+
 	for _, rec := range cmd.Records {
 		record := &zclv1proto.AttributeResponseRecord{
 			AttributeId: uint32(rec.Identifier),
 			Status:      p.convertStatus(rec.Status),
 		}
-		
+
 		if rec.Status == 0 && rec.DataTypeValue != nil {
 			attrValue, err := p.convertAttributeValue(rec.DataTypeValue)
 			if err != nil {
@@ -270,10 +270,10 @@ func (p *Parser) convertReadAttributesResponse(cmd *global.ReadAttributesRespons
 			}
 			record.Value = attrValue
 		}
-		
+
 		records = append(records, record)
 	}
-	
+
 	return &zclv1proto.GlobalReadAttributesResponse{
 		Records: records,
 	}, nil
@@ -284,11 +284,11 @@ func (p *Parser) convertAttributeValue(dtv *zcl.AttributeDataTypeValue) (*zclv1p
 	if dtv == nil {
 		return nil, fmt.Errorf("nil AttributeDataTypeValue")
 	}
-	
+
 	attrValue := &zclv1proto.AttributeValue{
 		DataType: p.convertDataType(dtv.DataType),
 	}
-	
+
 	// Convert value based on data type
 	switch dtv.DataType {
 	case zcl.TypeBoolean:
@@ -320,7 +320,7 @@ func (p *Parser) convertAttributeValue(dtv *zcl.AttributeDataTypeValue) (*zclv1p
 			return nil, fmt.Errorf("unsupported data type: %v", dtv.DataType)
 		}
 	}
-	
+
 	return attrValue, nil
 }
 
@@ -361,7 +361,7 @@ func (p *Parser) getClusterName(clusterID uint16) string {
 		0x0008: "genLevelControl",
 		0x0300: "genColorControl",
 	}
-	
+
 	if name, ok := clusterNames[clusterID]; ok {
 		return name
 	}

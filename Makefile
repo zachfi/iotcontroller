@@ -23,6 +23,8 @@ ALL_SRC := $(shell find . -name '*.go' \
 								-not -path './tools*/*' \
 								-not -path './vendor*/*' \
 								-not -path './integration/*' \
+								-not -path './old*' \
+								-not -path './src*' \
                                 -type f | sort)
 
 ALL_PKGS := $(shell go list $(sort $(dir $(ALL_SRC))))

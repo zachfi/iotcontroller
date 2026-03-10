@@ -53,8 +53,8 @@ func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceCli
 		interviewing: make(map[uint16]bool),
 	}
 
-	dongleCfg := cfg.ToDongleConfig()
-	z.logger.Info("Creating Zigbee dongle",
+	dongleCfg := cfg.ToDongleConfig(z.logger)
+	z.logger.Info("creating Zigbee dongle",
 		slog.String("port", dongleCfg.Port),
 		slog.String("stack", string(dongleCfg.StackType)),
 		slog.Bool("log_commands", dongleCfg.LogCommands),
@@ -74,15 +74,18 @@ func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceCli
 }
 
 func (z *ZigbeeCoordinator) starting(ctx context.Context) error {
-	z.logger.Info("Starting Zigbee coordinator")
+	z.logger.Info("starting Zigbee coordinator")
 
-	// Perform a health check to verify device communication (ZNP only for now)
-	if znpController, ok := z.dongle.(*znp.Controller); ok {
-		z.logger.Info("Performing device health check")
-		if err := znpController.HealthCheck(ctx); err != nil {
-			z.logger.Warn("Health check failed, but continuing", slog.String("error", err.Error()))
-		} else {
-			z.logger.Info("Device health check passed")
+	// Perform a health check to verify device communication (ZNP only for now).
+	// Skip when force-forming: the device may be in bootloader or need reset first; Start() will reset and then talk.
+	if !z.cfg.ForceForm {
+		if znpController, ok := z.dongle.(*znp.Controller); ok {
+			z.logger.Info("performing device health check")
+			if err := znpController.HealthCheck(ctx); err != nil {
+				z.logger.Warn("health check failed, but continuing", slog.String("error", err.Error()))
+			} else {
+				z.logger.Info("device health check passed")
+			}
 		}
 	}
 	// TODO: Add health check for Ember stack when implemented
@@ -90,19 +93,19 @@ func (z *ZigbeeCoordinator) starting(ctx context.Context) error {
 	// Load network state from disk if available
 	// This allows restoring the same network when swapping devices
 	if z.cfg.StateFile != "" {
-		z.logger.Info("Loading network state", slog.String("state_file", z.cfg.StateFile))
+		z.logger.Info("loading network state", slog.String("state_file", z.cfg.StateFile))
 		savedParams, err := zigbeedongle.LoadNetworkState(z.cfg.StateFile)
 		if err != nil {
-			z.logger.Warn("Failed to load network state", slog.String("error", err.Error()))
+			z.logger.Warn("failed to load network state", slog.String("error", err.Error()))
 		} else if savedParams != nil {
-			z.logger.Info("Network state loaded from disk",
+			z.logger.Info("network state loaded from disk",
 				slog.Uint64("pan_id", uint64(savedParams.PanID)),
 				slog.String("extended_pan_id", fmt.Sprintf("%016x", savedParams.ExtendedPanID)),
 				slog.Int("channel", int(savedParams.Channel)),
 			)
 			// State is loaded - we'll check if we need to form the network in running()
 		} else {
-			z.logger.Info("No saved network state found - network will need to be formed")
+			z.logger.Info("no saved network state found - network will need to be formed")
 		}
 	}
 
@@ -110,24 +113,24 @@ func (z *ZigbeeCoordinator) starting(ctx context.Context) error {
 }
 
 func (z *ZigbeeCoordinator) running(ctx context.Context) error {
-	z.logger.Info("Starting Zigbee dongle and message reception loop")
+	z.logger.Info("starting Zigbee dongle and message reception loop")
 
 	// Start the dongle - this initializes communication, sends magic byte,
 	// checks version, gets device info, and starts the coordinator if needed
 	messages, err := z.dongle.Start(ctx)
 	if err != nil {
-		z.logger.Error("Failed to start dongle", slog.String("error", err.Error()))
+		z.logger.Error("failed to start dongle", slog.String("error", err.Error()))
 		return fmt.Errorf("failed to start dongle: %w", err)
 	}
 
-	z.logger.Info("Dongle started successfully, verifying network state")
+	z.logger.Info("dongle started successfully, verifying network state")
 
 	// Get network info to verify communication and log network state
 	info, err := z.dongle.GetNetworkInfo(ctx)
 	if err != nil {
-		z.logger.Warn("Failed to get network info", slog.String("error", err.Error()))
+		z.logger.Warn("failed to get network info", slog.String("error", err.Error()))
 	} else {
-		z.logger.Info("Network information retrieved",
+		z.logger.Info("network information retrieved",
 			slog.String("state", info.State.String()),
 			slog.Uint64("pan_id", uint64(info.PanID)),
 			slog.Uint64("short_address", uint64(info.ShortAddress)),
@@ -141,45 +144,53 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 			info.State == types.NetworkStateDown ||
 			(info.PanID == 0 && info.Channel == 0 && info.ExtendedPanID == 0)
 
+		// ForceForm: treat as needing to form (leave current network and form from config or generate)
+		if z.cfg.ForceForm {
+			needsNetwork = true
+			z.logger.Info("force-form requested; will form network from config or generate new parameters")
+		}
+
 		if !needsNetwork {
-			// Device is already on a network - save the network state to disk
-			// This allows device swapping while maintaining the same network
-			// NOTE: We cannot read the Network Key from the device (security), so we'll try to
-			// load it from existing saved state, or use a placeholder that will need to be updated
-			// when we form a new network.
+			// Device is already on a network. Config is source of truth: only write to disk
+			// when we're adopting (no config or config doesn't match device). Otherwise keep config as-is.
 			if z.cfg.StateFile != "" {
-				// Try to load existing state to preserve Network Key
 				savedParams, err := zigbeedongle.LoadNetworkState(z.cfg.StateFile)
-				var networkKey [16]byte
-				if err == nil && savedParams != nil {
-					// Use saved Network Key if available
-					networkKey = savedParams.NetworkKey
-					z.logger.Info("Using Network Key from saved state file")
-				} else {
-					// No saved state - we can't read Network Key from device
-					// Use zero key as placeholder (device already has correct key in NV memory)
-					z.logger.Warn("No saved network state found - Network Key cannot be read from device. " +
-						"Device swapping will require forming a new network or manually setting the Network Key.")
-				}
+				deviceParamsMatch := err == nil && savedParams != nil &&
+					savedParams.PanID == info.PanID &&
+					savedParams.ExtendedPanID == info.ExtendedPanID &&
+					savedParams.Channel == uint8(info.Channel)
 
-				// Save network parameters (Network Key will be placeholder if not in saved state)
-				// Channel is already uint8 in NetworkInfo, so no conversion needed
-				params := zigbeedongle.NetworkParameters{
-					PanID:         info.PanID,
-					ExtendedPanID: info.ExtendedPanID,
-					Channel:       uint8(info.Channel), // NetworkInfo.Channel is uint16, but actual channel is uint8 (11-26)
-					NetworkKey:    networkKey,
-				}
-
-				if err := zigbeedongle.SaveNetworkState(z.cfg.StateFile, params); err != nil {
-					z.logger.Warn("Failed to save existing network state", slog.String("error", err.Error()))
-				} else {
-					z.logger.Info("Saved existing network state to disk",
-						slog.Uint64("pan_id", uint64(params.PanID)),
-						slog.String("extended_pan_id", fmt.Sprintf("%016x", params.ExtendedPanID)),
-						slog.Int("channel", int(params.Channel)),
-						slog.Bool("network_key_preserved", networkKey != [16]byte{}),
+				if deviceParamsMatch {
+					// Config matches device; don't overwrite (preserves user-edited key in config)
+					z.logger.Info("config matches device network; keeping config as source of truth",
+						slog.Bool("network_key_in_config", !zigbeedongle.IsZeroNetworkKey(savedParams.NetworkKey)),
 					)
+				} else {
+					// Adopt: save device state to config. We cannot read the key from the device.
+					var networkKey [16]byte
+					if err == nil && savedParams != nil {
+						networkKey = savedParams.NetworkKey
+						z.logger.Info("using network key from saved state file")
+					} else {
+						z.logger.Warn("no saved network state found - network key cannot be read from device. " +
+							"Set networkkey in config (e.g. hex from: openssl rand -hex 16) for device swap support.")
+					}
+					params := zigbeedongle.NetworkParameters{
+						PanID:         info.PanID,
+						ExtendedPanID: info.ExtendedPanID,
+						Channel:       uint8(info.Channel),
+						NetworkKey:    networkKey,
+					}
+					if err := zigbeedongle.SaveNetworkState(z.cfg.StateFile, params); err != nil {
+						z.logger.Warn("failed to save existing network state", slog.String("error", err.Error()))
+					} else {
+						z.logger.Info("saved existing network state to disk (adopt)",
+							slog.Uint64("pan_id", uint64(params.PanID)),
+							slog.String("extended_pan_id", fmt.Sprintf("%016x", params.ExtendedPanID)),
+							slog.Int("channel", int(params.Channel)),
+							slog.Bool("network_key_preserved", !zigbeedongle.IsZeroNetworkKey(networkKey)),
+						)
+					}
 				}
 			}
 		} else if needsNetwork {
@@ -190,10 +201,22 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 			if z.cfg.StateFile != "" {
 				savedParams, err := zigbeedongle.LoadNetworkState(z.cfg.StateFile)
 				if err != nil {
-					z.logger.Warn("Failed to load network state for auto-formation", slog.String("error", err.Error()))
+					z.logger.Warn("failed to load network state for auto-formation", slog.String("error", err.Error()))
 				} else if savedParams != nil {
 					params = savedParams
-					z.logger.Info("Forming network from saved state",
+					// Never form a network with an all-zero key (insecure).
+					// This can happen when state was saved as a placeholder after
+					// adopting an already-joined device (key cannot be read from dongle).
+					if zigbeedongle.IsZeroNetworkKey(params.NetworkKey) {
+						newKey, err := zigbeedongle.GenerateRandomNetworkParameters()
+						if err != nil {
+							z.logger.Error("failed to generate secure network key", slog.String("error", err.Error()))
+							return fmt.Errorf("state file has all-zero network key; failed to generate secure key: %w", err)
+						}
+						params.NetworkKey = newKey.NetworkKey
+						z.logger.Warn("state file had all-zero network key (insecure); generated new random key for network formation")
+					}
+					z.logger.Info("forming network from saved state",
 						slog.Uint64("pan_id", uint64(params.PanID)),
 						slog.String("extended_pan_id", fmt.Sprintf("%016x", params.ExtendedPanID)),
 						slog.Int("channel", int(params.Channel)),
@@ -203,13 +226,13 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 
 			// If no saved state, generate random network parameters
 			if params == nil {
-				z.logger.Info("No saved network state found - generating random network parameters")
+				z.logger.Info("no saved network state found - generating random network parameters")
 				params, err = zigbeedongle.GenerateRandomNetworkParameters()
 				if err != nil {
-					z.logger.Error("Failed to generate random network parameters", slog.String("error", err.Error()))
+					z.logger.Error("failed to generate random network parameters", slog.String("error", err.Error()))
 					return fmt.Errorf("failed to generate network parameters: %w", err)
 				}
-				z.logger.Info("Generated random network parameters",
+				z.logger.Info("generated random network parameters",
 					slog.Uint64("pan_id", uint64(params.PanID)),
 					slog.String("extended_pan_id", fmt.Sprintf("%016x", params.ExtendedPanID)),
 					slog.Int("channel", int(params.Channel)),
@@ -218,34 +241,34 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 
 			// Form the network with the parameters (saved or random)
 			if err := z.formNetworkAndSave(ctx, *params); err != nil {
-				z.logger.Error("Failed to form network", slog.String("error", err.Error()))
+				z.logger.Error("failed to form network", slog.String("error", err.Error()))
 				return fmt.Errorf("failed to form network: %w", err)
 			}
-			z.logger.Info("Network formed successfully")
+			z.logger.Info("network formed successfully")
 		}
 	}
 
-	z.logger.Info("Listening for Zigbee messages")
+	z.logger.Info("listening for Zigbee messages")
 
 	// Enable permit join by default for 60 seconds to allow initial device pairing
 	// This matches common practice in zigbee2mqtt
-	z.logger.Info("Enabling permit join for 60 seconds to allow device pairing")
+	z.logger.Info("enabling permit join for 60 seconds to allow device pairing")
 	if err := z.PermitJoin(ctx, 60); err != nil {
-		z.logger.Warn("Failed to enable permit join", slog.String("error", err.Error()))
+		z.logger.Warn("failed to enable permit join", slog.String("error", err.Error()))
 	}
 
 	// Start device join monitoring and interview triggering (ZNP only for now)
 	var joinEvents <-chan znp.DeviceJoinEvent
 	if znpController, ok := z.dongle.(*znp.Controller); ok {
 		joinEvents = znpController.DeviceJoinEvents()
-		z.logger.Info("Device join monitoring enabled for interviews")
+		z.logger.Info("device join monitoring enabled for interviews")
 	}
 
 	messageCount := 0
 	for {
 		select {
 		case <-ctx.Done():
-			z.logger.Info("Context cancelled, stopping message loop")
+			z.logger.Info("context cancelled, stopping message loop")
 			return nil
 
 		case joinEvent, ok := <-joinEvents:
@@ -254,7 +277,7 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 				joinEvents = nil // Disable this case
 			} else {
 				// Device joined - trigger interview
-				z.logger.Info("Device joined, starting interview",
+				z.logger.Info("device joined, starting interview",
 					slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 					slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 				)
@@ -263,12 +286,12 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 
 		case msg, ok := <-messages:
 			if !ok {
-				z.logger.Warn("Message channel closed")
+				z.logger.Warn("message channel closed")
 				return fmt.Errorf("message channel closed unexpectedly")
 			}
 
 			messageCount++
-			z.logger.Debug("Received Zigbee message",
+			z.logger.Debug("received Zigbee message",
 				slog.Int("message_count", messageCount),
 				slog.String("source", fmt.Sprintf("%04x", msg.Source.Short)),
 				slog.String("source_mode", msg.Source.Mode.String()),
@@ -281,7 +304,7 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 
 			// Log first few messages at info level to verify communication
 			if messageCount <= 5 {
-				z.logger.Info("Received Zigbee message",
+				z.logger.Info("received Zigbee message",
 					slog.Int("message_count", messageCount),
 					slog.String("source", fmt.Sprintf("%04x", msg.Source.Short)),
 					slog.String("cluster_id", fmt.Sprintf("0x%04x", msg.ClusterID)),
@@ -292,7 +315,7 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 			// Forward message to router if router client is available
 			if z.routeClient != nil {
 				if err := z.forwardMessageToRouter(ctx, msg); err != nil {
-					z.logger.Warn("Failed to forward message to router", slog.String("error", err.Error()))
+					z.logger.Warn("failed to forward message to router", slog.String("error", err.Error()))
 				}
 			}
 		}
@@ -300,7 +323,7 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 }
 
 func (z *ZigbeeCoordinator) stopping(_ error) error {
-	z.logger.Info("Stopping Zigbee coordinator")
+	z.logger.Info("stopping Zigbee coordinator")
 
 	// Stop permit join timer
 	z.permitJoinMux.Lock()
@@ -314,7 +337,7 @@ func (z *ZigbeeCoordinator) stopping(_ error) error {
 	if z.dongle != nil {
 		_ = z.dongle.PermitJoining(context.Background(), false)
 		if err := z.dongle.Close(); err != nil {
-			z.logger.Warn("Error closing dongle", slog.String("error", err.Error()))
+			z.logger.Warn("error closing dongle", slog.String("error", err.Error()))
 			return err
 		}
 	}
@@ -331,10 +354,10 @@ func (z *ZigbeeCoordinator) formNetworkAndSave(ctx context.Context, params zigbe
 	// Save state to disk for persistence across device swaps
 	if z.cfg.StateFile != "" {
 		if err := zigbeedongle.SaveNetworkState(z.cfg.StateFile, params); err != nil {
-			z.logger.Warn("Failed to save network state", slog.String("error", err.Error()))
+			z.logger.Warn("failed to save network state", slog.String("error", err.Error()))
 			// Don't fail the operation if we can't save state
 		} else {
-			z.logger.Info("Network state saved to disk", slog.String("state_file", z.cfg.StateFile))
+			z.logger.Info("network state saved to disk", slog.String("state_file", z.cfg.StateFile))
 		}
 	}
 
@@ -366,7 +389,7 @@ func (z *ZigbeeCoordinator) PermitJoin(ctx context.Context, durationSeconds int)
 			return fmt.Errorf("enabling permit join: %w", err)
 		}
 
-		z.logger.Info("Permit join enabled", slog.Int("duration_seconds", durationSeconds))
+		z.logger.Info("permit join enabled", slog.Int("duration_seconds", durationSeconds))
 
 		// Set up timer to automatically disable after duration
 		endTime := time.Now().Add(time.Duration(durationSeconds) * time.Second)
@@ -376,9 +399,9 @@ func (z *ZigbeeCoordinator) PermitJoin(ctx context.Context, durationSeconds int)
 			defer z.permitJoinMux.Unlock()
 
 			if err := z.dongle.PermitJoining(context.Background(), false); err != nil {
-				z.logger.Warn("Failed to automatically disable permit join", slog.String("error", err.Error()))
+				z.logger.Warn("failed to automatically disable permit join", slog.String("error", err.Error()))
 			} else {
-				z.logger.Info("Permit join automatically disabled after duration expired")
+				z.logger.Info("permit join automatically disabled after duration expired")
 			}
 
 			z.permitJoinTimer = nil
@@ -390,7 +413,7 @@ func (z *ZigbeeCoordinator) PermitJoin(ctx context.Context, durationSeconds int)
 			return fmt.Errorf("disabling permit join: %w", err)
 		}
 
-		z.logger.Info("Permit join disabled")
+		z.logger.Info("permit join disabled")
 	}
 
 	return nil
@@ -446,7 +469,7 @@ func (z *ZigbeeCoordinator) forwardMessageToRouter(ctx context.Context, msg type
 		return fmt.Errorf("sending to router: %w", err)
 	}
 
-	z.logger.Debug("Forwarded message to router",
+	z.logger.Debug("forwarded message to router",
 		slog.String("path", path),
 		slog.String("source", deviceID),
 	)
@@ -460,7 +483,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 	// Only handle ZNP devices for now
 	znpController, ok := z.dongle.(*znp.Controller)
 	if !ok {
-		z.logger.Debug("Device join event received but dongle is not ZNP, skipping interview")
+		z.logger.Debug("device join event received but dongle is not ZNP, skipping interview")
 		return
 	}
 
@@ -468,7 +491,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 	z.interviewingMux.Lock()
 	if z.interviewing[joinEvent.NetworkAddress] {
 		z.interviewingMux.Unlock()
-		z.logger.Debug("Device interview already in progress, skipping duplicate join event",
+		z.logger.Debug("device interview already in progress, skipping duplicate join event",
 			slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 			slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 		)
@@ -485,7 +508,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 		z.interviewingMux.Unlock()
 	}()
 
-	z.logger.Info("Starting device interview",
+	z.logger.Info("starting device interview",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 		slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 	)
@@ -496,7 +519,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 	// end devices. We use a shorter delay (2 seconds) as a compromise, but may need
 	// to increase for some devices.
 	// Status 0x80 (INVALID_REQTYPE) often indicates the device isn't ready yet.
-	z.logger.Debug("Waiting for device to complete key authorization before interview",
+	z.logger.Debug("waiting for device to complete key authorization before interview",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 		slog.Duration("delay", 2*time.Second),
 	)
@@ -507,14 +530,14 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 		// Continue with interview
 	}
 
-	z.logger.Debug("Device join delay complete, starting interview queries",
+	z.logger.Debug("device join delay complete, starting interview queries",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 	)
 
 	// Perform interview
 	interviewInfo, err := znpController.InterviewDevice(ctx, joinEvent.NetworkAddress)
 	if err != nil {
-		z.logger.Error("Device interview failed",
+		z.logger.Error("device interview failed",
 			slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 			slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 			slog.String("error", err.Error()),
@@ -525,7 +548,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 		return
 	}
 
-	z.logger.Info("Device interview completed successfully",
+	z.logger.Info("device interview completed successfully",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 		slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 		slog.String("device_type", interviewInfo.DeviceType),
@@ -589,7 +612,7 @@ func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr ui
 	// Encode as JSON
 	jsonBytes, err := json.Marshal(result)
 	if err != nil {
-		z.logger.Error("Failed to marshal interview result", slog.String("error", err.Error()))
+		z.logger.Error("failed to marshal interview result", slog.String("error", err.Error()))
 		return
 	}
 
@@ -601,12 +624,12 @@ func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr ui
 
 	_, err = z.routeClient.Send(ctx, req)
 	if err != nil {
-		z.logger.Warn("Failed to send interview result to router",
+		z.logger.Warn("failed to send interview result to router",
 			slog.String("path", path),
 			slog.String("error", err.Error()),
 		)
 	} else {
-		z.logger.Info("Sent interview result to router",
+		z.logger.Info("sent interview result to router",
 			slog.String("path", path),
 			slog.String("ieee_address", fmt.Sprintf("0x%s", ieeeStr)),
 		)

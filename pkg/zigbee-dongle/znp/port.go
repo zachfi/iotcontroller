@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -69,6 +70,7 @@ type Port struct {
 	sp     io.ReadWriteCloser
 	reader *bufio.Reader // Buffered reader for continuous byte reading
 	cbs    Callbacks
+	log    *slog.Logger // layer=znp logger
 
 	handlerMutex sync.Mutex
 	handlers     map[FrameHeader]*Handler
@@ -78,9 +80,12 @@ type Port struct {
 	done      chan struct{}
 }
 
-func NewPort(name string, baudRate int, disableFlowControl bool, callbacks Callbacks) (*Port, error) {
+func NewPort(name string, baudRate int, disableFlowControl bool, callbacks Callbacks, log *slog.Logger) (*Port, error) {
 	if baudRate == 0 {
 		baudRate = 115200 // Default
+	}
+	if log == nil {
+		log = slog.Default().With("layer", "znp")
 	}
 	options := serial.OpenOptions{
 		PortName:          name,
@@ -101,9 +106,9 @@ func NewPort(name string, baudRate int, disableFlowControl bool, callbacks Callb
 		// Only disable flow control if the device explicitly requires it (some Z-Stack 3.x devices).
 	}
 	if disableFlowControl {
-		fmt.Printf("[znp] Flow control DISABLED (RTS/CTS off)\n")
+		log.Info("flow control disabled (RTS/CTS off)")
 	} else {
-		fmt.Printf("[znp] Flow control ENABLED (RTS/CTS on)\n")
+		log.Info("flow control enabled (RTS/CTS on)")
 	}
 
 	sp, err := serial.Open(options)
@@ -115,6 +120,7 @@ func NewPort(name string, baudRate int, disableFlowControl bool, callbacks Callb
 		sp:     sp,
 		reader: bufio.NewReaderSize(sp, 4096), // Increased buffer size to reduce overruns when flow control is disabled
 		cbs:    callbacks,
+		log:    log,
 
 		handlerMutex: sync.Mutex{},
 		handlers:     make(map[FrameHeader]*Handler),
@@ -181,8 +187,8 @@ func (p *Port) Close() error {
 
 func (p *Port) RegisterOneOffHandler(commandPrototype interface{}) *Handler {
 	header := getHeaderForCommand(commandPrototype)
-	// Use 30 second timeout for state change operations (Z-Stack 3.x may need more time)
-	return p.registerHandler(header, 30*time.Second)
+	// 40s for state change (matches zigbee-herdsman startupFromApp timeout)
+	return p.registerHandler(header, 40*time.Second)
 }
 
 func (p *Port) RegisterPermanentHandler(commandPrototype interface{}) *Handler {
@@ -229,44 +235,42 @@ func (p *Port) removeHandler(handler *Handler, header FrameHeader) {
 // is in a known state. Similar to EZSP devices, Z-Stack devices may need
 // this reset sequence for proper initialization.
 func (p *Port) ResetDevice() error {
-	fmt.Printf("[znp] ResetDevice() called\n")
-	fmt.Printf("[znp] Checking if serial port supports DTR control...\n")
+	p.log.Debug("reset device called")
+	p.log.Debug("checking if serial port supports DTR control...")
 
 	// First try the serial library's interface if available
 	if dtrControl, ok := p.sp.(interface{ SetDTR(bool) error }); ok {
-		fmt.Printf("[znp] DTR control available via library interface\n")
-		fmt.Printf("[znp] Performing hardware reset via DTR (nRESET)...\n")
+		p.log.Debug("DTR control available via library interface")
+		p.log.Debug("performing hardware reset via DTR (nRESET)...")
 		// Assert reset: pull DTR low
 		if err := dtrControl.SetDTR(false); err != nil {
-			fmt.Printf("[znp] ERROR: failed to assert DTR (reset): %v\n", err)
+			p.log.Error("failed to assert DTR (reset)", slog.Any("error", err))
 			return fmt.Errorf("failed to assert DTR (reset): %w", err)
 		}
-		fmt.Printf("[znp] DTR pulled low, waiting 10ms...\n")
+		p.log.Debug("DTR pulled low, waiting 10ms...")
 		time.Sleep(10 * time.Millisecond)
 		// Release reset: pull DTR high
 		if err := dtrControl.SetDTR(true); err != nil {
-			fmt.Printf("[znp] ERROR: failed to release DTR (reset): %v\n", err)
+			p.log.Error("failed to release DTR (reset)", slog.Any("error", err))
 			return fmt.Errorf("failed to release DTR (reset): %w", err)
 		}
-		fmt.Printf("[znp] DTR released high, waiting 50ms for device to stabilize...\n")
-		// Wait for device to stabilize after reset
+		p.log.Debug("DTR released high, waiting 50ms for device to stabilize...")
 		time.Sleep(50 * time.Millisecond)
-		fmt.Printf("[znp] Hardware reset via DTR complete\n")
+		p.log.Debug("hardware reset via DTR complete")
 		return nil
 	}
 
-	fmt.Printf("[znp] DTR control NOT available via library interface\n")
+	p.log.Debug("DTR control not available via library interface")
 
 	// If library doesn't support it, try direct ioctl on Linux
 	if p.fd != nil {
-		fmt.Printf("[znp] File descriptor available, trying ioctl...\n")
+		p.log.Debug("file descriptor available, trying ioctl...")
 		return p.resetViaIoctl()
 	}
 
-	// If all else fails, it's not fatal - continue without reset
-	fmt.Printf("[znp] WARNING: Hardware reset (nRESET) not available - serial library doesn't support DTR/RTS control\n")
-	fmt.Printf("[znp] No file descriptor available for ioctl\n")
-	fmt.Printf("[znp] Device may need manual reset or may not initialize properly\n")
+	p.log.Warn("hardware reset (nRESET) not available - serial library doesn't support DTR/RTS control")
+	p.log.Warn("no file descriptor available for ioctl")
+	p.log.Warn("device may need manual reset or may not initialize properly")
 	return nil
 }
 
@@ -300,7 +304,7 @@ func (p *Port) AssertRTS() error {
 
 // resetViaIoctl performs hardware reset using Linux ioctl to control DTR line.
 func (p *Port) resetViaIoctl() error {
-	fmt.Printf("[znp] Attempting hardware reset via ioctl (DTR control)...\n")
+	p.log.Debug("attempting hardware reset via ioctl (DTR control)...")
 
 	// Get current modem status
 	var status uint
@@ -328,7 +332,7 @@ func (p *Port) resetViaIoctl() error {
 
 	// Wait for device to stabilize after reset
 	time.Sleep(50 * time.Millisecond)
-	fmt.Printf("[znp] Hardware reset via ioctl complete\n")
+	p.log.Debug("hardware reset via ioctl complete")
 	return nil
 }
 
@@ -370,9 +374,8 @@ func (p *Port) WriteCommandTimeout(command interface{}, timeout time.Duration) (
 		responseHeader.Type = FRAME_TYPE_SRSP
 		// Register handler BEFORE writing the frame to ensure it's ready when response arrives
 		handler = p.registerHandler(responseHeader, timeout)
-		// Log handler registration for debugging
 		if p.cbs.OnReadError != nil {
-			fmt.Printf("[znp] WriteCommandTimeout: registered handler for response %v (timeout: %v)\n", responseHeader, timeout)
+			p.log.Debug("write command timeout: registered handler", slog.Any("response", responseHeader), slog.Duration("timeout", timeout))
 		}
 		// Small delay to ensure handler is fully registered and frame processing loop is ready
 		// This prevents race conditions where response arrives before handler is set up
@@ -524,9 +527,8 @@ func (p *Port) parseFramesFromBuffer(buffer []byte, frameCh chan<- Frame) []byte
 		// Position matches zigbee-herdsman's PositionDataLength = 1
 		dataLength := int(buffer[1])
 		if dataLength > FRAME_MAX_DATA_LENGTH {
-			// Invalid length - skip this byte and try again
 			if p.cbs.OnReadError != nil {
-				fmt.Printf("[znp] Frame parser: ERROR - invalid length byte 0x%02X (%d), max is %d. Skipping.\n", buffer[1], dataLength, FRAME_MAX_DATA_LENGTH)
+				p.log.Debug("frame parser: invalid length byte, skipping", slog.Any("byte", buffer[1]), slog.Int("data_length", dataLength), slog.Int("max", FRAME_MAX_DATA_LENGTH))
 			}
 			buffer = buffer[1:] // Skip the invalid byte
 			continue
@@ -546,10 +548,8 @@ func (p *Port) parseFramesFromBuffer(buffer []byte, frameCh chan<- Frame) []byte
 			// Try to parse it (using zigbee-herdsman's frame structure)
 			frame, err := parseFrameFromBytes(frameBytes)
 			if err == nil {
-				// Valid frame - send it
 				if p.cbs.OnReadError != nil {
-					fmt.Printf("[znp] Frame parser: extracted frame Type=%v Subsystem=%v ID=%v DataLen=%d\n",
-						frame.Type, frame.Subsystem, frame.ID, len(frame.Data))
+					p.log.Debug("frame parser: extracted frame", slog.Any("type", frame.Type), slog.Any("subsystem", frame.Subsystem), slog.Any("id", frame.ID), slog.Int("data_len", len(frame.Data)))
 				}
 				select {
 				case frameCh <- frame:
@@ -561,9 +561,8 @@ func (p *Port) parseFramesFromBuffer(buffer []byte, frameCh chan<- Frame) []byte
 				// Recurse to parse more frames (like zigbee-herdsman's parseNext recursion)
 				continue
 			} else {
-				// Parse failed - skip the SOF byte and try again
 				if p.cbs.OnReadError != nil {
-					fmt.Printf("[znp] Frame parser: failed to parse frame: %v, hex: %X\n", err, frameBytes)
+					p.log.Debug("frame parser: failed to parse frame", slog.Any("error", err), slog.String("hex", fmt.Sprintf("%X", frameBytes)))
 				}
 				buffer = buffer[1:] // Skip the SOF and try again
 				continue
@@ -608,9 +607,8 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 						frameBytes := currentFrame[:expectedTotal]
 						frame, err := parseFrameFromBytes(frameBytes)
 						if err == nil {
-							// Valid complete frame - send it
 							if p.cbs.OnReadError != nil {
-								fmt.Printf("[znp] Frame parser: complete frame detected before new SOF, extracting it\n")
+								p.log.Debug("frame parser: complete frame detected before new SOF, extracting")
 							}
 							select {
 							case frameCh <- frame:
@@ -632,10 +630,8 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 					// length byte of the second frame) and incorrectly adding them to the first frame.
 					// This means the first frame is actually incomplete/corrupted, or bytes were dropped.
 					//
-					// Strategy: Discard the incomplete first frame and start fresh with the new SOF.
-					// This matches the vendor's behavior of discarding corrupted/incomplete frames.
 					if p.cbs.OnReadError != nil {
-						fmt.Printf("[znp] Frame parser: WARNING - detected SOF while in incomplete frame (len=%d, expected=%d, hex: %X). Discarding incomplete frame and starting fresh.\n", len(currentFrame), dataLength+5, currentFrame)
+						p.log.Debug("frame parser: SOF while in incomplete frame, discarding", slog.Int("len", len(currentFrame)), slog.Int("expected", dataLength+5), slog.String("hex", fmt.Sprintf("%X", currentFrame)))
 					}
 					// Discard incomplete frame and start fresh with this SOF
 					currentFrame = []byte{SOF}
@@ -643,9 +639,8 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 					pendingSOF = 0
 					continue
 				}
-				// Start new frame
 				if p.cbs.OnReadError != nil {
-					fmt.Printf("[znp] Frame parser: detected SOF, starting new frame\n")
+					p.log.Debug("frame parser: detected SOF, starting new frame")
 				}
 				currentFrame = []byte{SOF}
 				dataLength = 0
@@ -671,9 +666,8 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 			currentFrame = append(currentFrame, b)
 
 			if p.cbs.OnReadError != nil && pendingSOF == SOF {
-				// Debug: we're reading bytes for the current frame while we have a pending SOF
 				expectedTotal := dataLength + 5
-				fmt.Printf("[znp] Frame parser: reading byte 0x%02X for current frame (len=%d/%d, pendingSOF buffered, currentFrame hex: %X)\n", b, len(currentFrame), expectedTotal, currentFrame)
+				p.log.Debug("frame parser: reading byte", slog.Any("byte", b), slog.Int("len", len(currentFrame)), slog.Int("expected", expectedTotal), slog.String("current_hex", fmt.Sprintf("%X", currentFrame)))
 			}
 
 			if len(currentFrame) == 2 {
@@ -681,9 +675,8 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 				dataLength = int(b)
 				// Validate length byte - maximum is FRAME_MAX_DATA_LENGTH (250)
 				if dataLength > FRAME_MAX_DATA_LENGTH {
-					// Invalid length byte - this is likely corrupted data
 					if p.cbs.OnReadError != nil {
-						fmt.Printf("[znp] Frame parser: ERROR - invalid length byte 0x%02X (%d), max is %d. Discarding frame and waiting for next SOF.\n", b, dataLength, FRAME_MAX_DATA_LENGTH)
+						p.log.Debug("frame parser: invalid length byte, discarding frame", slog.Any("byte", b), slog.Int("data_length", dataLength), slog.Int("max", FRAME_MAX_DATA_LENGTH))
 					}
 					// Reset and wait for next SOF
 					currentFrame = nil
@@ -692,7 +685,7 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 					continue
 				}
 				if p.cbs.OnReadError != nil {
-					fmt.Printf("[znp] Frame parser: read length byte: 0x%02X (%d), expecting %d total bytes\n", b, dataLength, dataLength+5)
+					p.log.Debug("frame parser: read length byte", slog.Any("byte", b), slog.Int("data_length", dataLength), slog.Int("expected_total", dataLength+5))
 				}
 				continue
 			}
@@ -701,15 +694,13 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 			// Expected total: 1 (SOF) + 1 (Length) + 2 (Command) + dataLength (Data) + 1 (FCS) = dataLength + 5
 			expectedTotal := dataLength + 5
 			if p.cbs.OnReadError != nil && pendingSOF == SOF {
-				fmt.Printf("[znp] Frame parser: checking frame completion (len=%d, expected=%d)\n", len(currentFrame), expectedTotal)
+				p.log.Debug("frame parser: checking frame completion", slog.Int("len", len(currentFrame)), slog.Int("expected", expectedTotal))
 			}
 			if len(currentFrame) >= expectedTotal {
 				// Frame is complete - process it
 				// If we have a pending SOF, it was the start of the next frame
-				if pendingSOF == SOF {
-					if p.cbs.OnReadError != nil {
-						fmt.Printf("[znp] Frame parser: frame complete, processing pending SOF as start of next frame\n")
-					}
+				if pendingSOF == SOF && p.cbs.OnReadError != nil {
+					p.log.Debug("frame parser: frame complete, processing pending SOF as start of next frame")
 				}
 				// We've read at least the expected number of bytes
 				// Extract exactly the expected number of bytes for this frame
@@ -737,9 +728,7 @@ func (p *Port) frameParser(byteCh <-chan byte, frameCh chan<- Frame, done chan<-
 				// Send complete frame to handler
 				// Log frame details for debugging (if errors enabled)
 				if p.cbs.OnReadError != nil {
-					// Log all received frames to help debug UtilGetDeviceInfoRequest timeout
-					fmt.Printf("[znp] Frame parser: extracted frame Type=%v Subsystem=%v ID=%v DataLen=%d\n",
-						frame.Type, frame.Subsystem, frame.ID, len(frame.Data))
+					p.log.Debug("frame parser: extracted frame", slog.Any("type", frame.Type), slog.Any("subsystem", frame.Subsystem), slog.Any("id", frame.ID), slog.Int("data_len", len(frame.Data)))
 				}
 				select {
 				case frameCh <- frame:

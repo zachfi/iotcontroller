@@ -41,12 +41,6 @@ func NewPort(name string, baudRate int, disableFlowControl bool) (*Port, error) 
 		// Setting it may interfere with blocking reads
 	}
 
-	if disableFlowControl {
-		fmt.Printf("[ember] Flow control DISABLED (RTS/CTS off)\n")
-	} else {
-		fmt.Printf("[ember] Flow control ENABLED (RTS/CTS on)\n")
-	}
-
 	sp, err := serial.Open(options)
 	if err != nil {
 		return nil, err

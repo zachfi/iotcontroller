@@ -60,6 +60,15 @@ pkg/zigbee-dongle/
     └── controller.go  # Ember controller implementing Dongle interface
 ```
 
+## Logging
+
+When a `*slog.Logger` is set on `Config.Logger` (e.g. plumbed from the zigbee-coordinator module), all ZNP and zigbee-dongle logs use a `layer` attribute so you can tell what is being logged:
+
+- **`layer=znp`** – ZNP stack implementation: serial port, flow control, hardware reset (DTR), frame parsing, and ZNP command request/response (when `LogCommands` is true). This is the Z-Stack Network Processor protocol layer.
+- **`layer=zigbee`** – Zigbee dongle/coordinator layer: controller startup (magic byte, version, device info, coordinator startup), device state, device join events, and device interview (node descriptor, endpoints, simple descriptors).
+
+Example: `level=INFO module=zigbee-coordinator layer=zigbee msg="starting controller" port=/dev/ttyUSB0`
+
 ## Usage
 
 ```go
