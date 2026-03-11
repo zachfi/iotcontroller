@@ -118,7 +118,10 @@ message ZclCommand {
     GenColorControlMoveToHue gen_colorcontrol_move_to_hue = 30;
     GenColorControlMoveToSaturation gen_colorcontrol_move_to_saturation = 31;
     GenColorControlMoveToHueAndSaturation gen_colorcontrol_move_to_hue_and_saturation = 32;
-    
+    GenColorControlMoveToColorTemp gen_colorcontrol_move_to_color_temp = 33;
+    GenColorControlMoveColorTemp gen_colorcontrol_move_color_temp = 34;
+    GenColorControlStepColorTemp gen_colorcontrol_step_color_temp = 35;
+
     // Add more clusters as needed...
   }
 }
@@ -420,6 +423,29 @@ message GenColorControlMoveToHueAndSaturation {
   uint32 hue = 1;                // Hue (0-254)
   uint32 saturation = 2;         // Saturation (0-254)
   uint32 transition_time = 3;    // Transition time in 1/10 seconds
+}
+
+// MoveToColorTemp (0x0A) - Move to a specific color temperature
+message GenColorControlMoveToColorTemp {
+  uint32 color_temperature = 1; // Color temperature in mireds (0-65279)
+  uint32 transition_time = 2;   // Transition time in 1/10 seconds
+}
+
+// MoveColorTemp (0x4B) - Move color temperature continuously
+message GenColorControlMoveColorTemp {
+  ZclMoveMode move_mode = 1;         // Move mode (up/down)
+  uint32 rate = 2;                   // Rate of movement in mireds per second
+  uint32 color_temp_min_mired = 3;   // Minimum color temperature in mireds
+  uint32 color_temp_max_mired = 4;   // Maximum color temperature in mireds
+}
+
+// StepColorTemp (0x4C) - Step color temperature
+message GenColorControlStepColorTemp {
+  ZclStepMode step_mode = 1;         // Step mode (up/down)
+  uint32 step_size = 2;              // Step size in mireds
+  uint32 transition_time = 3;        // Transition time in 1/10 seconds
+  uint32 color_temp_min_mired = 4;   // Minimum color temperature in mireds
+  uint32 color_temp_max_mired = 5;   // Maximum color temperature in mireds
 }
 
 // ZclHueDirection represents ZCL hue direction values.

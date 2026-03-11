@@ -649,3 +649,119 @@ var ZoneKeeperService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "iot/v1/iot.proto",
 }
+
+const (
+	ZigbeeCommandService_SendCommand_FullMethodName = "/iot.v1.ZigbeeCommandService/SendCommand"
+)
+
+// ZigbeeCommandServiceClient is the client API for ZigbeeCommandService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// ZigbeeCommandService allows callers (e.g. ZoneKeeper) to send commands to
+// Zigbee devices via the coordinator. The coordinator translates these into
+// ZCL frames and transmits them over the dongle.
+//
+// This service is implemented by the ZigbeeCoordinator module and consumed by
+// the ZoneKeeper module. It works regardless of whether the coordinator is local
+// or remote (gRPC makes it location-transparent).
+type ZigbeeCommandServiceClient interface {
+	SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error)
+}
+
+type zigbeeCommandServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewZigbeeCommandServiceClient(cc grpc.ClientConnInterface) ZigbeeCommandServiceClient {
+	return &zigbeeCommandServiceClient{cc}
+}
+
+func (c *zigbeeCommandServiceClient) SendCommand(ctx context.Context, in *SendCommandRequest, opts ...grpc.CallOption) (*SendCommandResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SendCommandResponse)
+	err := c.cc.Invoke(ctx, ZigbeeCommandService_SendCommand_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ZigbeeCommandServiceServer is the server API for ZigbeeCommandService service.
+// All implementations should embed UnimplementedZigbeeCommandServiceServer
+// for forward compatibility.
+//
+// ZigbeeCommandService allows callers (e.g. ZoneKeeper) to send commands to
+// Zigbee devices via the coordinator. The coordinator translates these into
+// ZCL frames and transmits them over the dongle.
+//
+// This service is implemented by the ZigbeeCoordinator module and consumed by
+// the ZoneKeeper module. It works regardless of whether the coordinator is local
+// or remote (gRPC makes it location-transparent).
+type ZigbeeCommandServiceServer interface {
+	SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error)
+}
+
+// UnimplementedZigbeeCommandServiceServer should be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedZigbeeCommandServiceServer struct{}
+
+func (UnimplementedZigbeeCommandServiceServer) SendCommand(context.Context, *SendCommandRequest) (*SendCommandResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendCommand not implemented")
+}
+func (UnimplementedZigbeeCommandServiceServer) testEmbeddedByValue() {}
+
+// UnsafeZigbeeCommandServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ZigbeeCommandServiceServer will
+// result in compilation errors.
+type UnsafeZigbeeCommandServiceServer interface {
+	mustEmbedUnimplementedZigbeeCommandServiceServer()
+}
+
+func RegisterZigbeeCommandServiceServer(s grpc.ServiceRegistrar, srv ZigbeeCommandServiceServer) {
+	// If the following call pancis, it indicates UnimplementedZigbeeCommandServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ZigbeeCommandService_ServiceDesc, srv)
+}
+
+func _ZigbeeCommandService_SendCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendCommandRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZigbeeCommandServiceServer).SendCommand(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ZigbeeCommandService_SendCommand_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZigbeeCommandServiceServer).SendCommand(ctx, req.(*SendCommandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ZigbeeCommandService_ServiceDesc is the grpc.ServiceDesc for ZigbeeCommandService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ZigbeeCommandService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "iot.v1.ZigbeeCommandService",
+	HandlerType: (*ZigbeeCommandServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SendCommand",
+			Handler:    _ZigbeeCommandService_SendCommand_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "iot/v1/iot.proto",
+}

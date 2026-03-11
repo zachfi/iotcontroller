@@ -2,7 +2,6 @@ package zigbeecoordinator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,11 +11,14 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/proto"
 
 	zigbeedongle "github.com/zachfi/iotcontroller/pkg/zigbee-dongle"
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/types"
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/znp"
+	zclpkg "github.com/zachfi/iotcontroller/pkg/zcl"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	zigbeev1proto "github.com/zachfi/iotcontroller/proto/zigbee/v1"
 )
 
 const (
@@ -33,6 +35,7 @@ type ZigbeeCoordinator struct {
 
 	dongle      zigbeedongle.Dongle
 	routeClient iotv1proto.RouteServiceClient // gRPC client for sending messages to router
+	zclParser   *zclpkg.Parser
 
 	// Permit join state
 	permitJoinMux   sync.Mutex
@@ -42,6 +45,13 @@ type ZigbeeCoordinator struct {
 	// Interview state - track devices being interviewed to prevent duplicates
 	interviewingMux sync.Mutex
 	interviewing    map[uint16]bool // network address -> is interviewing
+
+	// NWK→IEEE address map (populated from join events)
+	nwkToIEEEMux sync.RWMutex
+	nwkToIEEE    map[uint16]uint64 // network address -> IEEE address
+
+	// Command sequence counter for ZCL transaction sequence numbers
+	cmdSequence uint32
 }
 
 func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceClient) (*ZigbeeCoordinator, error) {
@@ -50,7 +60,9 @@ func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceCli
 		logger:       logger.With("module", module),
 		tracer:       otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
 		routeClient:  routeClient,
+		zclParser:    zclpkg.NewParser(logger),
 		interviewing: make(map[uint16]bool),
+		nwkToIEEE:    make(map[uint16]uint64),
 	}
 
 	dongleCfg := cfg.ToDongleConfig(z.logger)
@@ -427,51 +439,64 @@ func (z *ZigbeeCoordinator) GetPermitJoin() (bool, *time.Time) {
 	return z.permitJoinTimer != nil, z.permitJoinEnd
 }
 
-// forwardMessageToRouter forwards a Zigbee message to the router service.
-// The path format is: "zigbee/{device_id}" where device_id is the source network address.
-// The message payload is JSON-encoded with the Zigbee message details.
+// forwardMessageToRouter forwards a Zigbee message to the router service as a ZclMessage proto.
+// The path format is: "zigbee/{ieee_address}" when IEEE is known, else "zigbee/nwk_{short}".
 func (z *ZigbeeCoordinator) forwardMessageToRouter(ctx context.Context, msg types.IncomingMessage) error {
 	if z.routeClient == nil {
-		return nil // Router client not configured, skip forwarding
+		return nil
 	}
 
-	// Create path: zigbee/{device_id} where device_id is the source network address
-	deviceID := fmt.Sprintf("%04x", msg.Source.Short)
+	// Determine device ID: prefer IEEE address (stable across reboots)
+	z.nwkToIEEEMux.RLock()
+	ieeeAddr, hasIEEE := z.nwkToIEEE[msg.Source.Short]
+	z.nwkToIEEEMux.RUnlock()
+
+	var deviceID string
+	var sourceIEEE string
+	if hasIEEE {
+		ieeeStr := fmt.Sprintf("%016x", ieeeAddr)
+		deviceID = ieeeStr
+		sourceIEEE = fmt.Sprintf("0x%s", ieeeStr)
+	} else {
+		deviceID = fmt.Sprintf("nwk_%04x", msg.Source.Short)
+	}
+
 	path := fmt.Sprintf("zigbee/%s", deviceID)
 
-	// Encode message as JSON for router
-	// TODO: Consider using protobuf instead of JSON for better type safety
-	messageJSON := map[string]interface{}{
-		"source": map[string]interface{}{
-			"mode":  msg.Source.Mode.String(),
-			"short": fmt.Sprintf("%04x", msg.Source.Short),
-		},
-		"source_endpoint":      int(msg.SourceEndpoint),
-		"destination_endpoint": int(msg.DestinationEndpoint),
-		"cluster_id":           fmt.Sprintf("0x%04x", msg.ClusterID),
-		"link_quality":         int(msg.LinkQuality),
-		"data":                 fmt.Sprintf("%x", msg.Data),
-	}
-
-	jsonBytes, err := json.Marshal(messageJSON)
+	// Parse ZCL data into proto message
+	zclMsg, err := z.zclParser.ParseMessage(
+		sourceIEEE,
+		uint32(msg.Source.Short),
+		msg.SourceEndpoint,
+		msg.DestinationEndpoint,
+		msg.ClusterID,
+		msg.LinkQuality,
+		msg.Data,
+	)
 	if err != nil {
-		return fmt.Errorf("marshaling message to JSON: %w", err)
+		z.logger.Debug("failed to parse ZCL message, skipping forward",
+			slog.String("cluster", fmt.Sprintf("0x%04x", msg.ClusterID)),
+			slog.String("error", err.Error()),
+		)
+		return nil
 	}
 
-	// Send to router
-	req := &iotv1proto.SendRequest{
+	msgBytes, err := proto.Marshal(zclMsg)
+	if err != nil {
+		return fmt.Errorf("marshaling ZclMessage proto: %w", err)
+	}
+
+	_, err = z.routeClient.Send(ctx, &iotv1proto.SendRequest{
 		Path:    path,
-		Message: jsonBytes,
-	}
-
-	_, err = z.routeClient.Send(ctx, req)
+		Message: msgBytes,
+	})
 	if err != nil {
 		return fmt.Errorf("sending to router: %w", err)
 	}
 
-	z.logger.Debug("forwarded message to router",
+	z.logger.Debug("forwarded ZCL message to router",
 		slog.String("path", path),
-		slog.String("source", deviceID),
+		slog.String("cluster", fmt.Sprintf("0x%04x", msg.ClusterID)),
 	)
 
 	return nil
@@ -507,6 +532,11 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 		delete(z.interviewing, joinEvent.NetworkAddress)
 		z.interviewingMux.Unlock()
 	}()
+
+	// Store NWK→IEEE mapping for message routing
+	z.nwkToIEEEMux.Lock()
+	z.nwkToIEEE[joinEvent.NetworkAddress] = joinEvent.IEEEAddress
+	z.nwkToIEEEMux.Unlock()
 
 	z.logger.Info("starting device interview",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
@@ -559,70 +589,75 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 	z.sendInterviewResult(ctx, joinEvent.IEEEAddress, joinEvent.NetworkAddress, interviewInfo, nil)
 }
 
-// sendInterviewResult sends interview results to the router.
+// sendInterviewResult sends interview results to the router as a DeviceInterviewResult proto.
 func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr uint64, nwkAddr uint16, info *znp.DeviceInterviewInfo, interviewErr error) {
 	if z.routeClient == nil {
-		return // Router client not configured, skip
+		return
 	}
 
-	// Create path: zigbee/{ieee_address}/interview
 	ieeeStr := fmt.Sprintf("%016x", ieeeAddr)
 	path := fmt.Sprintf("zigbee/%s/interview", ieeeStr)
 
-	// Build interview result message
-	result := map[string]interface{}{
-		"ieee_address":    fmt.Sprintf("0x%s", ieeeStr),
-		"network_address": nwkAddr,
+	result := &zigbeev1proto.DeviceInterviewResult{
+		IeeeAddress:    fmt.Sprintf("0x%s", ieeeStr),
+		NetworkAddress: uint32(nwkAddr),
 	}
 
 	if interviewErr != nil {
-		result["interview_state"] = "failed"
-		result["error"] = interviewErr.Error()
+		result.InterviewState = zigbeev1proto.InterviewState_INTERVIEW_STATE_FAILED
 	} else if info != nil {
-		result["interview_state"] = "successful"
-		result["device_type"] = info.DeviceType
-		result["manufacturer_id"] = info.ManufacturerID
+		result.InterviewState = zigbeev1proto.InterviewState_INTERVIEW_STATE_SUCCESSFUL
+		result.ManufacturerId = info.ManufacturerID
+
+		switch info.DeviceType {
+		case "Coordinator":
+			result.DeviceType = zigbeev1proto.DeviceType_DEVICE_TYPE_COORDINATOR
+		case "Router":
+			result.DeviceType = zigbeev1proto.DeviceType_DEVICE_TYPE_ROUTER
+		case "EndDevice":
+			result.DeviceType = zigbeev1proto.DeviceType_DEVICE_TYPE_END_DEVICE
+		}
 
 		if info.Capabilities != nil {
-			result["capabilities"] = map[string]interface{}{
-				"alternate_pan_coordinator": info.Capabilities.AlternatePanCoordinator,
-				"receiver_on_when_idle":     info.Capabilities.ReceiverOnWhenIdle,
-				"security_capability":       info.Capabilities.SecurityCapability,
+			result.Capabilities = &zigbeev1proto.DeviceCapabilities{
+				AlternatePanCoordinator: info.Capabilities.AlternatePanCoordinator,
+				ReceiverOnWhenIdle:      info.Capabilities.ReceiverOnWhenIdle,
+				SecurityCapability:      info.Capabilities.SecurityCapability,
 			}
 		}
 
-		// Convert endpoints
-		endpoints := make([]map[string]interface{}, 0, len(info.Endpoints))
 		for _, ep := range info.Endpoints {
-			epMap := map[string]interface{}{
-				"id":              ep.ID,
-				"profile_id":      ep.ProfileID,
-				"device_id":       ep.DeviceID,
-				"device_version":  ep.DeviceVersion,
-				"input_clusters":  ep.InputClusters,
-				"output_clusters": ep.OutputClusters,
+			inputClusters := make([]uint32, len(ep.InputClusters))
+			for i, c := range ep.InputClusters {
+				inputClusters[i] = uint32(c)
 			}
-			endpoints = append(endpoints, epMap)
+			outputClusters := make([]uint32, len(ep.OutputClusters))
+			for i, c := range ep.OutputClusters {
+				outputClusters[i] = uint32(c)
+			}
+			result.Endpoints = append(result.Endpoints, &zigbeev1proto.EndpointDescriptor{
+				Id:              ep.ID,
+				ProfileId:       ep.ProfileID,
+				DeviceId:        ep.DeviceID,
+				DeviceVersion:   ep.DeviceVersion,
+				InputClusters:   inputClusters,
+				OutputClusters:  outputClusters,
+			})
 		}
-		result["endpoints"] = endpoints
 	} else {
-		result["interview_state"] = "pending"
+		result.InterviewState = zigbeev1proto.InterviewState_INTERVIEW_STATE_PENDING
 	}
 
-	// Encode as JSON
-	jsonBytes, err := json.Marshal(result)
+	msgBytes, err := proto.Marshal(result)
 	if err != nil {
 		z.logger.Error("failed to marshal interview result", slog.String("error", err.Error()))
 		return
 	}
 
-	// Send to router
-	req := &iotv1proto.SendRequest{
+	_, err = z.routeClient.Send(ctx, &iotv1proto.SendRequest{
 		Path:    path,
-		Message: jsonBytes,
-	}
-
-	_, err = z.routeClient.Send(ctx, req)
+		Message: msgBytes,
+	})
 	if err != nil {
 		z.logger.Warn("failed to send interview result to router",
 			slog.String("path", path),

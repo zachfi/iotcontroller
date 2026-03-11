@@ -25,6 +25,7 @@ import (
 	"github.com/zachfi/iotcontroller/modules/mqttclient"
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	"github.com/zachfi/iotcontroller/pkg/iot/handlers/mock"
+	"github.com/zachfi/iotcontroller/pkg/iot/handlers/nativezigbee"
 	"github.com/zachfi/iotcontroller/pkg/iot/handlers/zigbee"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -46,8 +47,9 @@ type ZoneKeeper struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	mqttclient *mqttclient.MQTTClient
-	kubeclient kubeclient.Client
+	mqttclient          *mqttclient.MQTTClient
+	kubeclient          kubeclient.Client
+	zigbeeCommandClient iotv1proto.ZigbeeCommandServiceClient
 
 	handlers   map[controllerHandler]iot.Handler
 	announceer map[string]time.Time
@@ -65,20 +67,22 @@ type pendingState struct {
 type controllerHandler int
 
 const (
-	controllerHandlerZigbee controllerHandler = iota
+	controllerHandlerZigbee       controllerHandler = iota
+	controllerHandlerNativeZigbee                   // native Zigbee via ZigbeeCommandService gRPC
 	controllerHandlerNoop
 )
 
-func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kubeclient kubeclient.Client) (*ZoneKeeper, error) {
+func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kubeclient kubeclient.Client, zigbeeCommandClient iotv1proto.ZigbeeCommandServiceClient) (*ZoneKeeper, error) {
 	z := &ZoneKeeper{
-		cfg:        &cfg,
-		logger:     logger.With("module", module),
-		tracer:     otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
-		mqttclient: mqttclient,
-		kubeclient: kubeclient,
-		zones:      make(map[string]*iot.Zone),
-		announceer: make(map[string]time.Time),
-		pending:    make(map[string]pendingState),
+		cfg:                 &cfg,
+		logger:              logger.With("module", module),
+		tracer:              otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
+		mqttclient:          mqttclient,
+		kubeclient:          kubeclient,
+		zigbeeCommandClient: zigbeeCommandClient,
+		zones:               make(map[string]*iot.Zone),
+		announceer:          make(map[string]time.Time),
+		pending:             make(map[string]pendingState),
 	}
 
 	z.Service = services.NewBasicService(z.starting, z.running, z.stopping)
@@ -470,6 +474,16 @@ func (z *ZoneKeeper) starting(ctx context.Context) error {
 	hhh := make(map[controllerHandler]iot.Handler, 0)
 	hhh[controllerHandlerZigbee] = zigbeeHandler
 	hhh[controllerHandlerNoop] = &mock.MockHandler{}
+
+	if z.zigbeeCommandClient != nil {
+		nzHandler, err := nativezigbee.New(z.zigbeeCommandClient, z.logger, z.tracer)
+		if err != nil {
+			return err
+		}
+		hhh[controllerHandlerNativeZigbee] = nzHandler
+		z.logger.Info("native zigbee handler registered")
+	}
+
 	z.handlers = hhh
 
 	// Run once before looping
@@ -606,32 +620,33 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 		}
 
 		device := &iotv1proto.Device{
-			Name: d.Name,
-			Type: iotv1proto.DeviceType(iotv1proto.DeviceType_value[d.Spec.Type]),
+			Name:        d.Name,
+			Type:        iotv1proto.DeviceType(iotv1proto.DeviceType_value[d.Spec.Type]),
+			IeeeAddress: d.Spec.IEEEAddress,
 		}
+
+		// Use the native Zigbee handler when the device has an IEEE address and
+		// the coordinator command service is configured; otherwise fall back to MQTT.
+		nativeHandler, hasNative := z.handlers[controllerHandlerNativeZigbee]
 
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
 			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_RELAY:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_LEAK:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_BUTTON:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOISTURE:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_MOTION:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_SOIL:
-			handler = z.handlers[controllerHandlerZigbee]
-		case iotv1proto.DeviceType_DEVICE_TYPE_AIR_QUALITY:
+		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT,
+			iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT,
+			iotv1proto.DeviceType_DEVICE_TYPE_RELAY:
+			if hasNative && device.IeeeAddress != "" {
+				handler = nativeHandler
+			} else {
+				handler = z.handlers[controllerHandlerZigbee]
+			}
+		case iotv1proto.DeviceType_DEVICE_TYPE_LEAK,
+			iotv1proto.DeviceType_DEVICE_TYPE_BUTTON,
+			iotv1proto.DeviceType_DEVICE_TYPE_MOISTURE,
+			iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE,
+			iotv1proto.DeviceType_DEVICE_TYPE_MOTION,
+			iotv1proto.DeviceType_DEVICE_TYPE_SOIL,
+			iotv1proto.DeviceType_DEVICE_TYPE_AIR_QUALITY:
 			handler = z.handlers[controllerHandlerZigbee]
 
 		case iotv1proto.DeviceType_DEVICE_TYPE_ISPINDEL:

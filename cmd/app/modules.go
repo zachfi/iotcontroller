@@ -223,7 +223,18 @@ func (a *App) initRouter() (services.Service, error) {
 }
 
 func (a *App) initZoneKeeper() (services.Service, error) {
-	z, err := zonekeeper.New(a.cfg.ZoneKeeper, a.logger, a.mqttclient, a.kubeclient)
+	// Optionally wire in the ZigbeeCommandServiceClient when configured.
+	var zigbeeCommandClient iotv1proto.ZigbeeCommandServiceClient
+	if a.cfg.ZoneKeeper.ZigbeeCommandClient.ServerAddress != "" {
+		c, err := common.NewClientConn(a.cfg.ZoneKeeper.ZigbeeCommandClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create zigbee command client connection: %w", err)
+		}
+		zigbeeCommandClient = iotv1proto.NewZigbeeCommandServiceClient(c)
+		a.logger.Info("zigbee command client configured", "address", a.cfg.ZoneKeeper.ZigbeeCommandClient.ServerAddress)
+	}
+
+	z, err := zonekeeper.New(a.cfg.ZoneKeeper, a.logger, a.mqttclient, a.kubeclient, zigbeeCommandClient)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +266,9 @@ func (a *App) initZigbeeCoordinator() (services.Service, error) {
 		return nil, err
 	}
 
-	// iotv1proto.RegisterZoneKeeperServiceServer(a.Server.GRPC, z)
+	// Register ZigbeeCommandService so ZoneKeeper (or any gRPC client) can send
+	// commands to devices via this coordinator.
+	iotv1proto.RegisterZigbeeCommandServiceServer(a.Server.GRPC, z)
 
 	a.zigbeecoordinator = z
 	return z, nil

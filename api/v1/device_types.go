@@ -31,6 +31,12 @@ type DeviceSpec struct {
 	PowerSource     string `json:"power_source,omitempty"`
 	ModelID         string `json:"model_id,omitempty"`
 	Note            string `json:"note,omitempty"`
+	// IEEEAddress is the stable 64-bit IEEE MAC address of the device (hex, e.g. "0x00124b0037e6f451").
+	// This is permanent and survives network address reassignment.
+	IEEEAddress string `json:"ieee_address,omitempty"`
+	// NetworkAddress is the current 16-bit Zigbee network address of the device (hex, e.g. "0x1234").
+	// This may change when the device rejoins the network.
+	NetworkAddress string `json:"network_address,omitempty"`
 }
 
 // DeviceStatus defines the observed state of Device

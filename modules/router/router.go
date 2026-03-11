@@ -19,6 +19,7 @@ import (
 	"github.com/zachfi/zkit/pkg/tracing"
 
 	"github.com/zachfi/iotcontroller/pkg/iot/routers/ispindel"
+	"github.com/zachfi/iotcontroller/pkg/iot/routers/nativezigbee"
 	"github.com/zachfi/iotcontroller/pkg/iot/routers/zigbee2mqtt"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -30,6 +31,7 @@ type RouteTypes int
 const (
 	Zigbee2MQTT RouteTypes = iota
 	Ispindel
+	NativeZigbee
 )
 
 type Router struct {
@@ -83,6 +85,13 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 
 	c.routers[Ispindel] = isp
 
+	nz, err := nativezigbee.New(logger, c.tracer, kubeclient, c.zonekeeperClient)
+	if err != nil {
+		return nil, err
+	}
+
+	c.routers[NativeZigbee] = nz
+
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
 	return c, nil
 }
@@ -102,7 +111,17 @@ func (r *Router) send(ctx context.Context, path string, payload []byte) error {
 	}
 
 	switch {
-	// Zigbee routes
+	// Native Zigbee routes (from zigbeecoordinator)
+	case r.match(path, "zigbee/([^/]+)/interview", &deviceID):
+		if err = r.nativeZigbee().InterviewRoute(ctx, payload, deviceID); err != nil {
+			return err
+		}
+	case r.match(path, "zigbee/([^/]+)", &deviceID):
+		if err = r.nativeZigbee().DeviceRoute(ctx, payload, deviceID); err != nil {
+			return err
+		}
+
+	// Zigbee2MQTT routes
 	case r.match(path, "zigbee2mqtt/([^/]+)", &deviceID):
 		if err = r.zigbee2Mqtt().DeviceRoute(ctx, payload, deviceID); err != nil {
 			return err
@@ -273,4 +292,8 @@ func (r *Router) zigbee2Mqtt() *zigbee2mqtt.Zigbee2Mqtt {
 
 func (r *Router) ispindel() *ispindel.Ispindel {
 	return r.routers[Ispindel].(*ispindel.Ispindel)
+}
+
+func (r *Router) nativeZigbee() *nativezigbee.NativeZigbee {
+	return r.routers[NativeZigbee].(*nativezigbee.NativeZigbee)
 }

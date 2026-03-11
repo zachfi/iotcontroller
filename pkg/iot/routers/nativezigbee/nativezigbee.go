@@ -1,0 +1,309 @@
+package nativezigbee
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/proto"
+	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiv1 "github.com/zachfi/iotcontroller/api/v1"
+	"github.com/zachfi/iotcontroller/pkg/iot"
+	iotutil "github.com/zachfi/iotcontroller/pkg/iot/util"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	zigbeev1proto "github.com/zachfi/iotcontroller/proto/zigbee/v1"
+	zclv1proto "github.com/zachfi/iotcontroller/proto/zcl/v1"
+	"github.com/zachfi/zkit/pkg/tracing"
+)
+
+const routeName = "nativezigbee"
+
+// NativeZigbee handles messages from the native Zigbee coordinator (not zigbee2mqtt).
+// It receives ZclMessage and DeviceInterviewResult proto messages from the router.
+type NativeZigbee struct {
+	logger *slog.Logger
+	tracer trace.Tracer
+
+	kubeclient       kubeclient.Client
+	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
+
+	// ieeeToNwk caches the mapping from ieee→device name to avoid repeated kube lookups
+	cacheMux  sync.RWMutex
+	ieeeCache map[string]string // ieee address → device name
+}
+
+func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) (*NativeZigbee, error) {
+	return &NativeZigbee{
+		logger:           logger.With("router", routeName),
+		tracer:           tracer,
+		kubeclient:       kubeclient,
+		zonekeeperClient: zonekeeperClient,
+		ieeeCache:        make(map[string]string),
+	}, nil
+}
+
+// DeviceRoute handles a ZclMessage proto payload for path "zigbee/{deviceID}".
+func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID string) error {
+	var err error
+	ctx, span := n.tracer.Start(ctx, "NativeZigbee.DeviceRoute")
+	defer tracing.ErrHandler(span, err, "device route failed", n.logger)
+
+	zclMsg := &zclv1proto.ZclMessage{}
+	if err = proto.Unmarshal(b, zclMsg); err != nil {
+		return fmt.Errorf("unmarshaling ZclMessage: %w", err)
+	}
+
+	span.SetAttributes(
+		attribute.String("device_id", deviceID),
+		attribute.String("cluster", zclMsg.GetClusterName()),
+	)
+
+	// Determine IEEE address: deviceID is the IEEE if it doesn't start with "nwk_"
+	ieeeAddr := ""
+	if !strings.HasPrefix(deviceID, "nwk_") {
+		ieeeAddr = fmt.Sprintf("0x%s", deviceID)
+	} else if zclMsg.GetSourceIeee() != "" {
+		ieeeAddr = zclMsg.GetSourceIeee()
+	}
+
+	// Look up the Device CRD by IEEE address
+	device, err := n.getDeviceByIEEE(ctx, ieeeAddr)
+	if err != nil {
+		n.logger.Debug("device not found by IEEE, skipping action",
+			slog.String("ieee", ieeeAddr),
+			slog.String("error", err.Error()),
+		)
+		return nil
+	}
+
+	// Update last seen
+	if updateErr := iotutil.UpdateLastSeen(ctx, n.kubeclient, device); updateErr != nil {
+		n.logger.Debug("failed to update last seen", slog.String("error", updateErr.Error()))
+	}
+
+	// Map ZCL command to action string
+	action := zclCommandToAction(zclMsg)
+	if action == "" {
+		// Not an action command (e.g. sensor report) — handle metrics/sensor data elsewhere
+		n.logger.Debug("no action for ZCL command",
+			slog.String("cluster", zclMsg.GetClusterName()),
+			slog.String("device", device.Name),
+		)
+		return nil
+	}
+
+	// Dispatch to ZoneKeeper if device has a zone label
+	zone, ok := device.Labels[iot.DeviceZoneLabel]
+	if !ok {
+		n.logger.Debug("device has no zone label, skipping action",
+			slog.String("device", device.Name),
+			slog.String("action", action),
+		)
+		return nil
+	}
+
+	span.SetAttributes(
+		attribute.String("device", device.Name),
+		attribute.String("zone", zone),
+		attribute.String("action", action),
+	)
+
+	_, err = n.zonekeeperClient.ActionHandler(ctx, &iotv1proto.ActionHandlerRequest{
+		Event:  action,
+		Device: device.Name,
+		Zone:   zone,
+	})
+	return err
+}
+
+// InterviewRoute handles a DeviceInterviewResult proto payload for path "zigbee/{ieee}/interview".
+func (n *NativeZigbee) InterviewRoute(ctx context.Context, b []byte, ieeeAddr string) error {
+	var err error
+	ctx, span := n.tracer.Start(ctx, "NativeZigbee.InterviewRoute")
+	defer tracing.ErrHandler(span, err, "interview route failed", n.logger)
+
+	result := &zigbeev1proto.DeviceInterviewResult{}
+	if err = proto.Unmarshal(b, result); err != nil {
+		return fmt.Errorf("unmarshaling DeviceInterviewResult: %w", err)
+	}
+
+	span.SetAttributes(
+		attribute.String("ieee_address", result.GetIeeeAddress()),
+		attribute.String("interview_state", result.GetInterviewState().String()),
+	)
+
+	if result.GetInterviewState() != zigbeev1proto.InterviewState_INTERVIEW_STATE_SUCCESSFUL {
+		n.logger.Info("interview not successful, skipping device update",
+			slog.String("ieee", result.GetIeeeAddress()),
+			slog.String("state", result.GetInterviewState().String()),
+		)
+		return nil
+	}
+
+	// Use IEEE address as device name (normalized: strip "0x" prefix, lowercase)
+	ieee := result.GetIeeeAddress()
+	deviceName := strings.ToLower(strings.TrimPrefix(ieee, "0x"))
+
+	device, err := iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, deviceName)
+	if err != nil {
+		return fmt.Errorf("getting/creating device %q: %w", deviceName, err)
+	}
+
+	// Populate spec from interview
+	device.Spec.IEEEAddress = ieee
+	device.Spec.NetworkAddress = fmt.Sprintf("0x%04x", result.GetNetworkAddress())
+
+	switch result.GetDeviceType() {
+	case zigbeev1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
+		device.Spec.Type = "Coordinator"
+	case zigbeev1proto.DeviceType_DEVICE_TYPE_ROUTER:
+		device.Spec.Type = "Router"
+	case zigbeev1proto.DeviceType_DEVICE_TYPE_END_DEVICE:
+		device.Spec.Type = "EndDevice"
+	}
+
+	if result.GetManufacturerName() != "" {
+		device.Spec.Vendor = result.GetManufacturerName()
+		device.Spec.ManufactureName = result.GetManufacturerName()
+	}
+	if result.GetModelId() != "" {
+		device.Spec.Model = result.GetModelId()
+		device.Spec.ModelID = result.GetModelId()
+	}
+	if result.GetDateCode() != "" {
+		device.Spec.DateCode = result.GetDateCode()
+	}
+	if result.GetPowerSource() != zigbeev1proto.PowerSource_POWER_SOURCE_UNSPECIFIED {
+		device.Spec.PowerSource = result.GetPowerSource().String()
+	}
+
+	if err = n.kubeclient.Update(ctx, device); err != nil {
+		return fmt.Errorf("updating device spec: %w", err)
+	}
+
+	// Update status
+	device, err = iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, deviceName)
+	if err != nil {
+		return fmt.Errorf("refreshing device: %w", err)
+	}
+	device.Status.SoftwareBuildID = result.GetSoftwareBuildId()
+	if err = n.kubeclient.Status().Update(ctx, device); err != nil {
+		return fmt.Errorf("updating device status: %w", err)
+	}
+
+	// Invalidate IEEE cache entry
+	n.cacheMux.Lock()
+	delete(n.ieeeCache, ieee)
+	n.cacheMux.Unlock()
+
+	n.logger.Info("device updated from interview",
+		slog.String("device", deviceName),
+		slog.String("ieee", ieee),
+		slog.String("model", device.Spec.Model),
+		slog.String("vendor", device.Spec.Vendor),
+	)
+
+	return nil
+}
+
+// getDeviceByIEEE finds a Device CRD by its IEEEAddress spec field.
+// Checks the in-memory cache first, then lists all devices.
+func (n *NativeZigbee) getDeviceByIEEE(ctx context.Context, ieeeAddr string) (*apiv1.Device, error) {
+	if ieeeAddr == "" {
+		return nil, fmt.Errorf("empty IEEE address")
+	}
+
+	// Check cache
+	n.cacheMux.RLock()
+	if name, ok := n.ieeeCache[ieeeAddr]; ok {
+		n.cacheMux.RUnlock()
+		return iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, name)
+	}
+	n.cacheMux.RUnlock()
+
+	// List all devices to find the one with matching IEEE address
+	deviceList := &apiv1.DeviceList{}
+	if err := n.kubeclient.List(ctx, deviceList, kubeclient.InNamespace("iot")); err != nil {
+		return nil, fmt.Errorf("listing devices: %w", err)
+	}
+
+	for i := range deviceList.Items {
+		d := &deviceList.Items[i]
+		if d.Spec.IEEEAddress == ieeeAddr {
+			// Cache hit
+			n.cacheMux.Lock()
+			n.ieeeCache[ieeeAddr] = d.Name
+			n.cacheMux.Unlock()
+			return d, nil
+		}
+	}
+
+	// Not found — try using the stripped IEEE address as device name (set during interview)
+	deviceName := strings.ToLower(strings.TrimPrefix(ieeeAddr, "0x"))
+	device, err := iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, deviceName)
+	if err != nil {
+		return nil, fmt.Errorf("device %q not found and could not be created: %w", ieeeAddr, err)
+	}
+	return device, nil
+}
+
+// zclCommandToAction maps a ZclMessage command to a named action string.
+// Returns "" for non-action messages (sensor reports, attribute reads, etc.).
+func zclCommandToAction(msg *zclv1proto.ZclMessage) string {
+	if msg.GetFrame() == nil || msg.GetFrame().GetCommand() == nil {
+		return ""
+	}
+
+	switch msg.GetFrame().GetCommand().GetCommand().(type) {
+	// genOnOff (0x0006)
+	case *zclv1proto.ZclCommand_GenOnoffOn:
+		return "on"
+	case *zclv1proto.ZclCommand_GenOnoffOff:
+		return "off"
+	case *zclv1proto.ZclCommand_GenOnoffToggle:
+		return "toggle"
+
+	// genLevelControl (0x0008)
+	case *zclv1proto.ZclCommand_GenLevelcontrolMoveToLevel:
+		return "brightness_move_to_level"
+	case *zclv1proto.ZclCommand_GenLevelcontrolMove:
+		cmd := msg.GetFrame().GetCommand().GetGenLevelcontrolMove()
+		if cmd.GetMoveMode() == zclv1proto.ZclMoveMode_ZCL_MOVE_MODE_DOWN {
+			return "brightness_move_down"
+		}
+		return "brightness_move_up"
+	case *zclv1proto.ZclCommand_GenLevelcontrolStep:
+		cmd := msg.GetFrame().GetCommand().GetGenLevelcontrolStep()
+		if cmd.GetStepMode() == zclv1proto.ZclStepMode_ZCL_STEP_MODE_DOWN {
+			return "brightness_step_down"
+		}
+		return "brightness_step_up"
+	case *zclv1proto.ZclCommand_GenLevelcontrolStop:
+		return "brightness_stop"
+
+	// genColorControl (0x0300)
+	case *zclv1proto.ZclCommand_GenColorcontrolMoveToColorTemp:
+		return "color_temperature_move"
+	case *zclv1proto.ZclCommand_GenColorcontrolMoveColorTemp:
+		cmd := msg.GetFrame().GetCommand().GetGenColorcontrolMoveColorTemp()
+		if cmd.GetMoveMode() == zclv1proto.ZclMoveMode_ZCL_MOVE_MODE_DOWN {
+			return "color_temperature_move_down"
+		}
+		return "color_temperature_move_up"
+	case *zclv1proto.ZclCommand_GenColorcontrolStepColorTemp:
+		return "color_temperature_step"
+	case *zclv1proto.ZclCommand_GenColorcontrolMoveToHue:
+		return "hue_move"
+	case *zclv1proto.ZclCommand_GenColorcontrolMoveToSaturation:
+		return "saturation_move"
+	case *zclv1proto.ZclCommand_GenColorcontrolMoveToHueAndSaturation:
+		return "hue_saturation_move"
+	}
+
+	return ""
+}

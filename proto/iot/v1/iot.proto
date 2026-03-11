@@ -143,9 +143,63 @@ service ZoneKeeperService {
   rpc OccupancyHandler(OccupancyHandlerRequest) returns (OccupancyHandlerResponse);
 }
 
+// ZigbeeCommandService allows callers (e.g. ZoneKeeper) to send commands to
+// Zigbee devices via the coordinator. The coordinator translates these into
+// ZCL frames and transmits them over the dongle.
+//
+// This service is implemented by the ZigbeeCoordinator module and consumed by
+// the ZoneKeeper module. It works regardless of whether the coordinator is local
+// or remote (gRPC makes it location-transparent).
+service ZigbeeCommandService {
+  rpc SendCommand(SendCommandRequest) returns (SendCommandResponse);
+}
+
+// SendCommandRequest carries a high-level Zigbee device command.
+// The coordinator translates the command into ZCL bytes and sends via the dongle.
+message SendCommandRequest {
+  // IEEE address of the target device (hex, e.g. "0x00124b0037e6f451").
+  string ieee_address = 1;
+  // Destination endpoint (default: 1).
+  uint32 endpoint = 2;
+  // Command to send.
+  oneof command {
+    ZigbeeCommandOn on = 10;
+    ZigbeeCommandOff off = 11;
+    ZigbeeCommandToggle toggle = 12;
+    ZigbeeCommandSetBrightness set_brightness = 13;
+    ZigbeeCommandSetColorTemp set_color_temp = 14;
+  }
+}
+
+message SendCommandResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message ZigbeeCommandOn {}
+message ZigbeeCommandOff {}
+message ZigbeeCommandToggle {}
+
+message ZigbeeCommandSetBrightness {
+  // Brightness level 0–254.
+  uint32 level = 1;
+  // Transition time in 1/10 seconds (default: 8 = 0.8s).
+  uint32 transition_time = 2;
+}
+
+message ZigbeeCommandSetColorTemp {
+  // Color temperature in mireds (e.g. 250 = 4000K warm white).
+  uint32 color_temperature_mired = 1;
+  // Transition time in 1/10 seconds (default: 8 = 0.8s).
+  uint32 transition_time = 2;
+}
+
 message Device {
   string name = 1;
   DeviceType type = 2;
+  // ieee_address is the stable 64-bit IEEE MAC address (hex, e.g. "00124b0037e6f451").
+  // Populated from the Device CRD spec when available; required by the native Zigbee handler.
+  string ieee_address = 3;
 }
 
 // TODO: consider this approach.  A device likely shouldn't have a type at all,

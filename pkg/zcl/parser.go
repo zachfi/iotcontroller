@@ -10,6 +10,8 @@ import (
 	"github.com/shimmeringbee/zcl/commands/global"
 	"github.com/shimmeringbee/zcl/commands/local/onoff"
 	"github.com/shimmeringbee/zigbee"
+	"github.com/zachfi/iotcontroller/pkg/zcl/colorcontrol"
+	"github.com/zachfi/iotcontroller/pkg/zcl/levelcontrol"
 	zclv1proto "github.com/zachfi/iotcontroller/proto/zcl/v1"
 )
 
@@ -28,7 +30,8 @@ func NewParser(logger *slog.Logger) *Parser {
 
 	// Register local commands
 	onoff.Register(registry)
-	// TODO: Add more clusters as needed
+	levelcontrol.Register(registry)
+	colorcontrol.Register(registry)
 
 	return &Parser{
 		registry: registry,
@@ -209,6 +212,98 @@ func (p *Parser) convertCommand(zclMsg zcl.Message, clusterID uint16) (*zclv1pro
 			default:
 				return nil, fmt.Errorf("unsupported genOnOff command: %T", c)
 			}
+		case 0x0008: // genLevelControl
+			switch c := zclMsg.Command.(type) {
+			case *levelcontrol.MoveToLevel:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolMoveToLevel{
+					GenLevelcontrolMoveToLevel: &zclv1proto.GenLevelControlMoveToLevel{
+						Level:          uint32(c.Level),
+						TransitionTime: uint32(c.TransitionTime),
+					},
+				}
+			case *levelcontrol.Move:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolMove{
+					GenLevelcontrolMove: &zclv1proto.GenLevelControlMove{
+						MoveMode: p.convertMoveMode(c.MoveMode),
+						Rate:     uint32(c.Rate),
+					},
+				}
+			case *levelcontrol.Step:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolStep{
+					GenLevelcontrolStep: &zclv1proto.GenLevelControlStep{
+						StepMode:       p.convertStepMode(c.StepMode),
+						StepSize:       uint32(c.StepSize),
+						TransitionTime: uint32(c.TransitionTime),
+					},
+				}
+			case *levelcontrol.Stop:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolStop{
+					GenLevelcontrolStop: &zclv1proto.GenLevelControlStop{},
+				}
+			case *levelcontrol.MoveToLevelWithOnOff:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolMoveToLevel{
+					GenLevelcontrolMoveToLevel: &zclv1proto.GenLevelControlMoveToLevel{
+						Level:          uint32(c.Level),
+						TransitionTime: uint32(c.TransitionTime),
+					},
+				}
+			case *levelcontrol.MoveWithOnOff:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolMove{
+					GenLevelcontrolMove: &zclv1proto.GenLevelControlMove{
+						MoveMode: p.convertMoveMode(c.MoveMode),
+						Rate:     uint32(c.Rate),
+					},
+				}
+			case *levelcontrol.StepWithOnOff:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolStep{
+					GenLevelcontrolStep: &zclv1proto.GenLevelControlStep{
+						StepMode:       p.convertStepMode(c.StepMode),
+						StepSize:       uint32(c.StepSize),
+						TransitionTime: uint32(c.TransitionTime),
+					},
+				}
+			case *levelcontrol.StopWithOnOff:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolStop{
+					GenLevelcontrolStop: &zclv1proto.GenLevelControlStop{},
+				}
+			default:
+				return nil, fmt.Errorf("unsupported genLevelControl command: %T", c)
+			}
+		case 0x0300: // genColorControl
+			switch c := zclMsg.Command.(type) {
+			case *colorcontrol.MoveToColorTemp:
+				cmd.Command = &zclv1proto.ZclCommand_GenColorcontrolMoveToColorTemp{
+					GenColorcontrolMoveToColorTemp: &zclv1proto.GenColorControlMoveToColorTemp{
+						ColorTemperature: uint32(c.ColorTemperature),
+						TransitionTime:   uint32(c.TransitionTime),
+					},
+				}
+			case *colorcontrol.MoveColorTemp:
+				cmd.Command = &zclv1proto.ZclCommand_GenColorcontrolMoveColorTemp{
+					GenColorcontrolMoveColorTemp: &zclv1proto.GenColorControlMoveColorTemp{
+						MoveMode:          p.convertMoveMode(c.MoveMode),
+						Rate:              uint32(c.Rate),
+						ColorTempMinMired: uint32(c.ColorTempMinMired),
+						ColorTempMaxMired: uint32(c.ColorTempMaxMired),
+					},
+				}
+			case *colorcontrol.StepColorTemp:
+				cmd.Command = &zclv1proto.ZclCommand_GenColorcontrolStepColorTemp{
+					GenColorcontrolStepColorTemp: &zclv1proto.GenColorControlStepColorTemp{
+						StepMode:          p.convertStepMode(c.StepMode),
+						StepSize:          uint32(c.StepSize),
+						TransitionTime:    uint32(c.TransitionTime),
+						ColorTempMinMired: uint32(c.ColorTempMinMired),
+						ColorTempMaxMired: uint32(c.ColorTempMaxMired),
+					},
+				}
+			case *colorcontrol.StopMoveStep:
+				cmd.Command = &zclv1proto.ZclCommand_GenLevelcontrolStop{
+					GenLevelcontrolStop: &zclv1proto.GenLevelControlStop{},
+				}
+			default:
+				return nil, fmt.Errorf("unsupported genColorControl command: %T", c)
+			}
 		default:
 			return nil, fmt.Errorf("unsupported cluster: 0x%04x", clusterID)
 		}
@@ -324,6 +419,30 @@ func (p *Parser) convertAttributeValue(dtv *zcl.AttributeDataTypeValue) (*zclv1p
 	return attrValue, nil
 }
 
+// convertMoveMode converts a ZCL move mode byte (0x00=up, 0x01=down) to proto ZclMoveMode.
+func (p *Parser) convertMoveMode(mode uint8) zclv1proto.ZclMoveMode {
+	switch mode {
+	case 0x00:
+		return zclv1proto.ZclMoveMode_ZCL_MOVE_MODE_UP
+	case 0x01:
+		return zclv1proto.ZclMoveMode_ZCL_MOVE_MODE_DOWN
+	default:
+		return zclv1proto.ZclMoveMode_ZCL_MOVE_MODE_UNSPECIFIED
+	}
+}
+
+// convertStepMode converts a ZCL step mode byte (0x00=up, 0x01=down) to proto ZclStepMode.
+func (p *Parser) convertStepMode(mode uint8) zclv1proto.ZclStepMode {
+	switch mode {
+	case 0x00:
+		return zclv1proto.ZclStepMode_ZCL_STEP_MODE_UP
+	case 0x01:
+		return zclv1proto.ZclStepMode_ZCL_STEP_MODE_DOWN
+	default:
+		return zclv1proto.ZclStepMode_ZCL_STEP_MODE_UNSPECIFIED
+	}
+}
+
 // convertDataType converts shimmeringbee AttributeDataType to proto ZclDataType.
 func (p *Parser) convertDataType(dt zcl.AttributeDataType) zclv1proto.ZclDataType {
 	// Map shimmeringbee types to proto types
@@ -357,9 +476,22 @@ func (p *Parser) getClusterName(clusterID uint16) string {
 	clusterNames := map[uint16]string{
 		0x0000: "genBasic",
 		0x0001: "genPowerCfg",
+		0x0003: "genIdentify",
+		0x0004: "genGroups",
+		0x0005: "genScenes",
 		0x0006: "genOnOff",
 		0x0008: "genLevelControl",
+		0x0019: "genOta",
+		0x0020: "genPollCtrl",
 		0x0300: "genColorControl",
+		0x0400: "msIlluminanceMeasurement",
+		0x0401: "msIlluminanceLevelSensing",
+		0x0402: "msTemperatureMeasurement",
+		0x0403: "msPressureMeasurement",
+		0x0404: "msFlowMeasurement",
+		0x0405: "msRelativeHumidity",
+		0x0406: "msOccupancySensing",
+		0x0500: "ssIasZone",
 	}
 
 	if name, ok := clusterNames[clusterID]; ok {
