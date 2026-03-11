@@ -63,11 +63,11 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	go fmt $(ALL_PKGS)
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	go vet ./...
+	go vet $(ALL_PKGS)
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.  -race requires CGO_ENABLED=1
