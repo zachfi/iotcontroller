@@ -120,10 +120,14 @@ func main() {
 
 func loadConfig() (*app.Config, error) {
 	const (
-		configFileOption = "config.file"
+		configFileOption    = "config.file"
+		configExpandEnvOpt  = "config.expand-env"
 	)
 
-	var configFile string
+	var (
+		configFile string
+		expandEnv  bool
+	)
 
 	args := os.Args[1:]
 	config := &app.Config{}
@@ -133,6 +137,7 @@ func loadConfig() (*app.Config, error) {
 	fs.SetOutput(io.Discard)
 
 	fs.StringVar(&configFile, configFileOption, "", "")
+	fs.BoolVar(&expandEnv, configExpandEnvOpt, false, "")
 
 	// Try to find -config.file & -config.expand-env flags. As Parsing stops on the first error, eg. unknown flag,
 	// we simply try remaining parameters until we find config flag, or there are no params left.
@@ -152,6 +157,10 @@ func loadConfig() (*app.Config, error) {
 			return nil, fmt.Errorf("failed to read configFile %s: %w", configFile, err)
 		}
 
+		if expandEnv {
+			buff = []byte(os.ExpandEnv(string(buff)))
+		}
+
 		err = yaml.UnmarshalStrict(buff, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse configFile %s: %w", configFile, err)
@@ -160,6 +169,7 @@ func loadConfig() (*app.Config, error) {
 
 	// overlay with cli
 	flagext.IgnoredFlag(flag.CommandLine, configFileOption, "Configuration file to load")
+	flagext.IgnoredFlag(flag.CommandLine, configExpandEnvOpt, "Expand environment variables in config file")
 	flag.Parse()
 
 	return config, nil

@@ -59,16 +59,7 @@ func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceCli
 	return h, nil
 }
 
-func (h *Harvester) starting(ctx context.Context) error {
-	// TODO: when we are starting with All target, we don't want to connect to
-	// the k8s service because the service is not yet available.  Perhaps split
-	// this out into various targets, OR, in All mode connect to only the local
-	// bind address and not the k8s service.
-	/* if h.cfg.Target == All { } */
-
-	// TODO: wait for the mqtt client to be healthy before proceeding
-	// h.mqttClient.CheckHealth()
-
+func (h *Harvester) starting(_ context.Context) error {
 	return nil
 }
 

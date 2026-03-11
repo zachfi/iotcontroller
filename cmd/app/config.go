@@ -85,14 +85,6 @@ func (c *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
 	c.LogLevel.RegisterFlags(f)
 }
 
-// TODO: Add -config.expand-env flag support using github.com/drone/envsubst, mirroring the
-// pattern in github.com/zachfi/nodemanager/cmd/config.go (loadConfig function).
-// This will allow ${ENV_VAR} substitution in the YAML config file, enabling secrets
-// to be injected via Kubernetes secretKeyRef env vars (e.g. MQTT_USERNAME, MQTT_PASSWORD)
-// rather than being hardcoded in the ConfigMap. The controller.libsonnet Jsonnet already
-// injects these env vars via envVar.fromSecretRef and uses ${MQTT_USERNAME}/${MQTT_PASSWORD}
-// in the rendered config YAML, pending this app-side support.
-
 // LoadConfig receives a file path for a configuration to load.
 func LoadConfig(file string) (Config, error) {
 	filename, _ := filepath.Abs(file)

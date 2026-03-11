@@ -100,6 +100,7 @@ func (a *App) setupModuleManager() error {
 			HookReceiver,
 			Router,
 			Weather,
+			ZigbeeCoordinator,
 			ZoneKeeper,
 		},
 		Core: {
