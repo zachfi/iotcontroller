@@ -63,7 +63,9 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		attribute.String("cluster", zclMsg.GetClusterName()),
 	)
 
-	// Determine IEEE address: deviceID is the IEEE if it doesn't start with "nwk_"
+	// Resolve IEEE address from path or ZclMessage.
+	// Path deviceID is IEEE hex (no "0x") for known devices, or "nwk_XXXX" for
+	// devices not yet in the coordinator's NWK→IEEE map (e.g. after a restart).
 	ieeeAddr := ""
 	if !strings.HasPrefix(deviceID, "nwk_") {
 		ieeeAddr = fmt.Sprintf("0x%s", deviceID)
@@ -71,12 +73,19 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		ieeeAddr = zclMsg.GetSourceIeee()
 	}
 
-	// Look up the Device CRD by IEEE address
-	device, err := n.getDeviceByIEEE(ctx, ieeeAddr)
-	if err != nil {
-		n.logger.Debug("device not found by IEEE, skipping action",
+	// Look up the Device CRD by IEEE address (or fall back to NWK address lookup).
+	var device *apiv1.Device
+	if ieeeAddr != "" {
+		device, err = n.getDeviceByIEEE(ctx, ieeeAddr)
+	} else if strings.HasPrefix(deviceID, "nwk_") {
+		// Coordinator restarted — NWK→IEEE map lost. Try to find device by network address.
+		nwkHex := fmt.Sprintf("0x%s", strings.TrimPrefix(deviceID, "nwk_"))
+		device, err = n.getDeviceByNWK(ctx, nwkHex)
+	}
+	if err != nil || device == nil {
+		n.logger.Debug("device not found, skipping action",
+			slog.String("device_id", deviceID),
 			slog.String("ieee", ieeeAddr),
-			slog.String("error", err.Error()),
 		)
 		return nil
 	}
@@ -158,13 +167,18 @@ func (n *NativeZigbee) InterviewRoute(ctx context.Context, b []byte, ieeeAddr st
 	device.Spec.IEEEAddress = ieee
 	device.Spec.NetworkAddress = fmt.Sprintf("0x%04x", result.GetNetworkAddress())
 
-	switch result.GetDeviceType() {
-	case zigbeev1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
-		device.Spec.Type = "Coordinator"
-	case zigbeev1proto.DeviceType_DEVICE_TYPE_ROUTER:
-		device.Spec.Type = "Router"
-	case zigbeev1proto.DeviceType_DEVICE_TYPE_END_DEVICE:
-		device.Spec.Type = "EndDevice"
+	// Only set Type from ZDO for coordinator/router roles using the proto enum name.
+	// End-device functional type (light, button, sensor) is not known from the interview
+	// alone — it must be set separately (manually or via model mapping).
+	// We preserve any existing Type so manual assignments are not overwritten.
+	if device.Spec.Type == "" {
+		switch result.GetDeviceType() {
+		case zigbeev1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
+			device.Spec.Type = "DEVICE_TYPE_COORDINATOR"
+		case zigbeev1proto.DeviceType_DEVICE_TYPE_ROUTER:
+			device.Spec.Type = "DEVICE_TYPE_ROUTER"
+		// End-device: leave Type empty — set by operator or future model-based mapping.
+		}
 	}
 
 	if result.GetManufacturerName() != "" {
@@ -250,6 +264,29 @@ func (n *NativeZigbee) getDeviceByIEEE(ctx context.Context, ieeeAddr string) (*a
 		return nil, fmt.Errorf("device %q not found and could not be created: %w", ieeeAddr, err)
 	}
 	return device, nil
+}
+
+// getDeviceByNWK finds a Device CRD by its NetworkAddress spec field (e.g. "0x1a2b").
+// Used as a fallback when the coordinator's NWK→IEEE map is empty after restart.
+func (n *NativeZigbee) getDeviceByNWK(ctx context.Context, nwkHex string) (*apiv1.Device, error) {
+	deviceList := &apiv1.DeviceList{}
+	if err := n.kubeclient.List(ctx, deviceList, kubeclient.InNamespace("iot")); err != nil {
+		return nil, fmt.Errorf("listing devices: %w", err)
+	}
+
+	for i := range deviceList.Items {
+		d := &deviceList.Items[i]
+		if strings.EqualFold(d.Spec.NetworkAddress, nwkHex) {
+			// Warm the IEEE cache while we have it
+			if d.Spec.IEEEAddress != "" {
+				n.cacheMux.Lock()
+				n.ieeeCache[d.Spec.IEEEAddress] = d.Name
+				n.cacheMux.Unlock()
+			}
+			return d, nil
+		}
+	}
+	return nil, nil
 }
 
 // zclCommandToAction maps a ZclMessage command to a named action string.
