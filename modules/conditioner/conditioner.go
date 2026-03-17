@@ -276,7 +276,7 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 					}
 
 					// Schedule the zone deactivation
-					if deactivate := deactivateRequest(ctx, rem); deactivate == nil {
+					if deactivate := deactivateRequest(ctx, rem); deactivate != nil {
 						err = c.sched.add(ctx, strings.Join([]string{req.Location, req.Name, cond.Name, rem.Zone, "deactivate"}, "-"), stop, deactivate)
 						if err != nil && !errors.Is(err, ErrEmptyRequest) {
 							c.logger.Error("failed to schedule deactivation", "err", err)
