@@ -25,6 +25,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 
+	"github.com/drone/envsubst"
 	"github.com/grafana/dskit/flagext"
 	"github.com/zachfi/zkit/pkg/tracing"
 	"gopkg.in/yaml.v2"
@@ -120,10 +121,14 @@ func main() {
 
 func loadConfig() (*app.Config, error) {
 	const (
-		configFileOption = "config.file"
+		configFileOption      = "config.file"
+		configExpandEnvOption = "config.expand-env"
 	)
 
-	var configFile string
+	var (
+		configFile      string
+		configExpandEnv bool
+	)
 
 	args := os.Args[1:]
 	config := &app.Config{}
@@ -133,6 +138,7 @@ func loadConfig() (*app.Config, error) {
 	fs.SetOutput(io.Discard)
 
 	fs.StringVar(&configFile, configFileOption, "", "")
+	fs.BoolVar(&configExpandEnv, configExpandEnvOption, false, "")
 
 	// Try to find -config.file & -config.expand-env flags. As Parsing stops on the first error, eg. unknown flag,
 	// we simply try remaining parameters until we find config flag, or there are no params left.
@@ -152,6 +158,14 @@ func loadConfig() (*app.Config, error) {
 			return nil, fmt.Errorf("failed to read configFile %s: %w", configFile, err)
 		}
 
+		if configExpandEnv {
+			s, err := envsubst.EvalEnv(string(buff))
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand env vars from configFile %s: %w", configFile, err)
+			}
+			buff = []byte(s)
+		}
+
 		err = yaml.UnmarshalStrict(buff, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse configFile %s: %w", configFile, err)
@@ -160,6 +174,7 @@ func loadConfig() (*app.Config, error) {
 
 	// overlay with cli
 	flagext.IgnoredFlag(flag.CommandLine, configFileOption, "Configuration file to load")
+	flagext.IgnoredFlag(flag.CommandLine, configExpandEnvOption, "Whether to expand environment variables in config file")
 	flag.Parse()
 
 	return config, nil
