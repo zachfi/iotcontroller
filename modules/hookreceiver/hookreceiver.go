@@ -126,7 +126,7 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 			Zone:   zone,
 		}
 
-		_, err := h.eventReceiverClient.Alert(ctx, a)
+		_, err := h.eventReceiverClient.Alert(context.WithoutCancel(ctx), a)
 		if err != nil {
 			hookreceiverReceiverErrorsTotal.WithLabelValues(name, zone).Inc()
 			h.logger.Error("failed to send event", "err", err)
