@@ -643,11 +643,16 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 			handler = z.handlers[controllerHandlerNoop]
 		}
 
-		if zone, ok := z.zones[zoneName]; ok {
-			err = zone.SetDevice(ctx, device, handler)
-			if err != nil {
-				errs = append(errs, err)
-			}
+		var zone *iot.Zone
+		zone, err = z.GetZone(ctx, zoneName)
+		if err != nil {
+			errs = append(errs, err)
+			err = nil
+			continue
+		}
+		if err = zone.SetDevice(ctx, device, handler); err != nil {
+			errs = append(errs, err)
+			err = nil
 		}
 
 		// TODO: remove/update a device when its zone changes
