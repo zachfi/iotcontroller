@@ -120,8 +120,8 @@ func main() {
 
 func loadConfig() (*app.Config, error) {
 	const (
-		configFileOption    = "config.file"
-		configExpandEnvOpt  = "config.expand-env"
+		configFileOption   = "config.file"
+		configExpandEnvOpt = "config.expand-env"
 	)
 
 	var (

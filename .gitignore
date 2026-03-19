@@ -37,3 +37,4 @@ breadcrumbs.spec.yaml
 network.yaml
 zigbee2mqtt-data/
 tools/zigbee2mqtt-docker-run.sh
+tmp/

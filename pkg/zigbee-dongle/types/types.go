@@ -156,6 +156,12 @@ type NetworkParameters struct {
 	NetworkKey    [16]byte // 128-bit Network Key for encryption
 }
 
+// DeviceJoinEvent represents a device joining the network.
+type DeviceJoinEvent struct {
+	NetworkAddress uint16
+	IEEEAddress    uint64
+}
+
 // PersistedNetworkState represents the persisted network state that can be saved/loaded.
 // This allows swapping devices while maintaining the same network.
 // NOTE: The canonical source of truth is proto/zigbee/v1/zigbee.proto PersistedNetworkState.

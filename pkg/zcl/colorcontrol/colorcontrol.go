@@ -8,25 +8,25 @@ import (
 const (
 	ColorControlId = zcl.ColorControlId // 0x0300
 
-	MoveToHueId             = zcl.CommandIdentifier(0x00)
-	MoveHueId               = zcl.CommandIdentifier(0x01)
-	StepHueId               = zcl.CommandIdentifier(0x02)
-	MoveToSaturationId      = zcl.CommandIdentifier(0x03)
-	MoveSaturationId        = zcl.CommandIdentifier(0x04)
-	StepSaturationId        = zcl.CommandIdentifier(0x05)
-	MoveToHueAndSaturationId = zcl.CommandIdentifier(0x06)
-	MoveToColorId           = zcl.CommandIdentifier(0x07)
-	MoveColorId             = zcl.CommandIdentifier(0x08)
-	StepColorId             = zcl.CommandIdentifier(0x09)
-	MoveToColorTempId       = zcl.CommandIdentifier(0x0A)
-	EnhancedMoveToHueId     = zcl.CommandIdentifier(0x40)
-	EnhancedMoveHueId       = zcl.CommandIdentifier(0x41)
-	EnhancedStepHueId       = zcl.CommandIdentifier(0x42)
+	MoveToHueId                      = zcl.CommandIdentifier(0x00)
+	MoveHueId                        = zcl.CommandIdentifier(0x01)
+	StepHueId                        = zcl.CommandIdentifier(0x02)
+	MoveToSaturationId               = zcl.CommandIdentifier(0x03)
+	MoveSaturationId                 = zcl.CommandIdentifier(0x04)
+	StepSaturationId                 = zcl.CommandIdentifier(0x05)
+	MoveToHueAndSaturationId         = zcl.CommandIdentifier(0x06)
+	MoveToColorId                    = zcl.CommandIdentifier(0x07)
+	MoveColorId                      = zcl.CommandIdentifier(0x08)
+	StepColorId                      = zcl.CommandIdentifier(0x09)
+	MoveToColorTempId                = zcl.CommandIdentifier(0x0A)
+	EnhancedMoveToHueId              = zcl.CommandIdentifier(0x40)
+	EnhancedMoveHueId                = zcl.CommandIdentifier(0x41)
+	EnhancedStepHueId                = zcl.CommandIdentifier(0x42)
 	EnhancedMoveToHueAndSaturationId = zcl.CommandIdentifier(0x43)
-	ColorLoopSetId          = zcl.CommandIdentifier(0x44)
-	StopMoveStepId          = zcl.CommandIdentifier(0x47)
-	MoveColorTempId         = zcl.CommandIdentifier(0x4B)
-	StepColorTempId         = zcl.CommandIdentifier(0x4C)
+	ColorLoopSetId                   = zcl.CommandIdentifier(0x44)
+	StopMoveStepId                   = zcl.CommandIdentifier(0x47)
+	MoveColorTempId                  = zcl.CommandIdentifier(0x4B)
+	StepColorTempId                  = zcl.CommandIdentifier(0x4C)
 )
 
 type MoveToHue struct {
@@ -93,16 +93,16 @@ type MoveToColorTemp struct {
 type StopMoveStep struct{}
 
 type MoveColorTemp struct {
-	MoveMode         uint8
-	Rate             uint16
+	MoveMode          uint8
+	Rate              uint16
 	ColorTempMinMired uint16
 	ColorTempMaxMired uint16
 }
 
 type StepColorTemp struct {
-	StepMode         uint8
-	StepSize         uint16
-	TransitionTime   uint16
+	StepMode          uint8
+	StepSize          uint16
+	TransitionTime    uint16
 	ColorTempMinMired uint16
 	ColorTempMaxMired uint16
 }

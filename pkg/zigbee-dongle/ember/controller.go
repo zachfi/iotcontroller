@@ -75,7 +75,8 @@ type Controller struct {
 	rxSeq uint8
 	txSeq uint8
 
-	stackStatusCh chan byte // for waiting for NETWORK_UP after FORM_NETWORK
+	stackStatusCh chan byte                 // for waiting for NETWORK_UP after FORM_NETWORK
+	joinEvents    chan types.DeviceJoinEvent // device join events from TRUST_CENTER_JOIN_HANDLER
 }
 
 func NewController(settings Settings) (*Controller, error) {
@@ -104,6 +105,7 @@ func NewController(settings Settings) (*Controller, error) {
 		rxSeq:         0,
 		txSeq:         0,
 		stackStatusCh: make(chan byte, 10),
+		joinEvents:    make(chan types.DeviceJoinEvent, 10),
 	}, nil
 }
 
@@ -182,14 +184,14 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 	// Sonoff Dongle Max may send ESP32 boot messages before the EFR32MG24 is ready
 	bootData, err := c.port.ReadRawBytes(5*time.Second, 2048) // Increased timeout and buffer size
 	if err == nil && len(bootData) > 0 {
-		// Check if this looks like ESP32 boot messages (text, not binary ASH frames)
+		// Check if this looks like ESP32 boot messages (text, not binary ASH frames).
+		// Null bytes (0x00) are treated as non-text: they're a CP2102N line artifact
+		// on DTR toggle and must not trigger the ESP32 detection path.
 		isText := true
 		for _, b := range bootData {
-			if b < 0x20 && b != 0x0A && b != 0x0D && b != 0x09 { // Not printable ASCII or common whitespace
-				if b != 0x00 { // Allow null bytes
-					isText = false
-					break
-				}
+			if b < 0x20 && b != 0x0A && b != 0x0D && b != 0x09 {
+				isText = false
+				break
 			}
 		}
 
@@ -510,16 +512,14 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 		c.log.Debug("sending version command...")
 	}
 
-	// EZSP version command uses legacy format for first command
-	// Format: [Sequence=0][Control=0][FrameID=0][Params=desiredProtocolVersion]
-	// The documentation example shows 0x02, so we'll try that first to match exactly
-	// zigbee-herdsman uses 0x12, but we'll start with 0x02 per documentation
-	// Note: The version command should use sequence 0 (legacy format requirement)
+	// EZSP version command always uses legacy 3-byte format (no matter what protocol version).
+	// We request protocol version 13 (0x0D) directly, matching zigbee-herdsman's approach.
+	// The NCP responds with its actual version; if >= 8, we switch to extended 5-byte format.
 	versionFrame := &EZSPFrame{
-		Sequence:   0, // Legacy format uses sequence 0
+		Sequence:   0, // Legacy format always uses sequence 0 for VERSION
 		Control:    EZSP_FRAME_CONTROL_COMMAND,
 		FrameID:    EZSP_VERSION,
-		Parameters: []byte{0x02}, // EZSP protocol version 2 (per documentation example)
+		Parameters: []byte{0x0D}, // Request protocol 13 (EmberZNet 7.x)
 	}
 
 	if c.settings.LogCommands {
@@ -579,8 +579,17 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 		return nil, fmt.Errorf("parsing version response: %w", err)
 	}
 
-	if c.settings.LogCommands {
-		c.log.Info("EZSP version", slog.Int("protocol", int(version.ProtocolVersion)), slog.Int("stack_type", int(version.StackType)), slog.Int("stack_version", int(version.StackVersion)))
+	c.log.Info("EZSP version", slog.Int("protocol", int(version.ProtocolVersion)), slog.Int("stack_type", int(version.StackType)), slog.Int("stack_version", int(version.StackVersion)))
+
+	// Give the NCP a moment to finish any pending transmissions (callbacks, status frames)
+	// before we start sending configuration commands. The NCP may queue additional frames
+	// after VERSION (e.g., STACK_STATUS callbacks) that arrive ~simultaneously.
+	time.Sleep(500 * time.Millisecond)
+
+	// Step 4: Initialize NCP configuration (setConfigurationValue + setPolicy + addEndpoint).
+	// Must be done after VERSION and before any network operations to prevent 0x58.
+	if err := c.initEzsp(); err != nil {
+		return nil, fmt.Errorf("EZSP initialization: %w", err)
 	}
 
 	return output, nil
@@ -663,30 +672,6 @@ func (c *Controller) performRSTHandshake() error {
 	}
 	if _, err := c.port.WriteBytes(rst); err != nil {
 		return fmt.Errorf("sending RST frame: %w", err)
-	}
-
-	// Wait a bit for device to process (especially for USB-serial bridges)
-	time.Sleep(200 * time.Millisecond)
-
-	// Try reading raw bytes first to see if device is sending anything
-	if c.settings.LogCommands {
-		c.log.Debug("checking for any incoming data...")
-	}
-	rawBytes, readErr := c.port.ReadRawBytes(500*time.Millisecond, 256)
-	if readErr == nil && len(rawBytes) > 0 {
-		if c.settings.LogCommands {
-			fmt.Printf("[ember] Device sent raw data: %X (%q)\n", rawBytes, rawBytes)
-			// Check for ASH flag bytes
-			flagCount := 0
-			for _, b := range rawBytes {
-				if b == ASH_FLAG {
-					flagCount++
-				}
-			}
-			if flagCount > 0 {
-				fmt.Printf("[ember] Found %d ASH flag bytes (0x7E) in data\n", flagCount)
-			}
-		}
 	}
 
 	// Wait for RSTACK
@@ -1025,6 +1010,17 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 			c.rxSeq = (c.rxSeq + 1) % 8
 		}
 
+		// Sync our txSeq to match the NCP's AckNum. The NCP's AckNum is the
+		// FrameNum it expects from us next. If the NCP has pre-ACKed frames
+		// beyond our current txSeq (e.g., due to a state reset or mismatch),
+		// advance txSeq to prevent sending frames the NCP will silently discard.
+		if ashFrame.AckNum != c.txSeq {
+			if c.settings.LogCommands {
+				fmt.Printf("[ember] syncing txSeq %d → %d (NCP AckNum=%d)\n", c.txSeq, ashFrame.AckNum, ashFrame.AckNum)
+			}
+			c.txSeq = ashFrame.AckNum
+		}
+
 		// Send ACK frame immediately (ackNum is the next frame we expect)
 		ackFrame := buildASHACKFrame(c.rxSeq)
 		if c.settings.LogCommands {
@@ -1039,8 +1035,11 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 		// Derandomize the Data Field (XOR with pseudo-random sequence to restore original)
 		derandomizedData := derandomizeData(ashFrame.Data)
 
-		// Now process the EZSP frame
-		ezspFrame, err := ParseEZSPFrame(derandomizedData)
+		// Parse the EZSP frame. The NCP always sends responses in legacy 3-byte
+		// header format even when protocol v13 is negotiated. Extended format only
+		// applies to frames we SEND to the NCP.
+		var ezspFrame *EZSPFrame
+		ezspFrame, err = ParseEZSPFrame(derandomizedData)
 		if err != nil {
 			if c.settings.LogErrors {
 				fmt.Printf("[ember] Error parsing EZSP frame: %v (data: %X, derandomized: %X)\n", err, ashFrame.Data, derandomizedData)
@@ -1062,18 +1061,25 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 
 			c.handlerMux.Lock()
 			handler := c.handlers[ezspFrame.Sequence]
+			var availableSeqs []uint8 // collected inside lock to avoid re-entrant lock deadlock
 			if handler != nil {
 				delete(c.handlers, ezspFrame.Sequence)
-				if c.settings.LogCommands {
-					fmt.Printf("[ember] Found handler for sequence %d\n", ezspFrame.Sequence)
-				}
-			} else {
-				if c.settings.LogCommands {
-					fmt.Printf("[ember] No handler found for sequence %d (available handlers: %v)\n",
-						ezspFrame.Sequence, c.getHandlerSequences())
+			} else if c.settings.LogCommands {
+				availableSeqs = make([]uint8, 0, len(c.handlers))
+				for seq := range c.handlers {
+					availableSeqs = append(availableSeqs, seq)
 				}
 			}
 			c.handlerMux.Unlock()
+
+			if c.settings.LogCommands {
+				if handler != nil {
+					fmt.Printf("[ember] Found handler for sequence %d\n", ezspFrame.Sequence)
+				} else {
+					fmt.Printf("[ember] No handler found for sequence %d (available handlers: %v)\n",
+						ezspFrame.Sequence, availableSeqs)
+				}
+			}
 
 			if handler != nil {
 				handler.fulfill(ezspFrame)
@@ -1082,10 +1088,12 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 				c.handleCallback(ezspFrame, output)
 			}
 		} else {
-			// Command frame from NCP (shouldn't happen, but handle gracefully)
+			// Control=0: unsolicited callback/command direction from NCP.
 			if c.settings.LogCommands {
-				fmt.Printf("[ember] EZSP command frame from NCP (unexpected), FrameID=0x%02X\n", ezspFrame.FrameID)
+				fmt.Printf("[ember] EZSP callback from NCP: seq=%d FrameID=0x%02X params=%X fcLo=0x%02X\n",
+					ezspFrame.Sequence, ezspFrame.FrameID, ezspFrame.Parameters, uint8(ezspFrame.Control))
 			}
+			c.handleCallback(ezspFrame, output)
 		}
 
 	case ASH_FRAME_ACK:
@@ -1122,10 +1130,82 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.IncomingMessage) {
 	switch frame.FrameID {
 	case EZSP_INCOMING_MESSAGE_HANDLER:
-		// TODO: Parse incoming message and send to output channel
-		if c.settings.LogCommands {
-			c.log.Debug("incoming message callback (not yet fully implemented)")
+		// incomingMessageHandler parameters (AN706):
+		//   msgType(1) profileId(2LE) clusterId(2LE) srcEndpoint(1) dstEndpoint(1)
+		//   options(2LE) groupId(2LE) sequence(1) lastHopLqi(1) lastHopRssi(1)
+		//   sender(2LE) bindingIndex(1) addressIndex(1) messageLength(1) message[...]
+		const minLen = 19 // bytes before message payload
+		if len(frame.Parameters) < minLen {
+			if c.settings.LogErrors {
+				fmt.Printf("[ember] INCOMING_MESSAGE_HANDLER too short: %d bytes\n", len(frame.Parameters))
+			}
+			return
 		}
+		p := frame.Parameters
+		// skip msgType(1)
+		// profileId(2), clusterId(2), srcEndpoint(1), dstEndpoint(1), options(2), groupId(2), seq(1) = 11 bytes
+		clusterID := binary.LittleEndian.Uint16(p[3:5])
+		srcEndpoint := p[5]
+		dstEndpoint := p[6]
+		// lastHopLqi at offset 12, lastHopRssi at 13
+		lqi := p[12]
+		// sender at offset 14
+		sender := binary.LittleEndian.Uint16(p[14:16])
+		// bindingIndex(1) addressIndex(1) messageLength(1) at 16,17,18
+		msgLen := int(p[18])
+		if len(frame.Parameters) < minLen+msgLen {
+			if c.settings.LogErrors {
+				fmt.Printf("[ember] INCOMING_MESSAGE_HANDLER message truncated: expected %d bytes, got %d\n", minLen+msgLen, len(frame.Parameters))
+			}
+			return
+		}
+		msg := types.IncomingMessage{
+			Source: types.Address{
+				Mode:  types.AddressModeNWK,
+				Short: sender,
+			},
+			SourceEndpoint:      srcEndpoint,
+			DestinationEndpoint: dstEndpoint,
+			ClusterID:           clusterID,
+			LinkQuality:         lqi,
+			Data:                append([]byte(nil), p[minLen:minLen+msgLen]...),
+		}
+		select {
+		case output <- msg:
+		default:
+			if c.settings.LogErrors {
+				c.log.Warn("incoming message channel full, dropping message")
+			}
+		}
+
+	case EZSP_TRUST_CENTER_JOIN_HANDLER:
+		// trustCenterJoinHandler parameters (AN706):
+		//   newNodeId(2LE) newNodeEui64(8) status(1) policyDecision(1) parentOfNewNode(2LE)
+		if len(frame.Parameters) < 14 {
+			if c.settings.LogErrors {
+				fmt.Printf("[ember] TRUST_CENTER_JOIN_HANDLER too short: %d bytes\n", len(frame.Parameters))
+			}
+			return
+		}
+		p := frame.Parameters
+		networkAddr := binary.LittleEndian.Uint16(p[0:2])
+		ieeeAddr := binary.LittleEndian.Uint64(p[2:10])
+		event := types.DeviceJoinEvent{
+			NetworkAddress: networkAddr,
+			IEEEAddress:    ieeeAddr,
+		}
+		if c.settings.LogCommands {
+			c.log.Debug("device joined",
+				slog.String("nwk", fmt.Sprintf("0x%04x", networkAddr)),
+				slog.String("ieee", fmt.Sprintf("0x%016x", ieeeAddr)),
+			)
+		}
+		select {
+		case c.joinEvents <- event:
+		default:
+			// channel full, skip
+		}
+
 	case EZSP_STACK_STATUS_HANDLER:
 		// STACK_STATUS_HANDLER callback: [status:uint8]
 		// Status values: 0x90 = NETWORK_UP (SLStatus), 0x91 = NETWORK_DOWN, 0x15 = NETWORK_UP (EmberStatus)
@@ -1170,21 +1250,42 @@ func (c *Controller) removeHandler(sequence uint8, handler *Handler) {
 	handler.fail()
 }
 
-// getHandlerSequences returns a list of active handler sequence numbers (for debugging).
-func (c *Controller) getHandlerSequences() []uint8 {
-	c.handlerMux.Lock()
-	defer c.handlerMux.Unlock()
-	sequences := make([]uint8, 0, len(c.handlers))
-	for seq := range c.handlers {
-		sequences = append(sequences, seq)
-	}
-	return sequences
+// DeviceJoinEvents returns a channel that receives events when devices join the network.
+func (c *Controller) DeviceJoinEvents() <-chan types.DeviceJoinEvent {
+	return c.joinEvents
 }
 
-// Send sends a message to a device on the Zigbee network.
+// Send sends a message to a device on the Zigbee network using EZSP_SEND_UNICAST.
 func (c *Controller) Send(ctx context.Context, msg types.OutgoingMessage) error {
-	// TODO: Implement EZSP_SEND_UNICAST command
-	return fmt.Errorf("Ember Send not yet implemented")
+	// EZSP_SEND_UNICAST parameters (AN706):
+	//   type(1) indexOrDestination(2LE) apsFrame(11) messageTag(1) messageLength(1) message[...]
+	// EmberApsFrame: profileId(2LE) clusterId(2LE) srcEndpoint(1) dstEndpoint(1) options(2LE) groupId(2LE) sequence(1)
+	params := make([]byte, 0, 16+len(msg.Data))
+	params = append(params, 0x00) // type = EMBER_OUTGOING_DIRECT
+	params = append(params, byte(msg.Destination.Short), byte(msg.Destination.Short>>8))
+	// apsFrame
+	params = append(params, 0x04, 0x01) // profileId = 0x0104 (Home Automation), little-endian
+	params = append(params, byte(msg.ClusterID), byte(msg.ClusterID>>8))
+	params = append(params, msg.SourceEndpoint)
+	params = append(params, msg.DestinationEndpoint)
+	params = append(params, 0x00, 0x00) // options = 0
+	params = append(params, 0x00, 0x00) // groupId = 0
+	params = append(params, 0x00)       // sequence (NCP assigns)
+	params = append(params, 0x00)       // messageTag
+	params = append(params, uint8(len(msg.Data)))
+	params = append(params, msg.Data...)
+
+	resp, err := c.sendEZSPCommand(EZSP_SEND_UNICAST, params, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("SEND_UNICAST: %w", err)
+	}
+	if len(resp.Parameters) < 1 {
+		return fmt.Errorf("SEND_UNICAST response too short")
+	}
+	if resp.Parameters[0] != 0x00 {
+		return fmt.Errorf("SEND_UNICAST status: 0x%02X", resp.Parameters[0])
+	}
+	return nil
 }
 
 // PermitJoining enables or disables device joining on the network.
@@ -1237,7 +1338,6 @@ func (c *Controller) sendEZSPCommand(frameID EZSPFrameID, params []byte, timeout
 	// Get next sequence number
 	seqNum := c.port.NextSequence()
 
-	// Create EZSP frame (using extended format after version is set)
 	ezspFrame := &EZSPFrame{
 		Sequence:   seqNum,
 		Control:    EZSP_FRAME_CONTROL_COMMAND,
@@ -1248,11 +1348,18 @@ func (c *Controller) sendEZSPCommand(frameID EZSPFrameID, params []byte, timeout
 	// Register handler BEFORE sending
 	handler := c.registerHandler(seqNum, timeout)
 
-	// Serialize and send
+	// Always use legacy (3-byte) EZSP header format. All standard EZSP frame IDs
+	// fit in one byte (0x00-0xFF), so extended format is not needed. Extended format
+	// (5-byte header with 0x00 at byte 2) caused the NCP to misparse commands as
+	// VERSION (frameID=0x00 in legacy mode), echoing spurious VERSION responses.
 	ezspData := SerializeEZSPFrame(ezspFrame)
 	control := byte((c.txSeq << 4) | (c.rxSeq & 0x07))
 	ashDataFrame := buildASHDataFrame(control, ezspData)
 	c.txSeq = (c.txSeq + 1) % 8
+
+	if c.settings.LogCommands {
+		fmt.Printf("[ember] sending EZSP cmd 0x%02X seq=%d frame=%X\n", frameID, seqNum, ashDataFrame)
+	}
 
 	if _, err := c.port.WriteBytes(ashDataFrame); err != nil {
 		c.removeHandler(seqNum, handler)
@@ -1408,6 +1515,120 @@ func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, er
 	}, nil
 }
 
+// initEzsp configures the NCP after the VERSION handshake and before any
+// network operations. Without this, all network commands return 0x58
+// (TRANSMIT_BLOCKED / SL_STATUS_TRANSMIT_BLOCKED) because the radio stack
+// is not yet initialized.
+//
+// Mirrors zigbee-herdsman's initEzsp() → registerFixedEndpoints() →
+// initTrustCenter() sequence (EmberZNet 7.x / EZSP protocol 13).
+func (c *Controller) initEzsp() error {
+	c.log.Debug("initializing EZSP NCP configuration")
+
+	// 1. Set mandatory stack configuration values.
+	// STACK_PROFILE=2 (ZigBee Pro) and SECURITY_LEVEL=5 (AES-128) are the
+	// minimum required to enable the radio stack; omitting them causes all
+	// network operations to return 0x58.
+	type configEntry struct {
+		id    EZSPConfigId
+		value uint16
+		name  string
+	}
+	configs := []configEntry{
+		{EZSP_CONFIG_STACK_PROFILE, 2, "stack_profile"},
+		{EZSP_CONFIG_SECURITY_LEVEL, 5, "security_level"},
+		{EZSP_CONFIG_SUPPORTED_NETWORKS, 1, "supported_networks"},
+		{EZSP_CONFIG_TRUST_CENTER_ADDRESS_CACHE_SIZE, 2, "tc_address_cache_size"},
+		{EZSP_CONFIG_MAX_HOPS, 30, "max_hops"},
+	}
+	for _, cfg := range configs {
+		params := []byte{byte(cfg.id), byte(cfg.value), byte(cfg.value >> 8)}
+		resp, err := c.sendEZSPCommand(EZSP_SET_CONFIGURATION_VALUE, params, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("setConfigurationValue(%s): %w", cfg.name, err)
+		}
+		if len(resp.Parameters) >= 1 && resp.Parameters[0] != 0x00 {
+			// 0x46 (INVALID_CALL) can mean the value is already set (read-only after boot)
+			// or the config ID is unsupported — treat as non-fatal.
+			c.log.Warn("setConfigurationValue non-OK status (continuing)",
+				slog.String("config", cfg.name),
+				slog.String("status", fmt.Sprintf("0x%02X", resp.Parameters[0])),
+			)
+		}
+	}
+
+	// 2. Register application endpoint so the NCP can participate in the network.
+	if err := c.addEndpoint(1); err != nil {
+		// Non-fatal: endpoint may already be registered from a previous Start().
+		c.log.Warn("addEndpoint failed (continuing)", slog.Any("error", err))
+	}
+
+	// 3. Set trust center policies for a coordinator that allows devices to join.
+	type policyEntry struct {
+		id       EZSPPolicyId
+		decision uint8
+		name     string
+	}
+	policies := []policyEntry{
+		{
+			EZSP_POLICY_TRUST_CENTER,
+			EZSP_TC_DECISION_ALLOW_JOINS | EZSP_TC_DECISION_ALLOW_UNSECURED_REJOINS,
+			"trust_center",
+		},
+		{EZSP_POLICY_APP_KEY_REQUEST, 0x00 /* DENY */, "app_key_request"},
+	}
+	for _, pol := range policies {
+		params := []byte{byte(pol.id), pol.decision}
+		resp, err := c.sendEZSPCommand(EZSP_SET_POLICY, params, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("setPolicy(%s): %w", pol.name, err)
+		}
+		if len(resp.Parameters) >= 1 && resp.Parameters[0] != 0x00 {
+			c.log.Warn("setPolicy non-OK status (continuing)",
+				slog.String("policy", pol.name),
+				slog.String("status", fmt.Sprintf("0x%02X", resp.Parameters[0])),
+			)
+		}
+	}
+
+	c.log.Debug("EZSP NCP configuration complete")
+	return nil
+}
+
+// addEndpoint registers an application endpoint on the NCP.
+// Endpoint 1, Home Automation profile (0x0104), coordinator device, Basic cluster.
+// Returns nil if the endpoint is already registered (0x46 INVALID_CALL).
+func (c *Controller) addEndpoint(endpoint uint8) error {
+	// ADD_ENDPOINT parameters (AN706):
+	//   endpoint(1) profileId(2LE) deviceId(2LE) deviceVersion(1)
+	//   inputClusterCount(1) [inputCluster(2LE)...]
+	//   outputClusterCount(1) [outputCluster(2LE)...]
+	params := []byte{
+		endpoint,
+		0x04, 0x01, // profileId = 0x0104 (Home Automation), little-endian
+		0x00, 0x00, // deviceId = 0x0000
+		0x00,       // deviceVersion
+		0x01,       // inputClusterCount = 1
+		0x00, 0x00, // Basic cluster (0x0000)
+		0x00, // outputClusterCount = 0
+	}
+	resp, err := c.sendEZSPCommand(EZSP_ADD_ENDPOINT, params, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("addEndpoint: %w", err)
+	}
+	if len(resp.Parameters) < 1 {
+		return fmt.Errorf("addEndpoint response too short")
+	}
+	if resp.Parameters[0] == 0x46 { // INVALID_CALL — already registered
+		c.log.Debug("addEndpoint: endpoint already registered")
+		return nil
+	}
+	if resp.Parameters[0] != 0x00 {
+		return fmt.Errorf("addEndpoint status: 0x%02X", resp.Parameters[0])
+	}
+	return nil
+}
+
 // FormNetwork creates a new Zigbee network with the specified parameters.
 // This must be called before Start() if the device is not already part of a network.
 // The network parameters should be persisted so the same network can be restored
@@ -1457,7 +1678,8 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 		c.log.Debug("NETWORK_INIT status", slog.String("status", fmt.Sprintf("0x%02X", networkInitStatus)))
 
 		// Status 0x00 = SUCCESS: Network was restored from tokens
-		// Status 0x93 = EMBER_NOT_JOINED: No network exists, need to form
+		// Status 0x17 = SL_STATUS_NOT_JOINED (EmberZNet 7.x SL_STATUS encoding) — no network exists
+		// Status 0x93 = EMBER_NOT_JOINED (old EmberStatus encoding) — no network exists
 		// Status 0x58 = TRANSMIT_BLOCKED: Unknown state (device may be in invalid state)
 		if networkInitStatus == 0x00 {
 			// Network was restored! Wait for STACK_STATUS_NETWORK_UP callback
@@ -1507,9 +1729,11 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 
 			// If we get here, network didn't come up in time or parameters didn't match
 			// Continue to form network below
-		} else if networkInitStatus == 0x93 {
-			// EMBER_NOT_JOINED - no network exists, proceed to form
-			c.log.Debug("no network (EMBER_NOT_JOINED), proceeding to form")
+		} else if networkInitStatus == 0x93 || networkInitStatus == 0x17 {
+			// EMBER_NOT_JOINED (0x93 old EmberStatus) or SL_STATUS_NOT_JOINED (0x17 EmberZNet 7.x)
+			// No network exists, proceed to form
+			c.log.Debug("no network found (NOT_JOINED), proceeding to form",
+				slog.String("status", fmt.Sprintf("0x%02X", networkInitStatus)))
 			// Continue to form network below
 		} else {
 			// Unknown status (likely 0x58) - log but continue
@@ -1570,18 +1794,17 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 
 	securityStatus := securityResp.Parameters[0]
 	// Status 0x00 = SUCCESS
-	// Status 0x58 = TRANSMIT_BLOCKED - device may already have security configured or be in invalid state
-	// We treat 0x58 as a warning but continue, similar to how we handle config commands
-	if securityStatus == 0x00 {
+	// Status 0x46 = INVALID_CALL: already set (non-fatal)
+	// Status 0x58 = TRANSMIT_BLOCKED: device may already have security configured
+	// Status 0x68 = SL_STATUS_ALREADY_INITIALIZED: security state already in NVM (non-fatal)
+	if securityStatus == 0x00 || securityStatus == 0x46 {
 		c.log.Debug("initial security state set successfully")
-	} else if securityStatus == 0x58 {
+	} else if securityStatus == 0x58 || securityStatus == 0x68 {
 		if c.settings.LogErrors {
-			c.log.Warn("SET_INITIAL_SECURITY_STATE returned 0x58 (continuing with formation)",
-				slog.Int("response_len", len(securityResp.Parameters)),
-				slog.String("response_hex", fmt.Sprintf("%X", securityResp.Parameters)))
+			c.log.Warn("SET_INITIAL_SECURITY_STATE non-fatal status (continuing with formation)",
+				slog.String("status", fmt.Sprintf("0x%02X", securityStatus)))
 		}
 	} else {
-		// Other error status - this is a real problem
 		return fmt.Errorf("setting initial security state failed with status 0x%02X", securityStatus)
 	}
 
@@ -1686,19 +1909,26 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 		// Status 0x00 = SUCCESS. zigbee-herdsman requires SLStatus.OK (0x00) for FORM_NETWORK and throws otherwise.
 		// We align: treat 0x58 (TRANSMIT_BLOCKED) as rejection and fail fast instead of waiting 45s for NETWORK_UP
 		// (see docs/reference/ember/formation-vs-herdsman.md).
-		if formStatus != 0x00 {
+		if formStatus == 0x00 {
+			c.log.Debug("network formation initiated successfully")
+		} else if formStatus == 0x58 {
+			// 0x58 = TRANSMIT_BLOCKED: definitively rejected, no point waiting for callback
+			return fmt.Errorf("form network rejected: device returned 0x58 (TRANSMIT_BLOCKED); try power cycle or different firmware/dongle")
+		} else if formStatus >= 0x18 && formStatus <= 0x1F {
+			// SL_STATUS scan/network-operation lifecycle range:
+			// 0x18 = NO_BEACONS_HEARD, 0x19 = NO_NETWORKS_FOUND, 0x1B = SCAN_IN_PROGRESS
+			// 0x1E = likely formation async accepted (energy scan in progress before channel selection)
+			// Proceed to wait for STACK_STATUS_HANDLER NETWORK_UP callback.
+			c.log.Warn("FORM_NETWORK returned in-progress status, waiting for NETWORK_UP",
+				slog.String("status", fmt.Sprintf("0x%02X", formStatus)))
+		} else {
 			if c.settings.LogErrors {
 				c.log.Warn("FORM_NETWORK rejected",
 					slog.Int("response_len", len(formResp.Parameters)),
 					slog.String("response_hex", fmt.Sprintf("%X", formResp.Parameters)))
 			}
-			if formStatus == 0x58 {
-				return fmt.Errorf("form network rejected: device returned 0x58 (TRANSMIT_BLOCKED); zigbee-herdsman requires SLStatus.OK for FORM_NETWORK; try power cycle or different firmware/dongle")
-			}
 			return fmt.Errorf("form network command failed with status 0x%02X", formStatus)
 		}
-
-		c.log.Debug("network formation initiated successfully")
 	} else {
 		c.log.Warn("FORM_NETWORK response too short (treating as timeout, will poll)")
 	}

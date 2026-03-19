@@ -52,6 +52,10 @@ type Dongle interface {
 	// The network parameters should be persisted so the same network can be restored
 	// when swapping devices.
 	FormNetwork(ctx context.Context, params types.NetworkParameters) error
+
+	// DeviceJoinEvents returns a channel that receives events when devices join the network.
+	// The channel is populated when Start() is called.
+	DeviceJoinEvents() <-chan types.DeviceJoinEvent
 }
 
 // Re-export types for convenience
@@ -65,6 +69,7 @@ type (
 	NetworkInfo       = types.NetworkInfo
 	NetworkParameters = types.NetworkParameters
 	NetworkState      = types.NetworkState
+	DeviceJoinEvent   = types.DeviceJoinEvent
 )
 
 // Re-export network state constants

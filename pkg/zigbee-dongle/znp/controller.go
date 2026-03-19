@@ -32,7 +32,7 @@ type Controller struct {
 	znpLog    *slog.Logger // layer=znp: protocol, serial, commands
 	zigbeeLog *slog.Logger // layer=zigbee: startup, device state, joins, interview
 
-	joinEvents chan DeviceJoinEvent
+	joinEvents chan types.DeviceJoinEvent
 }
 
 type Settings struct {
@@ -100,7 +100,7 @@ func NewController(settings Settings) (*Controller, error) {
 		settings:   &settings,
 		znpLog:     znpLog,
 		zigbeeLog:  zigbeeLog,
-		joinEvents: make(chan DeviceJoinEvent, 10),
+		joinEvents: make(chan types.DeviceJoinEvent, 10),
 	}, nil
 }
 
@@ -127,12 +127,6 @@ func (c *Controller) HealthCheck(ctx context.Context) error {
 		}
 		return nil
 	}
-}
-
-// DeviceJoinEvent represents a device joining the network.
-type DeviceJoinEvent struct {
-	NetworkAddress uint16
-	IEEEAddress    uint64
 }
 
 // Start initializes the controller and returns a channel of incoming messages.
@@ -247,7 +241,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 
 	// Ensure join events channel is initialized (should already be initialized in NewController)
 	if c.joinEvents == nil {
-		c.joinEvents = make(chan DeviceJoinEvent, 10) // Buffered channel for join events
+		c.joinEvents = make(chan types.DeviceJoinEvent, 10) // Buffered channel for join events
 	}
 
 	// Register handlers for device join events (for interview triggering)
@@ -293,7 +287,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 			// Send join event (non-blocking)
 			if c.joinEvents != nil {
 				select {
-				case c.joinEvents <- DeviceJoinEvent{
+				case c.joinEvents <- types.DeviceJoinEvent{
 					NetworkAddress: announce.NwkAddr,
 					IEEEAddress:    announce.IEEEAddr,
 				}:
@@ -319,7 +313,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 			// Send join event (non-blocking)
 			if c.joinEvents != nil {
 				select {
-				case c.joinEvents <- DeviceJoinEvent{
+				case c.joinEvents <- types.DeviceJoinEvent{
 					NetworkAddress: tcDev.SrcNwkAddr,
 					IEEEAddress:    tcDev.SrcIEEEAddr,
 				}:
@@ -336,7 +330,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 // DeviceJoinEvents returns a channel of device join events.
 // This channel will receive events when devices join the network.
 // The channel is created when Start() is called and remains open until the controller is closed.
-func (c *Controller) DeviceJoinEvents() <-chan DeviceJoinEvent {
+func (c *Controller) DeviceJoinEvents() <-chan types.DeviceJoinEvent {
 	return c.joinEvents
 }
 

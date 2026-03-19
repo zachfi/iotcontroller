@@ -40,11 +40,21 @@ spec:
                 type: string
               description:
                 type: string
+              ieee_address:
+                description: IEEEAddress is the stable 64-bit IEEE MAC address of
+                  the device (hex, e.g. "0x00124b0037e6f451"). This is permanent and
+                  survives network address reassignment.
+                type: string
               manufacture_name:
                 type: string
               model:
                 type: string
               model_id:
+                type: string
+              network_address:
+                description: NetworkAddress is the current 16-bit Zigbee network address
+                  of the device (hex, e.g. "0x1234"). This may change when the device
+                  rejoins the network.
                 type: string
               note:
                 type: string

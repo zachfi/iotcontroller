@@ -13,10 +13,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
+	zclpkg "github.com/zachfi/iotcontroller/pkg/zcl"
 	zigbeedongle "github.com/zachfi/iotcontroller/pkg/zigbee-dongle"
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/types"
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/znp"
-	zclpkg "github.com/zachfi/iotcontroller/pkg/zcl"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	zigbeev1proto "github.com/zachfi/iotcontroller/proto/zigbee/v1"
 )
@@ -269,12 +269,9 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 		z.logger.Warn("failed to enable permit join", slog.String("error", err.Error()))
 	}
 
-	// Start device join monitoring and interview triggering (ZNP only for now)
-	var joinEvents <-chan znp.DeviceJoinEvent
-	if znpController, ok := z.dongle.(*znp.Controller); ok {
-		joinEvents = znpController.DeviceJoinEvents()
-		z.logger.Info("device join monitoring enabled for interviews")
-	}
+	// Subscribe to device join events for interview triggering.
+	joinEvents := z.dongle.DeviceJoinEvents()
+	z.logger.Info("device join monitoring enabled")
 
 	messageCount := 0
 	for {
@@ -504,14 +501,7 @@ func (z *ZigbeeCoordinator) forwardMessageToRouter(ctx context.Context, msg type
 
 // handleDeviceJoin performs an interview when a device joins the network.
 // It deduplicates concurrent join events to prevent multiple interviews of the same device.
-func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.DeviceJoinEvent) {
-	// Only handle ZNP devices for now
-	znpController, ok := z.dongle.(*znp.Controller)
-	if !ok {
-		z.logger.Debug("device join event received but dongle is not ZNP, skipping interview")
-		return
-	}
-
+func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent types.DeviceJoinEvent) {
 	// Check if we're already interviewing this device (deduplicate concurrent join events)
 	z.interviewingMux.Lock()
 	if z.interviewing[joinEvent.NetworkAddress] {
@@ -522,33 +512,38 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 		)
 		return
 	}
-	// Mark as interviewing
 	z.interviewing[joinEvent.NetworkAddress] = true
 	z.interviewingMux.Unlock()
 
-	// Ensure we clear the interviewing flag when done
 	defer func() {
 		z.interviewingMux.Lock()
 		delete(z.interviewing, joinEvent.NetworkAddress)
 		z.interviewingMux.Unlock()
 	}()
 
-	// Store NWK→IEEE mapping for message routing
+	// Store NWK→IEEE mapping for message routing (all stacks)
 	z.nwkToIEEEMux.Lock()
 	z.nwkToIEEE[joinEvent.NetworkAddress] = joinEvent.IEEEAddress
 	z.nwkToIEEEMux.Unlock()
 
-	z.logger.Info("starting device interview",
+	z.logger.Info("device joined",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 		slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 	)
 
+	// ZNP-specific interview: ZNP supports active ZDO device interviews.
+	// Ember interview support is future work (requires EZSP ZDO commands).
+	znpController, ok := z.dongle.(*znp.Controller)
+	if !ok {
+		z.logger.Debug("dongle does not support device interview, storing join only",
+			slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
+		)
+		return
+	}
+
 	// Wait after device join before starting interview
 	// End devices (especially battery-powered) need time to complete key authorization
-	// and become ready to respond to ZDO requests. zigbee-herdsman waits 5 seconds for
-	// end devices. We use a shorter delay (2 seconds) as a compromise, but may need
-	// to increase for some devices.
-	// Status 0x80 (INVALID_REQTYPE) often indicates the device isn't ready yet.
+	// and become ready to respond to ZDO requests.
 	z.logger.Debug("waiting for device to complete key authorization before interview",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 		slog.Duration("delay", 2*time.Second),
@@ -557,14 +552,8 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 	case <-ctx.Done():
 		return
 	case <-time.After(2 * time.Second):
-		// Continue with interview
 	}
 
-	z.logger.Debug("device join delay complete, starting interview queries",
-		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
-	)
-
-	// Perform interview
 	interviewInfo, err := znpController.InterviewDevice(ctx, joinEvent.NetworkAddress)
 	if err != nil {
 		z.logger.Error("device interview failed",
@@ -572,8 +561,6 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 			slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 			slog.String("error", err.Error()),
 		)
-
-		// Send interview failure to router
 		z.sendInterviewResult(ctx, joinEvent.IEEEAddress, joinEvent.NetworkAddress, nil, err)
 		return
 	}
@@ -584,8 +571,6 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent znp.
 		slog.String("device_type", interviewInfo.DeviceType),
 		slog.Int("endpoint_count", len(interviewInfo.Endpoints)),
 	)
-
-	// Send interview results to router
 	z.sendInterviewResult(ctx, joinEvent.IEEEAddress, joinEvent.NetworkAddress, interviewInfo, nil)
 }
 
@@ -636,12 +621,12 @@ func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr ui
 				outputClusters[i] = uint32(c)
 			}
 			result.Endpoints = append(result.Endpoints, &zigbeev1proto.EndpointDescriptor{
-				Id:              ep.ID,
-				ProfileId:       ep.ProfileID,
-				DeviceId:        ep.DeviceID,
-				DeviceVersion:   ep.DeviceVersion,
-				InputClusters:   inputClusters,
-				OutputClusters:  outputClusters,
+				Id:             ep.ID,
+				ProfileId:      ep.ProfileID,
+				DeviceId:       ep.DeviceID,
+				DeviceVersion:  ep.DeviceVersion,
+				InputClusters:  inputClusters,
+				OutputClusters: outputClusters,
 			})
 		}
 	} else {

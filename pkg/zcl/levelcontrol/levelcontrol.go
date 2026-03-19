@@ -8,14 +8,14 @@ import (
 const (
 	LevelControlId = zcl.LevelControlId // 0x0008
 
-	MoveToLevelId         = zcl.CommandIdentifier(0x00)
-	MoveId                = zcl.CommandIdentifier(0x01)
-	StepId                = zcl.CommandIdentifier(0x02)
-	StopId                = zcl.CommandIdentifier(0x03)
+	MoveToLevelId          = zcl.CommandIdentifier(0x00)
+	MoveId                 = zcl.CommandIdentifier(0x01)
+	StepId                 = zcl.CommandIdentifier(0x02)
+	StopId                 = zcl.CommandIdentifier(0x03)
 	MoveToLevelWithOnOffId = zcl.CommandIdentifier(0x04)
-	MoveWithOnOffId       = zcl.CommandIdentifier(0x05)
-	StepWithOnOffId       = zcl.CommandIdentifier(0x06)
-	StopWithOnOffId       = zcl.CommandIdentifier(0x07)
+	MoveWithOnOffId        = zcl.CommandIdentifier(0x05)
+	StepWithOnOffId        = zcl.CommandIdentifier(0x06)
+	StopWithOnOffId        = zcl.CommandIdentifier(0x07)
 )
 
 type MoveToLevel struct {

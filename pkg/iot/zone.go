@@ -156,7 +156,6 @@ func (z *Zone) SetDevice(ctx context.Context, device *iotv1proto.Device, handler
 /* 	z.brightnessMap = m */
 /* } */
 
-
 func (z *Zone) SetColorPool(ctx context.Context, c []string) {
 	_, span := z.tracer.Start(ctx, "Zone.SetColorPool", trace.WithAttributes(
 		attribute.StringSlice("colorPool", c),

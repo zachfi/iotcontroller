@@ -16,8 +16,8 @@ import (
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotutil "github.com/zachfi/iotcontroller/pkg/iot/util"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
-	zigbeev1proto "github.com/zachfi/iotcontroller/proto/zigbee/v1"
 	zclv1proto "github.com/zachfi/iotcontroller/proto/zcl/v1"
+	zigbeev1proto "github.com/zachfi/iotcontroller/proto/zigbee/v1"
 	"github.com/zachfi/zkit/pkg/tracing"
 )
 
@@ -177,7 +177,7 @@ func (n *NativeZigbee) InterviewRoute(ctx context.Context, b []byte, ieeeAddr st
 			device.Spec.Type = "DEVICE_TYPE_COORDINATOR"
 		case zigbeev1proto.DeviceType_DEVICE_TYPE_ROUTER:
 			device.Spec.Type = "DEVICE_TYPE_ROUTER"
-		// End-device: leave Type empty — set by operator or future model-based mapping.
+			// End-device: leave Type empty — set by operator or future model-based mapping.
 		}
 	}
 
