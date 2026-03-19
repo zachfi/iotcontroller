@@ -264,8 +264,8 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 
 	// Enable permit join by default for 60 seconds to allow initial device pairing
 	// This matches common practice in zigbee2mqtt
-	z.logger.Info("enabling permit join for 60 seconds to allow device pairing")
-	if err := z.PermitJoin(ctx, 60); err != nil {
+	z.logger.Info("enabling permit join for 254 seconds to allow device pairing")
+	if err := z.PermitJoin(ctx, 254); err != nil {
 		z.logger.Warn("failed to enable permit join", slog.String("error", err.Error()))
 	}
 
@@ -531,17 +531,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent type
 		slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 	)
 
-	// ZNP-specific interview: ZNP supports active ZDO device interviews.
-	// Ember interview support is future work (requires EZSP ZDO commands).
-	znpController, ok := z.dongle.(*znp.Controller)
-	if !ok {
-		z.logger.Debug("dongle does not support device interview, storing join only",
-			slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
-		)
-		return
-	}
-
-	// Wait after device join before starting interview
+	// Wait after device join before starting interview.
 	// End devices (especially battery-powered) need time to complete key authorization
 	// and become ready to respond to ZDO requests.
 	z.logger.Debug("waiting for device to complete key authorization before interview",
@@ -554,7 +544,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent type
 	case <-time.After(2 * time.Second):
 	}
 
-	interviewInfo, err := znpController.InterviewDevice(ctx, joinEvent.NetworkAddress)
+	interviewInfo, err := z.dongle.InterviewDevice(ctx, joinEvent.NetworkAddress)
 	if err != nil {
 		z.logger.Error("device interview failed",
 			slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
@@ -575,7 +565,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent type
 }
 
 // sendInterviewResult sends interview results to the router as a DeviceInterviewResult proto.
-func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr uint64, nwkAddr uint16, info *znp.DeviceInterviewInfo, interviewErr error) {
+func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr uint64, nwkAddr uint16, info *types.DeviceInterviewInfo, interviewErr error) {
 	if z.routeClient == nil {
 		return
 	}

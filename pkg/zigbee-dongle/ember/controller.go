@@ -77,6 +77,10 @@ type Controller struct {
 
 	stackStatusCh chan byte                 // for waiting for NETWORK_UP after FORM_NETWORK
 	joinEvents    chan types.DeviceJoinEvent // device join events from TRUST_CENTER_JOIN_HANDLER
+
+	// ZDO response waiters: clusterID (response cluster) → buffered channel of raw ZDP payloads
+	zdoWaitersMux sync.Mutex
+	zdoWaiters    map[uint16]chan []byte
 }
 
 func NewController(settings Settings) (*Controller, error) {
@@ -106,6 +110,7 @@ func NewController(settings Settings) (*Controller, error) {
 		txSeq:         0,
 		stackStatusCh: make(chan byte, 10),
 		joinEvents:    make(chan types.DeviceJoinEvent, 10),
+		zdoWaiters:    make(map[uint16]chan []byte),
 	}, nil
 }
 
@@ -1161,16 +1166,16 @@ func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.Incomi
 			return
 		}
 		p := frame.Parameters
-		// skip msgType(1)
-		// profileId(2), clusterId(2), srcEndpoint(1), dstEndpoint(1), options(2), groupId(2), seq(1) = 11 bytes
+		// p[0]: msgType; p[1:3]: profileId; p[3:5]: clusterId; p[5]: srcEndpoint
+		// p[6]: dstEndpoint; p[7:9]: options; p[9:11]: groupId; p[11]: seq
+		// p[12]: lastHopLqi; p[13]: lastHopRssi; p[14:16]: sender; p[16]: bindingIndex
+		// p[17]: addressIndex; p[18]: messageLength; p[19+]: message
+		profileID := binary.LittleEndian.Uint16(p[1:3])
 		clusterID := binary.LittleEndian.Uint16(p[3:5])
 		srcEndpoint := p[5]
 		dstEndpoint := p[6]
-		// lastHopLqi at offset 12, lastHopRssi at 13
 		lqi := p[12]
-		// sender at offset 14
 		sender := binary.LittleEndian.Uint16(p[14:16])
-		// bindingIndex(1) addressIndex(1) messageLength(1) at 16,17,18
 		msgLen := int(p[18])
 		if len(frame.Parameters) < minLen+msgLen {
 			if c.settings.LogErrors {
@@ -1178,6 +1183,22 @@ func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.Incomi
 			}
 			return
 		}
+		payload := append([]byte(nil), p[minLen:minLen+msgLen]...)
+
+		// ZDP responses (profile 0x0000, cluster 0x8xxx): route to ZDO waiter if registered.
+		if profileID == 0x0000 && clusterID >= 0x8000 {
+			c.zdoWaitersMux.Lock()
+			ch, ok := c.zdoWaiters[clusterID]
+			c.zdoWaitersMux.Unlock()
+			if ok {
+				select {
+				case ch <- payload:
+				default:
+				}
+				return
+			}
+		}
+
 		msg := types.IncomingMessage{
 			Source: types.Address{
 				Mode:  types.AddressModeNWK,
@@ -1187,7 +1208,7 @@ func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.Incomi
 			DestinationEndpoint: dstEndpoint,
 			ClusterID:           clusterID,
 			LinkQuality:         lqi,
-			Data:                append([]byte(nil), p[minLen:minLen+msgLen]...),
+			Data:                payload,
 		}
 		select {
 		case output <- msg:
@@ -1272,6 +1293,24 @@ func (c *Controller) removeHandler(sequence uint8, handler *Handler) {
 // DeviceJoinEvents returns a channel that receives events when devices join the network.
 func (c *Controller) DeviceJoinEvents() <-chan types.DeviceJoinEvent {
 	return c.joinEvents
+}
+
+// registerZDOWaiter registers a waiter for a ZDO response cluster.
+// The returned channel will receive the raw ZDP payload (after the APS header is stripped by INCOMING_MESSAGE_HANDLER).
+// The caller must call removeZDOWaiter when done.
+func (c *Controller) registerZDOWaiter(responseClusterID uint16) chan []byte {
+	ch := make(chan []byte, 1)
+	c.zdoWaitersMux.Lock()
+	c.zdoWaiters[responseClusterID] = ch
+	c.zdoWaitersMux.Unlock()
+	return ch
+}
+
+// removeZDOWaiter removes a previously registered ZDO waiter.
+func (c *Controller) removeZDOWaiter(responseClusterID uint16) {
+	c.zdoWaitersMux.Lock()
+	delete(c.zdoWaiters, responseClusterID)
+	c.zdoWaitersMux.Unlock()
 }
 
 // Send sends a message to a device on the Zigbee network using EZSP_SEND_UNICAST.

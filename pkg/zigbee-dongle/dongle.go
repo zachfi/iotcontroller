@@ -56,6 +56,10 @@ type Dongle interface {
 	// DeviceJoinEvents returns a channel that receives events when devices join the network.
 	// The channel is populated when Start() is called.
 	DeviceJoinEvents() <-chan types.DeviceJoinEvent
+
+	// InterviewDevice performs a ZDO device interview to discover capabilities and endpoints.
+	// Should be called after a device joins the network.
+	InterviewDevice(ctx context.Context, networkAddress uint16) (*types.DeviceInterviewInfo, error)
 }
 
 // Re-export types for convenience
@@ -78,6 +82,13 @@ const (
 	NetworkStateUp        = types.NetworkStateUp
 	NetworkStateDown      = types.NetworkStateDown
 	NetworkStateNotJoined = types.NetworkStateNotJoined
+)
+
+// Re-export interview types for convenience
+type (
+	DeviceInterviewInfo = types.DeviceInterviewInfo
+	DeviceCapabilities  = types.DeviceCapabilities
+	EndpointInfo        = types.EndpointInfo
 )
 
 // Re-export constants

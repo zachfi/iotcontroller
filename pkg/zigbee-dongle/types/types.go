@@ -172,3 +172,29 @@ type PersistedNetworkState struct {
 	Channel       uint8
 	NetworkKey    [16]byte
 }
+
+// DeviceInterviewInfo contains the results of a ZDO device interview.
+type DeviceInterviewInfo struct {
+	NetworkAddress uint16
+	DeviceType     string // "Coordinator", "Router", "EndDevice", "Unknown"
+	ManufacturerID uint32
+	Capabilities   *DeviceCapabilities
+	Endpoints      []EndpointInfo
+}
+
+// DeviceCapabilities describes device capabilities from the node descriptor.
+type DeviceCapabilities struct {
+	AlternatePanCoordinator bool
+	ReceiverOnWhenIdle      bool
+	SecurityCapability      bool
+}
+
+// EndpointInfo describes a single endpoint and its clusters.
+type EndpointInfo struct {
+	ID             uint32
+	ProfileID      uint32
+	DeviceID       uint32
+	DeviceVersion  uint32
+	InputClusters  []uint16
+	OutputClusters []uint16
+}

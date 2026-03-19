@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/types"
 )
 
 // InterviewDevice performs a device interview to discover device capabilities.
@@ -12,8 +14,8 @@ import (
 // 1. Get Node Descriptor (device type, manufacturer, capabilities)
 // 2. Get Active Endpoints
 // 3. For each endpoint: Get Simple Descriptor (clusters)
-func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16) (*DeviceInterviewInfo, error) {
-	info := &DeviceInterviewInfo{
+func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16) (*types.DeviceInterviewInfo, error) {
+	info := &types.DeviceInterviewInfo{
 		NetworkAddress: networkAddress,
 	}
 
@@ -82,7 +84,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 
 		// Extract information from flattened node descriptor
 		info.ManufacturerID = uint32(nodeDescResp.ManufacturerCode)
-		info.Capabilities = &DeviceCapabilities{
+		info.Capabilities = &types.DeviceCapabilities{
 			AlternatePanCoordinator: (nodeDescResp.MACCapabilityFlags & (1 << 0)) != 0,
 			ReceiverOnWhenIdle:      (nodeDescResp.MACCapabilityFlags & (1 << 3)) != 0,
 			SecurityCapability:      (nodeDescResp.MACCapabilityFlags & (1 << 6)) != 0,
@@ -163,7 +165,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 	}
 
 	// Step 3: Get Simple Descriptor for each endpoint
-	info.Endpoints = make([]EndpointInfo, 0, len(activeEndpoints))
+	info.Endpoints = make([]types.EndpointInfo, 0, len(activeEndpoints))
 	for _, endpointID := range activeEndpoints {
 		handler := c.port.RegisterOneOffHandler(ZdoSimpleDescriptor{})
 		defer handler.fail()
@@ -198,7 +200,7 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		}
 
 		// Extract information from flattened simple descriptor
-		info.Endpoints = append(info.Endpoints, EndpointInfo{
+		info.Endpoints = append(info.Endpoints, types.EndpointInfo{
 			ID:             uint32(simpleDescResp.Endpoint),
 			ProfileID:      uint32(simpleDescResp.AppProfileID),
 			DeviceID:       uint32(simpleDescResp.AppDeviceID),
@@ -211,30 +213,10 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 	return info, nil
 }
 
-// DeviceInterviewInfo contains the results of a device interview.
-type DeviceInterviewInfo struct {
-	NetworkAddress uint16
-	DeviceType     string // "Coordinator", "Router", "EndDevice", "Unknown"
-	ManufacturerID uint32
-	Capabilities   *DeviceCapabilities
-	Endpoints      []EndpointInfo
-	// Note: genBasic attributes (modelId, manufacturerName, etc.) require ZCL reads
-	// which are more complex and can be added later
-}
-
-// DeviceCapabilities describes device capabilities from the node descriptor.
-type DeviceCapabilities struct {
-	AlternatePanCoordinator bool
-	ReceiverOnWhenIdle      bool
-	SecurityCapability      bool
-}
-
-// EndpointInfo describes a single endpoint and its clusters.
-type EndpointInfo struct {
-	ID             uint32
-	ProfileID      uint32
-	DeviceID       uint32
-	DeviceVersion  uint32
-	InputClusters  []uint16
-	OutputClusters []uint16
-}
+// Type aliases for backward compatibility within the znp package.
+// The canonical definitions are in pkg/zigbee-dongle/types.
+type (
+	DeviceInterviewInfo = types.DeviceInterviewInfo
+	DeviceCapabilities  = types.DeviceCapabilities
+	EndpointInfo        = types.EndpointInfo
+)
