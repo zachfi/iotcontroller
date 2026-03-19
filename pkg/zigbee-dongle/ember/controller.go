@@ -1084,16 +1084,35 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 			if handler != nil {
 				handler.fulfill(ezspFrame)
 			} else {
-				// Handle callbacks (incoming messages, etc.)
-				c.handleCallback(ezspFrame, output)
+				// No handler: unsolicited async callback from NCP.
+				// NCP uses extended-format (5-byte header) for callbacks but
+				// legacy-format (3-byte header) for command responses.
+				// Re-parse as extended to get the correct FrameID and params.
+				if extFrame, extErr := ParseEZSPFrameExtended(derandomizedData); extErr == nil {
+					if c.settings.LogCommands {
+						fmt.Printf("[ember] re-parsed as extended callback: FrameID=0x%02X params=%X\n",
+							extFrame.FrameID, extFrame.Parameters)
+					}
+					c.handleCallback(extFrame, output)
+				} else {
+					c.handleCallback(ezspFrame, output)
+				}
 			}
 		} else {
-			// Control=0: unsolicited callback/command direction from NCP.
-			if c.settings.LogCommands {
-				fmt.Printf("[ember] EZSP callback from NCP: seq=%d FrameID=0x%02X params=%X fcLo=0x%02X\n",
-					ezspFrame.Sequence, ezspFrame.FrameID, ezspFrame.Parameters, uint8(ezspFrame.Control))
+			// Control=0: unsolicited callback, try extended format first.
+			if extFrame, extErr := ParseEZSPFrameExtended(derandomizedData); extErr == nil {
+				if c.settings.LogCommands {
+					fmt.Printf("[ember] EZSP callback from NCP (extended): seq=%d FrameID=0x%02X params=%X\n",
+						extFrame.Sequence, extFrame.FrameID, extFrame.Parameters)
+				}
+				c.handleCallback(extFrame, output)
+			} else {
+				if c.settings.LogCommands {
+					fmt.Printf("[ember] EZSP callback from NCP (legacy): seq=%d FrameID=0x%02X params=%X\n",
+						ezspFrame.Sequence, ezspFrame.FrameID, ezspFrame.Parameters)
+				}
+				c.handleCallback(ezspFrame, output)
 			}
-			c.handleCallback(ezspFrame, output)
 		}
 
 	case ASH_FRAME_ACK:
@@ -1317,8 +1336,14 @@ func (c *Controller) PermitJoining(ctx context.Context, enabled bool) error {
 	}
 
 	status := resp.Parameters[0]
-	if status != 0x00 { // SUCCESS
-		return fmt.Errorf("permit joining command failed with status 0x%02X", status)
+	if status != 0x00 {
+		// 0x22 is returned by EZSP v13 firmware even on success (NCP sends
+		// STACK_STATUS NETWORK_OPENED callback to confirm); treat as non-fatal.
+		if status == 0x22 {
+			c.log.Debug("permit joining returned 0x22 (non-fatal, NETWORK_OPENED callback expected)")
+		} else {
+			return fmt.Errorf("permit joining command failed with status 0x%02X", status)
+		}
 	}
 
 	if c.settings.LogCommands {
@@ -1731,9 +1756,23 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 			// Continue to form network below
 		} else if networkInitStatus == 0x93 || networkInitStatus == 0x17 {
 			// EMBER_NOT_JOINED (0x93 old EmberStatus) or SL_STATUS_NOT_JOINED (0x17 EmberZNet 7.x)
-			// No network exists, proceed to form
-			c.log.Debug("no network found (NOT_JOINED), proceeding to form",
+			// Sync response says no network, but NCP may send STACK_STATUS NETWORK_UP
+			// asynchronously right after (indicating a network was restored from NVM tokens).
+			// Drain any buffered callback before deciding to form.
+			c.log.Debug("no network found (NOT_JOINED), checking for async NETWORK_UP callback",
 				slog.String("status", fmt.Sprintf("0x%02X", networkInitStatus)))
+			select {
+			case cbStatus := <-c.stackStatusCh:
+				if cbStatus == 0x90 || cbStatus == 0x15 { // NETWORK_UP
+					c.log.Info("STACK_STATUS NETWORK_UP received after NOT_JOINED — network already up (NVM restored)",
+						slog.String("status", fmt.Sprintf("0x%02X", cbStatus)))
+					return nil
+				}
+				c.log.Debug("STACK_STATUS callback (not NETWORK_UP), proceeding to form",
+					slog.String("status", fmt.Sprintf("0x%02X", cbStatus)))
+			case <-time.After(200 * time.Millisecond):
+				c.log.Debug("no async NETWORK_UP callback, proceeding to form")
+			}
 			// Continue to form network below
 		} else {
 			// Unknown status (likely 0x58) - log but continue
