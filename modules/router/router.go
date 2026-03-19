@@ -191,6 +191,7 @@ func (r *Router) running(ctx context.Context) error {
 			bg.Wait()
 			return nil
 		case i := <-r.itemCh:
+			metricQueueLength.WithLabelValues().Set(float64(len(r.itemCh)))
 
 			bg.Add(1)
 			metricActiveReceiverRoutines.Inc()

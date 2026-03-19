@@ -109,6 +109,12 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 
 	zone.SetState(ctx, req.State)
 	err = zone.Flush(ctx, unlimited)
+	if err != nil {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Name, "error").Inc()
+	} else {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Name, "success").Inc()
+		metricZonekeeperStateChangesTotal.WithLabelValues(req.Name, req.State.String()).Inc()
+	}
 	z.apiStatusUpdate(ctx, zone)
 	return resp, err
 }
@@ -185,7 +191,13 @@ func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnou
 	if err != nil {
 		return &iotv1proto.SelfAnnounceResponse{}, err
 	}
-	return resp, zone.Flush(ctx, limiter)
+	err = zone.Flush(ctx, limiter)
+	if err != nil {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Zone, "error").Inc()
+	} else {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Zone, "success").Inc()
+	}
+	return resp, err
 }
 
 func (z *ZoneKeeper) OccupancyHandler(ctx context.Context, req *iotv1proto.OccupancyHandlerRequest) (*iotv1proto.OccupancyHandlerResponse, error) {
@@ -339,7 +351,13 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", req.Event, req.Device, req.Zone))
 	}
 
-	return resp, errHandler(span, zone.Flush(ctx, unlimited))
+	flushErr := zone.Flush(ctx, unlimited)
+	if flushErr != nil {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Zone, "error").Inc()
+	} else {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Zone, "success").Inc()
+	}
+	return resp, errHandler(span, flushErr)
 }
 
 const (
