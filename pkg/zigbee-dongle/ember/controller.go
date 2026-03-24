@@ -1040,36 +1040,42 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 		// Derandomize the Data Field (XOR with pseudo-random sequence to restore original)
 		derandomizedData := derandomizeData(ashFrame.Data)
 
-		// Parse the EZSP frame. The NCP always sends responses in legacy 3-byte
-		// header format even when protocol v13 is negotiated. Extended format only
-		// applies to frames we SEND to the NCP.
+		// Detect EZSP frame format: check frameControlHi (byte[2]) & 0x03.
+		// If == EZSP_EXTENDED_FRAME_FORMAT_VERSION (0x01) → extended 5-byte header.
+		// Otherwise → legacy 3-byte header (VERSION response only).
+		// After VERSION handshake, NCP switches to extended format for all frames.
 		var ezspFrame *EZSPFrame
-		ezspFrame, err = ParseEZSPFrame(derandomizedData)
+		if len(derandomizedData) >= 5 && derandomizedData[2]&0x03 == EZSP_EXTENDED_FRAME_FORMAT_VERSION {
+			ezspFrame, err = ParseEZSPFrameExtended(derandomizedData)
+		} else {
+			ezspFrame, err = ParseEZSPFrame(derandomizedData)
+		}
 		if err != nil {
 			if c.settings.LogErrors {
 				fmt.Printf("[ember] Error parsing EZSP frame: %v (data: %X, derandomized: %X)\n", err, ashFrame.Data, derandomizedData)
 			}
-			return // Changed from continue to return since we're in a function now
+			return
 		}
 
 		if c.settings.LogCommands {
-			fmt.Printf("[ember] Parsed EZSP frame: Sequence=%d, Control=%d, FrameID=0x%02X, ParamsLen=%d\n",
+			fmt.Printf("[ember] Parsed EZSP frame: Sequence=%d, Control=0x%02X, FrameID=0x%04X, ParamsLen=%d\n",
 				ezspFrame.Sequence, ezspFrame.Control, ezspFrame.FrameID, len(ezspFrame.Parameters))
 		}
 
-		// Handle response frames
-		// EZSP response frames have bit 7 set (0x80) in the control byte
-		if ezspFrame.Control&0x80 != 0 {
-			if c.settings.LogCommands {
-				fmt.Printf("[ember] EZSP response frame: Sequence=%d, looking for handler...\n", ezspFrame.Sequence)
-			}
+		// Route frame: NCP→host frames (responses and async callbacks) have direction bit set.
+		// Responses match a pending command handler by sequence number.
+		// Async callbacks have the async-callback flag (bit 4 of fcLo) set; they don't match handlers.
+		if ezspFrame.Control == EZSP_FRAME_CONTROL_RESPONSE {
+			// Check async-callback flag: bit 4 of frameControlLo (byte[1]).
+			// Async callbacks should go directly to handleCallback even if a seq happens to match.
+			isAsyncCallback := derandomizedData[1]&0x10 != 0
 
 			c.handlerMux.Lock()
 			handler := c.handlers[ezspFrame.Sequence]
-			var availableSeqs []uint8 // collected inside lock to avoid re-entrant lock deadlock
-			if handler != nil {
+			var availableSeqs []uint8
+			if handler != nil && !isAsyncCallback {
 				delete(c.handlers, ezspFrame.Sequence)
-			} else if c.settings.LogCommands {
+			} else if c.settings.LogCommands && handler == nil {
 				availableSeqs = make([]uint8, 0, len(c.handlers))
 				for seq := range c.handlers {
 					availableSeqs = append(availableSeqs, seq)
@@ -1077,47 +1083,28 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 			}
 			c.handlerMux.Unlock()
 
-			if c.settings.LogCommands {
-				if handler != nil {
-					fmt.Printf("[ember] Found handler for sequence %d\n", ezspFrame.Sequence)
-				} else {
-					fmt.Printf("[ember] No handler found for sequence %d (available handlers: %v)\n",
-						ezspFrame.Sequence, availableSeqs)
+			if handler != nil && !isAsyncCallback {
+				if c.settings.LogCommands {
+					fmt.Printf("[ember] Found handler for sequence %d (FrameID=0x%04X)\n", ezspFrame.Sequence, ezspFrame.FrameID)
 				}
-			}
-
-			if handler != nil {
 				handler.fulfill(ezspFrame)
 			} else {
-				// No handler: unsolicited async callback from NCP.
-				// NCP uses extended-format (5-byte header) for callbacks but
-				// legacy-format (3-byte header) for command responses.
-				// Re-parse as extended to get the correct FrameID and params.
-				if extFrame, extErr := ParseEZSPFrameExtended(derandomizedData); extErr == nil {
-					if c.settings.LogCommands {
-						fmt.Printf("[ember] re-parsed as extended callback: FrameID=0x%02X params=%X\n",
-							extFrame.FrameID, extFrame.Parameters)
+				if c.settings.LogCommands {
+					if isAsyncCallback {
+						fmt.Printf("[ember] Async callback: FrameID=0x%04X params=%X\n", ezspFrame.FrameID, ezspFrame.Parameters)
+					} else {
+						fmt.Printf("[ember] No handler for sequence %d FrameID=0x%04X (available: %v)\n",
+							ezspFrame.Sequence, ezspFrame.FrameID, availableSeqs)
 					}
-					c.handleCallback(extFrame, output)
-				} else {
-					c.handleCallback(ezspFrame, output)
-				}
-			}
-		} else {
-			// Control=0: unsolicited callback, try extended format first.
-			if extFrame, extErr := ParseEZSPFrameExtended(derandomizedData); extErr == nil {
-				if c.settings.LogCommands {
-					fmt.Printf("[ember] EZSP callback from NCP (extended): seq=%d FrameID=0x%02X params=%X\n",
-						extFrame.Sequence, extFrame.FrameID, extFrame.Parameters)
-				}
-				c.handleCallback(extFrame, output)
-			} else {
-				if c.settings.LogCommands {
-					fmt.Printf("[ember] EZSP callback from NCP (legacy): seq=%d FrameID=0x%02X params=%X\n",
-						ezspFrame.Sequence, ezspFrame.FrameID, ezspFrame.Parameters)
 				}
 				c.handleCallback(ezspFrame, output)
 			}
+		} else {
+			// Command direction from NCP (shouldn't happen, but route to callback just in case)
+			if c.settings.LogCommands {
+				fmt.Printf("[ember] Unexpected command-direction frame from NCP: FrameID=0x%04X\n", ezspFrame.FrameID)
+			}
+			c.handleCallback(ezspFrame, output)
 		}
 
 	case ASH_FRAME_ACK:
@@ -1356,9 +1343,77 @@ func (c *Controller) PermitJoining(ctx context.Context, enabled bool) error {
 	var duration uint8
 	if enabled {
 		// Use 0xFE to permit joining indefinitely (until explicitly disabled)
-		// Alternatively, we could use a specific duration in seconds
 		duration = 0xFE
+
+		// Import "ZigBeeAlliance09" as a transient link key for the blank EUI64.
+		// This allows devices with the pre-configured Zigbee interoperability key to join.
+		// Must be called before PERMIT_JOINING; zigbee-herdsman does this in preJoining().
+		zigbeeAllianceKey := []byte{
+			0x5a, 0x69, 0x67, 0x42, 0x65, 0x65, 0x41, 0x6c,
+			0x6c, 0x69, 0x61, 0x6e, 0x63, 0x65, 0x30, 0x39,
+		}
+		blankEUI64 := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+		keyParams := make([]byte, 0, 8+16+1)
+		keyParams = append(keyParams, blankEUI64...)
+		keyParams = append(keyParams, zigbeeAllianceKey...)
+		keyParams = append(keyParams, 0x00) // SecManFlag.NONE (required for EZSP v < 0x0e)
+		if impResp, impErr := c.sendEZSPCommand(EZSP_IMPORT_TRANSIENT_KEY, keyParams, 5*time.Second); impErr != nil {
+			c.log.Warn("importTransientKey failed (continuing)", slog.Any("error", impErr))
+		} else if len(impResp.Parameters) >= 4 {
+			// Response is SLStatus uint32 LE
+			slStatus := uint32(impResp.Parameters[0]) | uint32(impResp.Parameters[1])<<8 |
+				uint32(impResp.Parameters[2])<<16 | uint32(impResp.Parameters[3])<<24
+			if slStatus != 0 {
+				c.log.Warn("importTransientKey non-OK status",
+					slog.String("status", fmt.Sprintf("0x%08X", slStatus)))
+			} else {
+				c.log.Debug("transient key imported for ZigBeeAlliance09")
+			}
+		}
+
+		// Set trust center policy to allow joins using preconfigured key.
+		// Decision = ALLOW_JOINS(0x01) | ALLOW_UNSECURED_REJOINS(0x02) = 0x03
+		// Matches zigbee-herdsman's USE_PRECONFIGURED_KEY decision.
+		// SET_POLICY params: [policyId(1)][decisionId(1)] — 2 bytes total.
+		tcDecision := EZSP_TC_DECISION_ALLOW_JOINS | EZSP_TC_DECISION_ALLOW_UNSECURED_REJOINS
+		policyParams := []byte{byte(EZSP_POLICY_TRUST_CENTER), tcDecision}
+		setResp, err := c.sendEZSPCommand(EZSP_SET_POLICY, policyParams, 5*time.Second)
+		if err != nil {
+			c.log.Warn("setPolicy(TRUST_CENTER) failed", slog.Any("error", err))
+		} else if len(setResp.Parameters) >= 1 && setResp.Parameters[0] != 0x00 {
+			c.log.Warn("setPolicy(TRUST_CENTER) non-OK status",
+				slog.String("status", fmt.Sprintf("0x%02X", setResp.Parameters[0])),
+				slog.String("full_response", fmt.Sprintf("%X", setResp.Parameters)))
+		} else {
+			c.log.Debug("trust center policy set", slog.String("decision", fmt.Sprintf("0x%02X", tcDecision)))
+		}
+
+		// Read back the current TC policy so we can see what the NCP actually has.
+		getResp, err := c.sendEZSPCommand(EZSP_GET_POLICY, []byte{byte(EZSP_POLICY_TRUST_CENTER)}, 5*time.Second)
+		if err != nil {
+			c.log.Warn("getPolicy(TRUST_CENTER) failed", slog.Any("error", err))
+		} else if len(getResp.Parameters) >= 2 {
+			// GET_POLICY response: [EzspStatus(1)][EzspDecisionId(1)]
+			status := getResp.Parameters[0]
+			decision := getResp.Parameters[1]
+			c.log.Info("current TRUST_CENTER policy from NCP",
+				slog.String("status", fmt.Sprintf("0x%02X", status)),
+				slog.String("decision", fmt.Sprintf("0x%02X", decision)),
+				slog.Bool("allow_joins", decision&EZSP_TC_DECISION_ALLOW_JOINS != 0),
+				slog.Bool("allow_unsecured_rejoins", decision&EZSP_TC_DECISION_ALLOW_UNSECURED_REJOINS != 0),
+				slog.Bool("send_key_in_clear", decision&EZSP_TC_DECISION_SEND_KEY_IN_CLEAR != 0),
+				slog.Bool("defer_joins", decision&EZSP_TC_DECISION_DEFER_JOINS != 0),
+			)
+		}
 	} else {
+		// Closing permit join: remove transient keys and revert to rejoins-only policy.
+		if _, clrErr := c.sendEZSPCommand(EZSP_CLEAR_TRANSIENT_LINK_KEYS, nil, 5*time.Second); clrErr != nil {
+			c.log.Warn("clearTransientLinkKeys failed (continuing)", slog.Any("error", clrErr))
+		}
+		rejoinsOnly := []byte{byte(EZSP_POLICY_TRUST_CENTER), EZSP_TC_DECISION_ALLOW_UNSECURED_REJOINS}
+		if _, err := c.sendEZSPCommand(EZSP_SET_POLICY, rejoinsOnly, 5*time.Second); err != nil {
+			c.log.Warn("setPolicy(TRUST_CENTER, ALLOW_REJOINS_ONLY) failed (continuing)", slog.Any("error", err))
+		}
 		duration = 0x00
 	}
 
@@ -1385,12 +1440,18 @@ func (c *Controller) PermitJoining(ctx context.Context, enabled bool) error {
 		}
 	}
 
-	if c.settings.LogCommands {
-		if enabled {
-			c.log.Debug("permit joining enabled", slog.Int("duration_sec", int(duration)))
-		} else {
-			c.log.Debug("permit joining disabled")
+	if enabled {
+		c.log.Info("permit joining enabled", slog.Int("duration_sec", int(duration)))
+		// Log network info so operator can verify the device is joining the right network.
+		if info, err := c.GetNetworkInfo(ctx); err == nil && info.State == types.NetworkStateUp {
+			c.log.Info("coordinator network info",
+				slog.Int("channel", int(info.Channel)),
+				slog.String("pan_id", fmt.Sprintf("0x%04X", info.PanID)),
+				slog.String("extended_pan_id", fmt.Sprintf("0x%016X", info.ExtendedPanID)),
+			)
 		}
+	} else if c.settings.LogCommands {
+		c.log.Debug("permit joining disabled")
 	}
 
 	return nil
@@ -1412,28 +1473,28 @@ func (c *Controller) sendEZSPCommand(frameID EZSPFrameID, params []byte, timeout
 	// Register handler BEFORE sending
 	handler := c.registerHandler(seqNum, timeout)
 
-	// Always use legacy (3-byte) EZSP header format. All standard EZSP frame IDs
-	// fit in one byte (0x00-0xFF), so extended format is not needed. Extended format
-	// (5-byte header with 0x00 at byte 2) caused the NCP to misparse commands as
-	// VERSION (frameID=0x00 in legacy mode), echoing spurious VERSION responses.
-	ezspData := SerializeEZSPFrame(ezspFrame)
+	// Use extended (5-byte) EZSP header format for all commands after VERSION negotiation.
+	// The NCP detects extended format by frameControlHi (byte[2]) & 0x03 == 0x01.
+	// Some frame IDs like 0x55 (SET_POLICY) have bits[0:1]==0x01 and would be accidentally
+	// parsed as extended by the NCP when sent in legacy format, causing them to fail.
+	ezspData := SerializeEZSPFrameExtended(ezspFrame)
 	control := byte((c.txSeq << 4) | (c.rxSeq & 0x07))
 	ashDataFrame := buildASHDataFrame(control, ezspData)
 	c.txSeq = (c.txSeq + 1) % 8
 
 	if c.settings.LogCommands {
-		fmt.Printf("[ember] sending EZSP cmd 0x%02X seq=%d frame=%X\n", frameID, seqNum, ashDataFrame)
+		fmt.Printf("[ember] sending EZSP cmd 0x%04X seq=%d frame=%X\n", frameID, seqNum, ashDataFrame)
 	}
 
 	if _, err := c.port.WriteBytes(ashDataFrame); err != nil {
 		c.removeHandler(seqNum, handler)
-		return nil, fmt.Errorf("sending EZSP command 0x%02X: %w", frameID, err)
+		return nil, fmt.Errorf("sending EZSP command 0x%04X: %w", frameID, err)
 	}
 
 	// Wait for response
 	response, err := handler.Receive()
 	if err != nil {
-		return nil, fmt.Errorf("waiting for EZSP command 0x%02X response: %w", frameID, err)
+		return nil, fmt.Errorf("waiting for EZSP command 0x%04X response: %w", frameID, err)
 	}
 
 	return response, nil
@@ -1642,6 +1703,7 @@ func (c *Controller) initEzsp() error {
 		{EZSP_POLICY_APP_KEY_REQUEST, 0x00 /* DENY */, "app_key_request"},
 	}
 	for _, pol := range policies {
+		// SET_POLICY params: [policyId(1)][decisionId(1)] — exactly 2 bytes.
 		params := []byte{byte(pol.id), pol.decision}
 		resp, err := c.sendEZSPCommand(EZSP_SET_POLICY, params, 10*time.Second)
 		if err != nil {
@@ -1651,6 +1713,7 @@ func (c *Controller) initEzsp() error {
 			c.log.Warn("setPolicy non-OK status (continuing)",
 				slog.String("policy", pol.name),
 				slog.String("status", fmt.Sprintf("0x%02X", resp.Parameters[0])),
+				slog.String("response", fmt.Sprintf("%X", resp.Parameters)),
 			)
 		}
 	}
