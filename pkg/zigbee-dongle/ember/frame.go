@@ -98,8 +98,9 @@ func ParseASHFrame(raw []byte) (*ASHFrame, error) {
 		if len(unescaped) > 3 {
 			frame.Data = unescaped[1 : len(unescaped)-2] // Exclude control, CRC
 		}
-	case control&0xE0 == 0x80:
-		// ACK or NAK - minimal frame: control + CRC = 3 bytes
+	case control&0xC0 == 0x80:
+		// ACK (0x8n) or NAK (0xAn) - minimal frame: control + CRC = 3 bytes
+		// ACK: bits[7:5] = 100. NAK: bits[7:5] = 101. Both: bits[7:6] = 10.
 		if len(unescaped) < 3 {
 			return nil, fmt.Errorf("ACK/NAK frame too short: %d bytes", len(unescaped))
 		}

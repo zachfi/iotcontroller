@@ -81,6 +81,12 @@ type Controller struct {
 	// ZDO response waiters: clusterID (response cluster) → buffered channel of raw ZDP payloads
 	zdoWaitersMux sync.Mutex
 	zdoWaiters    map[uint16]chan []byte
+
+	// ASH retransmit: components of last DATA frame for NAK-triggered retransmit.
+	// We store control+ezspData separately so we can rebuild with reTx=1.
+	lastFrameControl byte
+	lastFrameEZSP    []byte
+	lastDataMux      sync.Mutex
 }
 
 func NewController(settings Settings) (*Controller, error) {
@@ -874,6 +880,10 @@ func (c *Controller) byteReader(ctx context.Context, byteCh chan<- byte, done ch
 			continue
 		}
 
+		if c.settings.LogCommands {
+			fmt.Printf("[ember] byte reader: got %d bytes: %X\n", n, chunkBuf[:n])
+		}
+
 		// Send bytes from the chunk individually to maintain byte-by-byte parsing logic
 		for i := 0; i < n; i++ {
 			b := chunkBuf[i]
@@ -931,7 +941,10 @@ func (c *Controller) frameParser(ctx context.Context, byteCh <-chan byte, frameC
 							return
 						}
 					}
-					currentFrame = nil
+					// Reuse the trailing FLAG as the leading FLAG of the next frame.
+				// Per ASH spec, a single FLAG byte serves as both the end of one
+				// frame and the start of the next (inter-frame flag sharing).
+				currentFrame = []byte{b}
 				} else {
 					// Start of new frame
 					// Check if we have garbage bytes before this FLAG (might be mid-frame start)
@@ -1005,6 +1018,18 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 
 	switch ashFrame.Type {
 	case ASH_FRAME_DATA:
+		// Verify CRC of received frame (diagnose CRC algorithm correctness).
+		// The received raw frame (unescaped, without flags) has: [control][data...][crcHi][crcLo]
+		unescapedRaw := unescapeASHFrame(rawFrame[1 : len(rawFrame)-1]) // strip flags, unescape
+		if len(unescapedRaw) >= 3 {
+			expectedCRC := binary.BigEndian.Uint16(unescapedRaw[len(unescapedRaw)-2:])
+			computedCRC := crcCCITT(unescapedRaw[:len(unescapedRaw)-2])
+			if computedCRC != expectedCRC && c.settings.LogErrors {
+				fmt.Printf("[ember] Received DATA frame CRC MISMATCH: computed=0x%04X expected=0x%04X\n", computedCRC, expectedCRC)
+			} else if c.settings.LogCommands {
+				fmt.Printf("[ember] Received DATA frame CRC OK (0x%04X)\n", computedCRC)
+			}
+		}
 		if c.settings.LogCommands {
 			fmt.Printf("[ember] Received DATA frame: FrameNum=%d, AckNum=%d, raw=%X\n", ashFrame.FrameNum, ashFrame.AckNum, rawFrame)
 		}
@@ -1117,11 +1142,26 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 		// We don't need to update txSeq here - it's already incremented when we sent the frame
 
 	case ASH_FRAME_NAK:
-		// Device rejected our DATA frame
-		if c.settings.LogErrors {
-			fmt.Printf("[ember] Received NAK, ackNum=%d\n", ashFrame.AckNum)
+		// Device rejected our DATA frame — retransmit with reTx=1.
+		// Per ASH spec, the retransmit bit (bit 3 of control) must be set.
+		// ackNum = next frame the NCP expects; we retransmit our last frame.
+		c.lastDataMux.Lock()
+		retransmitControl := c.lastFrameControl | 0x08 // set reTx=1
+		retransmitEZSP := c.lastFrameEZSP
+		c.lastDataMux.Unlock()
+		if retransmitEZSP != nil {
+			retransmitFrame := buildASHDataFrame(retransmitControl, retransmitEZSP)
+			n, err := c.port.WriteBytes(retransmitFrame)
+			if c.settings.LogErrors {
+				if err != nil {
+					fmt.Printf("[ember] NAK retransmit failed (wrote %d bytes): %v\n", n, err)
+				} else {
+					fmt.Printf("[ember] Received NAK ackNum=%d — retransmitted %d bytes (reTx=1, frame=%X)\n", ashFrame.AckNum, n, retransmitFrame)
+				}
+			}
+		} else if c.settings.LogErrors {
+			fmt.Printf("[ember] Received NAK ackNum=%d but no frame to retransmit\n", ashFrame.AckNum)
 		}
-		// TODO: Handle retransmission
 
 	case ASH_FRAME_RSTACK:
 		// Unexpected RSTACK (we already handled it during init)
@@ -1482,6 +1522,12 @@ func (c *Controller) sendEZSPCommand(frameID EZSPFrameID, params []byte, timeout
 	ashDataFrame := buildASHDataFrame(control, ezspData)
 	c.txSeq = (c.txSeq + 1) % 8
 
+	// Store control+ezspData for retransmit on NAK (reTx=1 rebuild).
+	c.lastDataMux.Lock()
+	c.lastFrameControl = control
+	c.lastFrameEZSP = ezspData
+	c.lastDataMux.Unlock()
+
 	if c.settings.LogCommands {
 		fmt.Printf("[ember] sending EZSP cmd 0x%04X seq=%d frame=%X\n", frameID, seqNum, ashDataFrame)
 	}
@@ -1661,14 +1707,35 @@ func (c *Controller) initEzsp() error {
 	}
 	configs := []configEntry{
 		{EZSP_CONFIG_STACK_PROFILE, 2, "stack_profile"},
-		{EZSP_CONFIG_SECURITY_LEVEL, 5, "security_level"},
+		// NOTE: SECURITY_LEVEL (0x0D) consistently NAKs on this hardware (CP2102/EFR32MG21).
+		// The NCP already has security level 5 in NVM from prior formation, so skip it.
+		// {EZSP_CONFIG_SECURITY_LEVEL, 5, "security_level"},
 		{EZSP_CONFIG_SUPPORTED_NETWORKS, 1, "supported_networks"},
 		{EZSP_CONFIG_TRUST_CENTER_ADDRESS_CACHE_SIZE, 2, "tc_address_cache_size"},
 		{EZSP_CONFIG_MAX_HOPS, 30, "max_hops"},
 	}
 	for _, cfg := range configs {
 		params := []byte{byte(cfg.id), byte(cfg.value), byte(cfg.value >> 8)}
-		resp, err := c.sendEZSPCommand(EZSP_SET_CONFIGURATION_VALUE, params, 10*time.Second)
+		const maxAttempts = 3
+		var resp *EZSPFrame
+		var err error
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			if attempt > 0 {
+				c.log.Warn("retrying setConfigurationValue",
+					slog.String("config", cfg.name),
+					slog.Int("attempt", attempt+1),
+				)
+				time.Sleep(time.Duration(attempt) * 300 * time.Millisecond)
+			}
+			resp, err = c.sendEZSPCommand(EZSP_SET_CONFIGURATION_VALUE, params, 10*time.Second)
+			if err == nil {
+				break
+			}
+			c.log.Warn("setConfigurationValue failed, will retry",
+				slog.String("config", cfg.name),
+				slog.String("error", err.Error()),
+			)
+		}
 		if err != nil {
 			return fmt.Errorf("setConfigurationValue(%s): %w", cfg.name, err)
 		}
@@ -1679,6 +1746,31 @@ func (c *Controller) initEzsp() error {
 				slog.String("config", cfg.name),
 				slog.String("status", fmt.Sprintf("0x%02X", resp.Parameters[0])),
 			)
+		}
+		// Small inter-command delay: the NCP may need a moment to process
+		// each configuration change before accepting the next command.
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Verify SECURITY_LEVEL=5 is in effect (we skip the SET because it NAKs on CP2102/EFR32MG21
+	// hardware when the NCP already has it in NVM). If the NCP has security level 0 (cleartext),
+	// fail loudly rather than form an insecure network silently.
+	getSecResp, getSecErr := c.sendEZSPCommand(EZSP_GET_CONFIGURATION_VALUE,
+		[]byte{byte(EZSP_CONFIG_SECURITY_LEVEL)}, 5*time.Second)
+	if getSecErr != nil {
+		c.log.Warn("GET_CONFIGURATION_VALUE(security_level) failed (cannot verify)", slog.Any("error", getSecErr))
+	} else if len(getSecResp.Parameters) >= 3 {
+		// Response: [status(1)][value_lo(1)][value_hi(1)]
+		if getSecResp.Parameters[0] == 0x00 {
+			secLevel := uint16(getSecResp.Parameters[1]) | uint16(getSecResp.Parameters[2])<<8
+			if secLevel != 5 {
+				return fmt.Errorf("NCP security level is %d, expected 5 (AES-128-ENC+MIC-32); "+
+					"network would be insecure. Power-cycle the dongle to clear NVM and try again", secLevel)
+			}
+			c.log.Debug("security level verified", slog.Int("level", int(secLevel)))
+		} else {
+			c.log.Warn("GET_CONFIGURATION_VALUE(security_level) returned non-OK status (cannot verify)",
+				slog.String("status", fmt.Sprintf("0x%02X", getSecResp.Parameters[0])))
 		}
 	}
 
