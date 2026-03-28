@@ -75,7 +75,7 @@ type Controller struct {
 	rxSeq uint8
 	txSeq uint8
 
-	stackStatusCh chan byte                 // for waiting for NETWORK_UP after FORM_NETWORK
+	stackStatusCh chan byte                  // for waiting for NETWORK_UP after FORM_NETWORK
 	joinEvents    chan types.DeviceJoinEvent // device join events from TRUST_CENTER_JOIN_HANDLER
 
 	// ZDO response waiters: clusterID (response cluster) → buffered channel of raw ZDP payloads
@@ -213,9 +213,9 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 				if len(preview) > 100 {
 					preview = preview[:50] + "..." + preview[len(preview)-50:]
 				}
-				fmt.Printf("[ember] Device sent text data (likely ESP32 boot messages): %q\n", preview)
+				c.log.Debug("device sent text data (likely ESP32 boot messages)", slog.String("preview", preview))
 			} else {
-				fmt.Printf("[ember] Device sent data: %X (%q)\n", bootData, bootData)
+				c.log.Debug("device sent data", slog.String("raw", fmt.Sprintf("%X", bootData)), slog.String("text", fmt.Sprintf("%q", bootData)))
 			}
 		}
 
@@ -297,13 +297,13 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 							// Found complete frame
 							frameData := bootData[i : j+1]
 							if c.settings.LogCommands {
-								fmt.Printf("[ember] Found potential ASH frame (FLAG-delimited): %X\n", frameData)
+								c.log.Debug("found potential ASH frame (flag-delimited)", slog.String("raw", fmt.Sprintf("%X", frameData)))
 							}
 
 							ashFrame, parseErr := ParseASHFrame(frameData)
 							if parseErr == nil {
 								if c.settings.LogCommands {
-									fmt.Printf("[ember] Parsed frame type: %v\n", ashFrame.Type)
+									c.log.Debug("parsed frame type", slog.String("type", fmt.Sprintf("%v", ashFrame.Type)))
 								}
 
 								if ashFrame.Type == ASH_FRAME_RSTACK {
@@ -312,9 +312,9 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 										if len(ashFrame.Data) >= 2 {
 											version := ashFrame.Data[0]
 											resetCode := ashFrame.Data[1]
-											fmt.Printf("[ember] RSTACK version: 0x%02X, reset code: 0x%02X\n", version, resetCode)
+											c.log.Debug("RSTACK version", slog.String("version", fmt.Sprintf("0x%02X", version)), slog.String("reset_code", fmt.Sprintf("0x%02X", resetCode)))
 											if version != 0x02 {
-												fmt.Printf("[ember] WARNING: RSTACK version mismatch! Expected 0x02, got 0x%02X\n", version)
+												c.log.Debug("RSTACK version mismatch", slog.String("expected", "0x02"), slog.String("got", fmt.Sprintf("0x%02X", version)))
 											}
 										}
 									}
@@ -322,7 +322,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 									// Verify version (should be 0x02 for ASH version 2)
 									if len(ashFrame.Data) >= 1 && ashFrame.Data[0] != 0x02 {
 										if c.settings.LogErrors {
-											fmt.Printf("[ember] ERROR: RSTACK version mismatch! Expected 0x02, got 0x%02X\n", ashFrame.Data[0])
+											c.log.Warn("RSTACK version mismatch", slog.String("expected", "0x02"), slog.String("got", fmt.Sprintf("0x%02X", ashFrame.Data[0])))
 										}
 										// Continue anyway - might still work
 									}
@@ -342,7 +342,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 								}
 							} else {
 								if c.settings.LogErrors {
-									fmt.Printf("[ember] Failed to parse frame: %v\n", parseErr)
+									c.log.Warn("failed to parse frame", slog.Any("error", parseErr))
 								}
 							}
 							break
@@ -379,7 +379,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 							frameData = append(frameData, ASH_FLAG) // Add trailing FLAG
 
 							if c.settings.LogCommands {
-								fmt.Printf("[ember] Found potential RSTACK frame (C1-based): %X\n", frameData)
+								c.log.Debug("found potential RSTACK frame (C1-based)", slog.String("raw", fmt.Sprintf("%X", frameData)))
 							}
 
 							ashFrame, parseErr := ParseASHFrame(frameData)
@@ -389,16 +389,16 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 									if len(ashFrame.Data) >= 2 {
 										version := ashFrame.Data[0]
 										resetCode := ashFrame.Data[1]
-										fmt.Printf("[ember] RSTACK version: 0x%02X, reset code: 0x%02X\n", version, resetCode)
+										c.log.Debug("RSTACK version", slog.String("version", fmt.Sprintf("0x%02X", version)), slog.String("reset_code", fmt.Sprintf("0x%02X", resetCode)))
 										if version != 0x02 {
-											fmt.Printf("[ember] WARNING: RSTACK version mismatch! Expected 0x02, got 0x%02X\n", version)
+											c.log.Debug("RSTACK version mismatch", slog.String("expected", "0x02"), slog.String("got", fmt.Sprintf("0x%02X", version)))
 										}
 									}
 								}
 								// Verify version (should be 0x02 for ASH version 2)
 								if len(ashFrame.Data) >= 1 && ashFrame.Data[0] != 0x02 {
 									if c.settings.LogErrors {
-										fmt.Printf("[ember] ERROR: RSTACK version mismatch! Expected 0x02, got 0x%02X\n", ashFrame.Data[0])
+										c.log.Warn("RSTACK version mismatch", slog.String("expected", "0x02"), slog.String("got", fmt.Sprintf("0x%02X", ashFrame.Data[0])))
 									}
 									// Continue anyway - might still work
 								}
@@ -459,12 +459,12 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 		c.log.Debug("draining any remaining data from port (non-blocking)...")
 		buffered := c.port.Buffered()
 		if buffered > 0 {
-			fmt.Printf("[ember] WARNING: bufio.Reader has %d buffered bytes (will be drained)\n", buffered)
+			c.log.Debug("bufio.Reader has buffered bytes", slog.Int("bytes", buffered))
 		}
 	}
 	if err := c.port.Drain(); err != nil {
 		if c.settings.LogErrors {
-			fmt.Printf("[ember] WARNING: Failed to drain port: %v\n", err)
+			c.log.Warn("failed to drain port", slog.Any("error", err))
 		}
 	}
 
@@ -477,7 +477,7 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 	synced, err := c.port.SyncToFrameBoundary(2 * time.Second)
 	if err != nil && err != io.ErrNoProgress {
 		if c.settings.LogErrors {
-			fmt.Printf("[ember] WARNING: Failed to sync to frame boundary: %v (continuing anyway)\n", err)
+			c.log.Warn("failed to sync to frame boundary (continuing)", slog.Any("error", err))
 		}
 	} else if synced {
 		if c.settings.LogCommands {
@@ -545,25 +545,19 @@ func (c *Controller) Start(ctx context.Context) (<-chan types.IncomingMessage, e
 	// FrameNum = txSeq, AckNum = rxSeq
 	// Note: ReTx bit (bit 3) should be 0 for first transmission
 	control := byte((c.txSeq << 4) | (c.rxSeq & 0x07))
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Building DATA frame: txSeq=%d, rxSeq=%d, control=0x%02X\n", c.txSeq, c.rxSeq, control)
-	}
+	c.log.Debug("building DATA frame", slog.Int("tx_seq", int(c.txSeq)), slog.Int("rx_seq", int(c.rxSeq)), slog.String("control", fmt.Sprintf("0x%02X", control)))
 	ashDataFrame := buildASHDataFrame(control, ezspData)
 	// Increment txSeq after building frame (for next frame)
 	c.txSeq = (c.txSeq + 1) % 8
 
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Version command frame: %X\n", ashDataFrame)
-	}
+	c.log.Debug("version command frame", slog.String("raw", fmt.Sprintf("%X", ashDataFrame)))
 	n, err := c.port.WriteBytes(ashDataFrame)
 	if err != nil {
 		c.removeHandler(versionFrame.Sequence, handler)
 		return nil, fmt.Errorf("sending version command: %w", err)
 	}
 
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Version command sent (%d bytes), waiting for device to process...\n", n)
-	}
+	c.log.Debug("version command sent", slog.Int("bytes", n))
 
 	// Give device a moment to process and send ACK/response
 	// NOTE: Do NOT use ReadRawBytes here - it reads directly from the connection
@@ -618,9 +612,7 @@ func (c *Controller) performRSTHandshake() error {
 	}
 	rawBytes, err := c.port.ReadRawBytes(200*time.Millisecond, 256)
 	if err == nil && len(rawBytes) > 0 {
-		if c.settings.LogCommands {
-			fmt.Printf("[ember] Device IS sending data: %X (%q)\n", rawBytes, rawBytes)
-		}
+		c.log.Debug("device is sending data", slog.String("raw", fmt.Sprintf("%X", rawBytes)), slog.String("text", fmt.Sprintf("%q", rawBytes)))
 	} else {
 		if c.settings.LogCommands {
 			c.log.Debug("no data from device yet (this is OK, device may need RST first)")
@@ -634,7 +626,7 @@ func (c *Controller) performRSTHandshake() error {
 	// Drain is non-blocking (reads with timeout), so this should be safe
 	if err := c.port.Drain(); err != nil {
 		if c.settings.LogErrors {
-			fmt.Printf("[ember] WARNING: Failed to drain port: %v\n", err)
+			c.log.Warn("failed to drain port", slog.Any("error", err))
 		}
 	}
 	if c.settings.LogCommands {
@@ -649,25 +641,21 @@ func (c *Controller) performRSTHandshake() error {
 	rawFrame, err := c.port.ReadASHFrameWithTimeout(500 * time.Millisecond)
 	if c.settings.LogCommands {
 		if err != nil {
-			fmt.Printf("[ember] No device-initiated RST received: %v\n", err)
+			c.log.Debug("no device-initiated RST received", slog.Any("error", err))
 		} else {
-			fmt.Printf("[ember] Received frame from device: %X\n", rawFrame)
+			c.log.Debug("received frame from device", slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 		}
 	}
 	if err == nil {
 		ashFrame, parseErr := ParseASHFrame(rawFrame)
 		if parseErr == nil && ashFrame.Type == ASH_FRAME_RST {
-			if c.settings.LogCommands {
-				fmt.Printf("[ember] Device sent RST automatically: %X\n", rawFrame)
-			}
+			c.log.Debug("device sent RST automatically", slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 		} else if parseErr != nil {
 			if c.settings.LogErrors {
-				fmt.Printf("[ember] Received data but not valid ASH frame: %v (raw: %X)\n", parseErr, rawFrame)
+				c.log.Warn("received data but not valid ASH frame", slog.Any("error", parseErr), slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 			}
 		} else {
-			if c.settings.LogCommands {
-				fmt.Printf("[ember] Device sent frame type: %v\n", ashFrame.Type)
-			}
+			c.log.Debug("device sent frame", slog.String("type", fmt.Sprintf("%v", ashFrame.Type)))
 		}
 	} else if err != io.ErrNoProgress {
 		if c.settings.LogCommands {
@@ -678,9 +666,7 @@ func (c *Controller) performRSTHandshake() error {
 	// Send our own RST frame to initiate handshake
 	// (Even if device sent RST, we send our own to establish the session)
 	rst := buildRSTFrame()
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Sending RST frame: %X\n", rst)
-	}
+	c.log.Debug("sending RST frame", slog.String("raw", fmt.Sprintf("%X", rst)))
 	if _, err := c.port.WriteBytes(rst); err != nil {
 		return fmt.Errorf("sending RST frame: %w", err)
 	}
@@ -692,11 +678,11 @@ func (c *Controller) performRSTHandshake() error {
 	rawFrame, err = c.port.ReadASHFrameWithTimeout(5 * time.Second)
 	if err != nil {
 		if c.settings.LogErrors {
-			fmt.Printf("[ember] Failed to read RSTACK: %v\n", err)
+			c.log.Warn("failed to read RSTACK", slog.Any("error", err))
 			// Try reading raw bytes one more time to see if device is sending anything
 			rawBytes, readErr := c.port.ReadRawBytes(1*time.Second, 256)
 			if readErr == nil && len(rawBytes) > 0 {
-				fmt.Printf("[ember] Device sent data but not ASH frame: %X (%q)\n", rawBytes, rawBytes)
+				c.log.Warn("device sent data but not ASH frame", slog.String("raw", fmt.Sprintf("%X", rawBytes)), slog.String("text", fmt.Sprintf("%q", rawBytes)))
 			} else {
 				c.log.Debug("no data received from device - device appears silent")
 			}
@@ -704,21 +690,17 @@ func (c *Controller) performRSTHandshake() error {
 		return fmt.Errorf("reading RSTACK: %w", err)
 	}
 
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Received frame: %X\n", rawFrame)
-	}
+	c.log.Debug("received frame", slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 
 	ashFrame, err := ParseASHFrame(rawFrame)
 	if err != nil {
 		if c.settings.LogErrors {
-			fmt.Printf("[ember] Failed to parse frame: %v (raw: %X)\n", err, rawFrame)
+			c.log.Warn("failed to parse frame", slog.Any("error", err), slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 		}
 		return fmt.Errorf("parsing RSTACK frame: %w", err)
 	}
 
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Parsed frame type: %v\n", ashFrame.Type)
-	}
+	c.log.Debug("parsed frame type", slog.String("type", fmt.Sprintf("%v", ashFrame.Type)))
 
 	if ashFrame.Type != ASH_FRAME_RSTACK {
 		return fmt.Errorf("expected RSTACK, got %v", ashFrame.Type)
@@ -880,9 +862,7 @@ func (c *Controller) byteReader(ctx context.Context, byteCh chan<- byte, done ch
 			continue
 		}
 
-		if c.settings.LogCommands {
-			fmt.Printf("[ember] byte reader: got %d bytes: %X\n", n, chunkBuf[:n])
-		}
+		c.log.Debug("byte reader: received chunk", slog.Int("bytes", n), slog.String("raw", fmt.Sprintf("%X", chunkBuf[:n])))
 
 		// Send bytes from the chunk individually to maintain byte-by-byte parsing logic
 		for i := 0; i < n; i++ {
@@ -942,9 +922,9 @@ func (c *Controller) frameParser(ctx context.Context, byteCh <-chan byte, frameC
 						}
 					}
 					// Reuse the trailing FLAG as the leading FLAG of the next frame.
-				// Per ASH spec, a single FLAG byte serves as both the end of one
-				// frame and the start of the next (inter-frame flag sharing).
-				currentFrame = []byte{b}
+					// Per ASH spec, a single FLAG byte serves as both the end of one
+					// frame and the start of the next (inter-frame flag sharing).
+					currentFrame = []byte{b}
 				} else {
 					// Start of new frame
 					// Check if we have garbage bytes before this FLAG (might be mid-frame start)
@@ -969,7 +949,7 @@ func (c *Controller) frameParser(ctx context.Context, byteCh <-chan byte, frameC
 						} else if len(garbageBuffer) > 3 {
 							// Couldn't reconstruct - log if significant garbage
 							if c.settings.LogErrors {
-								fmt.Printf("[ember] Frame parser: discarded %d bytes before FLAG (could not reconstruct)\n", len(garbageBuffer))
+								c.log.Warn("frame parser: discarded bytes before FLAG (could not reconstruct)", slog.Int("bytes", len(garbageBuffer)))
 							}
 						}
 						garbageBuffer = nil
@@ -988,7 +968,7 @@ func (c *Controller) frameParser(ctx context.Context, byteCh <-chan byte, frameC
 					// Limit buffer size to prevent memory issues
 					if len(garbageBuffer) > 256 {
 						if c.settings.LogErrors {
-							fmt.Printf("[ember] Frame parser: garbage buffer too large (%d bytes), clearing\n", len(garbageBuffer))
+							c.log.Warn("frame parser: garbage buffer too large, clearing", slog.Int("bytes", len(garbageBuffer)))
 						}
 						garbageBuffer = nil
 					}
@@ -1000,21 +980,17 @@ func (c *Controller) frameParser(ctx context.Context, byteCh <-chan byte, frameC
 
 // handleASHFrame processes a complete ASH frame (parsing, ACK, EZSP handling).
 func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.IncomingMessage) {
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Handling ASH frame, raw=%X\n", rawFrame)
-	}
+	c.log.Debug("handling ASH frame", slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 
 	ashFrame, err := ParseASHFrame(rawFrame)
 	if err != nil {
 		if c.settings.LogErrors {
-			fmt.Printf("[ember] Error parsing ASH frame: %v (raw: %X)\n", err, rawFrame)
+			c.log.Warn("error parsing ASH frame", slog.Any("error", err), slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 		}
 		return
 	}
 
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] Parsed ASH frame type=%v\n", ashFrame.Type)
-	}
+	c.log.Debug("parsed ASH frame", slog.String("type", fmt.Sprintf("%v", ashFrame.Type)))
 
 	switch ashFrame.Type {
 	case ASH_FRAME_DATA:
@@ -1025,14 +1001,12 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 			expectedCRC := binary.BigEndian.Uint16(unescapedRaw[len(unescapedRaw)-2:])
 			computedCRC := crcCCITT(unescapedRaw[:len(unescapedRaw)-2])
 			if computedCRC != expectedCRC && c.settings.LogErrors {
-				fmt.Printf("[ember] Received DATA frame CRC MISMATCH: computed=0x%04X expected=0x%04X\n", computedCRC, expectedCRC)
+				c.log.Warn("received DATA frame CRC mismatch", slog.String("computed", fmt.Sprintf("0x%04X", computedCRC)), slog.String("expected", fmt.Sprintf("0x%04X", expectedCRC)))
 			} else if c.settings.LogCommands {
-				fmt.Printf("[ember] Received DATA frame CRC OK (0x%04X)\n", computedCRC)
+				c.log.Debug("received DATA frame CRC ok", slog.String("crc", fmt.Sprintf("0x%04X", computedCRC)))
 			}
 		}
-		if c.settings.LogCommands {
-			fmt.Printf("[ember] Received DATA frame: FrameNum=%d, AckNum=%d, raw=%X\n", ashFrame.FrameNum, ashFrame.AckNum, rawFrame)
-		}
+		c.log.Debug("received DATA frame", slog.Int("frame_num", int(ashFrame.FrameNum)), slog.Int("ack_num", int(ashFrame.AckNum)), slog.String("raw", fmt.Sprintf("%X", rawFrame)))
 
 		// When we receive a DATA frame, we MUST send an ACK frame
 		// Update our expected receive sequence if frame is in sequence
@@ -1045,20 +1019,16 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 		// beyond our current txSeq (e.g., due to a state reset or mismatch),
 		// advance txSeq to prevent sending frames the NCP will silently discard.
 		if ashFrame.AckNum != c.txSeq {
-			if c.settings.LogCommands {
-				fmt.Printf("[ember] syncing txSeq %d → %d (NCP AckNum=%d)\n", c.txSeq, ashFrame.AckNum, ashFrame.AckNum)
-			}
+			c.log.Debug("syncing tx sequence", slog.Int("from", int(c.txSeq)), slog.Int("to", int(ashFrame.AckNum)))
 			c.txSeq = ashFrame.AckNum
 		}
 
 		// Send ACK frame immediately (ackNum is the next frame we expect)
 		ackFrame := buildASHACKFrame(c.rxSeq)
-		if c.settings.LogCommands {
-			fmt.Printf("[ember] Sending ACK: ackNum=%d (frame: %X)\n", c.rxSeq, ackFrame)
-		}
+		c.log.Debug("sending ACK", slog.Int("ack_num", int(c.rxSeq)), slog.String("frame", fmt.Sprintf("%X", ackFrame)))
 		if _, err := c.port.WriteBytes(ackFrame); err != nil {
 			if c.settings.LogErrors {
-				fmt.Printf("[ember] Failed to send ACK: %v\n", err)
+				c.log.Warn("failed to send ACK", slog.Any("error", err))
 			}
 		}
 
@@ -1077,15 +1047,12 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 		}
 		if err != nil {
 			if c.settings.LogErrors {
-				fmt.Printf("[ember] Error parsing EZSP frame: %v (data: %X, derandomized: %X)\n", err, ashFrame.Data, derandomizedData)
+				c.log.Warn("error parsing EZSP frame", slog.Any("error", err), slog.String("data", fmt.Sprintf("%X", ashFrame.Data)), slog.String("derandomized", fmt.Sprintf("%X", derandomizedData)))
 			}
 			return
 		}
 
-		if c.settings.LogCommands {
-			fmt.Printf("[ember] Parsed EZSP frame: Sequence=%d, Control=0x%02X, FrameID=0x%04X, ParamsLen=%d\n",
-				ezspFrame.Sequence, ezspFrame.Control, ezspFrame.FrameID, len(ezspFrame.Parameters))
-		}
+		c.log.Debug("parsed EZSP frame", slog.Int("sequence", int(ezspFrame.Sequence)), slog.String("control", fmt.Sprintf("0x%02X", ezspFrame.Control)), slog.String("frame_id", fmt.Sprintf("0x%04X", ezspFrame.FrameID)), slog.Int("params_len", len(ezspFrame.Parameters)))
 
 		// Route frame: NCP→host frames (responses and async callbacks) have direction bit set.
 		// Responses match a pending command handler by sequence number.
@@ -1109,34 +1076,27 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 			c.handlerMux.Unlock()
 
 			if handler != nil && !isAsyncCallback {
-				if c.settings.LogCommands {
-					fmt.Printf("[ember] Found handler for sequence %d (FrameID=0x%04X)\n", ezspFrame.Sequence, ezspFrame.FrameID)
-				}
+				c.log.Debug("found handler for sequence", slog.Int("sequence", int(ezspFrame.Sequence)), slog.String("frame_id", fmt.Sprintf("0x%04X", ezspFrame.FrameID)))
 				handler.fulfill(ezspFrame)
 			} else {
 				if c.settings.LogCommands {
 					if isAsyncCallback {
-						fmt.Printf("[ember] Async callback: FrameID=0x%04X params=%X\n", ezspFrame.FrameID, ezspFrame.Parameters)
+						c.log.Debug("async callback", slog.String("frame_id", fmt.Sprintf("0x%04X", ezspFrame.FrameID)), slog.String("params", fmt.Sprintf("%X", ezspFrame.Parameters)))
 					} else {
-						fmt.Printf("[ember] No handler for sequence %d FrameID=0x%04X (available: %v)\n",
-							ezspFrame.Sequence, ezspFrame.FrameID, availableSeqs)
+						c.log.Debug("no handler for sequence", slog.Int("sequence", int(ezspFrame.Sequence)), slog.String("frame_id", fmt.Sprintf("0x%04X", ezspFrame.FrameID)), slog.Any("available", availableSeqs))
 					}
 				}
 				c.handleCallback(ezspFrame, output)
 			}
 		} else {
 			// Command direction from NCP (shouldn't happen, but route to callback just in case)
-			if c.settings.LogCommands {
-				fmt.Printf("[ember] Unexpected command-direction frame from NCP: FrameID=0x%04X\n", ezspFrame.FrameID)
-			}
+			c.log.Debug("unexpected command-direction frame from NCP", slog.String("frame_id", fmt.Sprintf("0x%04X", ezspFrame.FrameID)))
 			c.handleCallback(ezspFrame, output)
 		}
 
 	case ASH_FRAME_ACK:
 		// Device acknowledged our DATA frame
-		if c.settings.LogCommands {
-			fmt.Printf("[ember] Received ACK, ackNum=%d (expected next frame: %d)\n", ashFrame.AckNum, (c.txSeq-1)%8)
-		}
+		c.log.Debug("received ACK", slog.Int("ack_num", int(ashFrame.AckNum)), slog.Int("expected_next", int((c.txSeq-1)%8)))
 		// ACK indicates device received our frame successfully
 		// The ackNum tells us which frame the device expects next
 		// We don't need to update txSeq here - it's already incremented when we sent the frame
@@ -1154,13 +1114,13 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 			n, err := c.port.WriteBytes(retransmitFrame)
 			if c.settings.LogErrors {
 				if err != nil {
-					fmt.Printf("[ember] NAK retransmit failed (wrote %d bytes): %v\n", n, err)
+					c.log.Warn("NAK retransmit failed", slog.Int("bytes_written", n), slog.Any("error", err))
 				} else {
-					fmt.Printf("[ember] Received NAK ackNum=%d — retransmitted %d bytes (reTx=1, frame=%X)\n", ashFrame.AckNum, n, retransmitFrame)
+					c.log.Warn("received NAK, retransmitted", slog.Int("ack_num", int(ashFrame.AckNum)), slog.Int("bytes", n), slog.String("frame", fmt.Sprintf("%X", retransmitFrame)))
 				}
 			}
 		} else if c.settings.LogErrors {
-			fmt.Printf("[ember] Received NAK ackNum=%d but no frame to retransmit\n", ashFrame.AckNum)
+			c.log.Warn("received NAK but no frame to retransmit", slog.Int("ack_num", int(ashFrame.AckNum)))
 		}
 
 	case ASH_FRAME_RSTACK:
@@ -1188,7 +1148,7 @@ func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.Incomi
 		const minLen = 19 // bytes before message payload
 		if len(frame.Parameters) < minLen {
 			if c.settings.LogErrors {
-				fmt.Printf("[ember] INCOMING_MESSAGE_HANDLER too short: %d bytes\n", len(frame.Parameters))
+				c.log.Warn("INCOMING_MESSAGE_HANDLER too short", slog.Int("bytes", len(frame.Parameters)))
 			}
 			return
 		}
@@ -1206,7 +1166,7 @@ func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.Incomi
 		msgLen := int(p[18])
 		if len(frame.Parameters) < minLen+msgLen {
 			if c.settings.LogErrors {
-				fmt.Printf("[ember] INCOMING_MESSAGE_HANDLER message truncated: expected %d bytes, got %d\n", minLen+msgLen, len(frame.Parameters))
+				c.log.Warn("INCOMING_MESSAGE_HANDLER message truncated", slog.Int("expected", minLen+msgLen), slog.Int("got", len(frame.Parameters)))
 			}
 			return
 		}
@@ -1250,7 +1210,7 @@ func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.Incomi
 		//   newNodeId(2LE) newNodeEui64(8) status(1) policyDecision(1) parentOfNewNode(2LE)
 		if len(frame.Parameters) < 14 {
 			if c.settings.LogErrors {
-				fmt.Printf("[ember] TRUST_CENTER_JOIN_HANDLER too short: %d bytes\n", len(frame.Parameters))
+				c.log.Warn("TRUST_CENTER_JOIN_HANDLER too short", slog.Int("bytes", len(frame.Parameters)))
 			}
 			return
 		}
@@ -1528,9 +1488,7 @@ func (c *Controller) sendEZSPCommand(frameID EZSPFrameID, params []byte, timeout
 	c.lastFrameEZSP = ezspData
 	c.lastDataMux.Unlock()
 
-	if c.settings.LogCommands {
-		fmt.Printf("[ember] sending EZSP cmd 0x%04X seq=%d frame=%X\n", frameID, seqNum, ashDataFrame)
-	}
+	c.log.Debug("sending EZSP command", slog.String("frame_id", fmt.Sprintf("0x%04X", frameID)), slog.Int("sequence", int(seqNum)), slog.String("frame", fmt.Sprintf("%X", ashDataFrame)))
 
 	if _, err := c.port.WriteBytes(ashDataFrame); err != nil {
 		c.removeHandler(seqNum, handler)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -361,11 +362,6 @@ func (p *Port) ReadASHFrame() ([]byte, error) {
 				_, parseErr := ParseASHFrame(potentialFrame)
 				if parseErr == nil {
 					// Successfully reconstructed frame - this is normal when starting mid-frame
-					// Only log if we're debugging, as this is expected behavior
-					if false { // Disable verbose logging for normal operation
-						fmt.Printf("[ember] ReadASHFrame: reconstructed frame from %d skipped bytes: %X\n", skippedBytes, potentialFrame)
-						os.Stdout.Sync()
-					}
 					return potentialFrame, nil
 				}
 
@@ -373,8 +369,8 @@ func (p *Port) ReadASHFrame() ([]byte, error) {
 				// This happens when we start reading in the middle of corrupted/invalid data
 				// Just log a warning and continue with the FLAG we found
 				if skippedBytes > 3 {
-					fmt.Printf("[ember] ReadASHFrame: discarded %d non-FLAG bytes before finding FLAG (could not reconstruct: %v)\n", skippedBytes, parseErr)
-					os.Stdout.Sync()
+					slog.Default().Warn("discarded non-FLAG bytes (could not reconstruct frame)",
+						slog.Int("skipped", skippedBytes), slog.Any("error", parseErr))
 				}
 				// Reset and start fresh from this FLAG
 				skippedBytes = 0
@@ -390,8 +386,8 @@ func (p *Port) ReadASHFrame() ([]byte, error) {
 		// Small amounts of skipped bytes (1-3) are normal when starting mid-frame
 		// and the frame will be reconstructed successfully
 		if skippedBytes > 10 {
-			fmt.Printf("[ember] ReadASHFrame: WARNING - skipped %d non-FLAG bytes before finding FLAG (may indicate sync issue)\n", skippedBytes)
-			os.Stdout.Sync()
+			slog.Default().Warn("skipped many non-FLAG bytes before finding FLAG (possible sync issue)",
+				slog.Int("skipped", skippedBytes))
 		}
 	}
 

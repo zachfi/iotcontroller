@@ -7,7 +7,8 @@ import (
 
 // EZSPFrameControl represents the frame control byte in an EZSP frame.
 // In both legacy and extended formats, bit 7 of fcLo = direction:
-//   0 = host→NCP (command), 1 = NCP→host (response or async callback).
+//
+//	0 = host→NCP (command), 1 = NCP→host (response or async callback).
 type EZSPFrameControl byte
 
 const (
@@ -56,8 +57,8 @@ const (
 	EZSP_INCOMING_MESSAGE_HANDLER      EZSPFrameID = 0x45
 
 	// Extended-format-only commands (frame ID > 0xFF, requires 2-byte ID in 5-byte header).
-	EZSP_IMPORT_TRANSIENT_KEY       EZSPFrameID = 0x0111 // Add transient link key for joining
-	EZSP_CLEAR_TRANSIENT_LINK_KEYS  EZSPFrameID = 0x006B // Remove all transient link keys
+	EZSP_IMPORT_TRANSIENT_KEY      EZSPFrameID = 0x0111 // Add transient link key for joining
+	EZSP_CLEAR_TRANSIENT_LINK_KEYS EZSPFrameID = 0x006B // Remove all transient link keys
 )
 
 // EZSPConfigId identifies an NCP configuration parameter (EZSP_SET_CONFIGURATION_VALUE).
@@ -156,10 +157,10 @@ func SerializeEZSPFrameExtended(frame *EZSPFrame) []byte {
 	// fcHi = EZSP_EXTENDED_FRAME_FORMAT_VERSION (0x01): bits[0:1] = 0x01 signals extended format to NCP.
 	data := make([]byte, 0, 5+len(frame.Parameters))
 	data = append(data, frame.Sequence)
-	data = append(data, 0x00)                              // frameControlLo: command direction
+	data = append(data, 0x00)                               // frameControlLo: command direction
 	data = append(data, EZSP_EXTENDED_FRAME_FORMAT_VERSION) // frameControlHi: 0x01 = extended format
-	data = append(data, byte(frame.FrameID))               // frameIDLo
-	data = append(data, byte(frame.FrameID>>8))            // frameIDHi
+	data = append(data, byte(frame.FrameID))                // frameIDLo
+	data = append(data, byte(frame.FrameID>>8))             // frameIDHi
 	data = append(data, frame.Parameters...)
 	return data
 }

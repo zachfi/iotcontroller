@@ -94,9 +94,9 @@ func (c *Controller) sendZDORequest(dst uint16, clusterID uint16, payload []byte
 	//   type(1) indexOrDestination(2LE) apsFrame(11) messageTag(1) messageLength(1) message[...]
 	// EmberApsFrame: profileId(2LE) clusterId(2LE) srcEp(1) dstEp(1) options(2LE) groupId(2LE) seq(1)
 	params := make([]byte, 0, 16+len(payload))
-	params = append(params, 0x00)                            // type = EMBER_OUTGOING_DIRECT
-	params = append(params, byte(dst), byte(dst>>8))         // indexOrDestination = NWK address
-	params = append(params, 0x00, 0x00)                      // profileId = 0x0000 (ZDP)
+	params = append(params, 0x00)                    // type = EMBER_OUTGOING_DIRECT
+	params = append(params, byte(dst), byte(dst>>8)) // indexOrDestination = NWK address
+	params = append(params, 0x00, 0x00)              // profileId = 0x0000 (ZDP)
 	params = append(params, byte(clusterID), byte(clusterID>>8))
 	params = append(params, 0x00)       // srcEndpoint = 0
 	params = append(params, 0x00)       // dstEndpoint = 0
