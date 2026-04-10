@@ -373,6 +373,11 @@ func (c *Controller) PermitJoining(ctx context.Context, enabled bool) error {
 	return nil
 }
 
+// SetConcentrator is a no-op for ZNP — Z-Stack handles concentrator mode internally.
+func (c *Controller) SetConcentrator(ctx context.Context) error {
+	return nil
+}
+
 // GetNetworkInfo returns information about the current network state.
 func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, error) {
 	response, err := c.port.WriteCommand(ZdoExtNwkInfoRequest{})

@@ -60,6 +60,10 @@ type Dongle interface {
 	// InterviewDevice performs a ZDO device interview to discover capabilities and endpoints.
 	// Should be called after a device joins the network.
 	InterviewDevice(ctx context.Context, networkAddress uint16) (*types.DeviceInterviewInfo, error)
+
+	// SetConcentrator configures the NCP as a source route concentrator.
+	// Should be called after the network is up.
+	SetConcentrator(ctx context.Context) error
 }
 
 // Re-export types for convenience

@@ -716,6 +716,19 @@ func (c *Controller) performRSTHandshake() error {
 	return nil
 }
 
+// resetASHSession sends RST to the NCP to recover a stuck ASH session.
+// The read loop handles the resulting RSTACK and resets sequence numbers.
+// This is safe to call while the read loop is running.
+func (c *Controller) resetASHSession() {
+	rst := buildRSTFrame()
+	c.log.Warn("resetting ASH session (sending RST to NCP)")
+	if _, err := c.port.WriteBytes(rst); err != nil {
+		c.log.Warn("failed to send RST for ASH reset", slog.Any("error", err))
+	}
+	// Give the NCP time to process RST and send RSTACK (handled by read loop).
+	time.Sleep(500 * time.Millisecond)
+}
+
 // readEZSPResponse reads an EZSP response frame with the given sequence number.
 func (c *Controller) readEZSPResponse(sequence uint8, timeout time.Duration) (*EZSPFrame, error) {
 	done := make(chan *EZSPFrame, 1)
@@ -1110,6 +1123,8 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 		retransmitEZSP := c.lastFrameEZSP
 		c.lastDataMux.Unlock()
 		if retransmitEZSP != nil {
+			// Brief delay before retransmit to let the NCP recover from the NAK condition.
+			time.Sleep(100 * time.Millisecond)
 			retransmitFrame := buildASHDataFrame(retransmitControl, retransmitEZSP)
 			n, err := c.port.WriteBytes(retransmitFrame)
 			if c.settings.LogErrors {
@@ -1124,10 +1139,11 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 		}
 
 	case ASH_FRAME_RSTACK:
-		// Unexpected RSTACK (we already handled it during init)
-		if c.settings.LogErrors {
-			c.log.Debug("received unexpected RSTACK")
-		}
+		// NCP sent RSTACK — this means the ASH session has been reset (either by our RST
+		// or by the NCP spontaneously). Reset our sequence numbers to match.
+		c.txSeq = 0
+		c.rxSeq = 0
+		c.log.Info("ASH session reset (received RSTACK)", slog.Int("tx_seq", 0), slog.Int("rx_seq", 0))
 
 	case ASH_FRAME_ERROR:
 		// Device error
@@ -1488,6 +1504,13 @@ func (c *Controller) sendEZSPCommand(frameID EZSPFrameID, params []byte, timeout
 	c.lastFrameEZSP = ezspData
 	c.lastDataMux.Unlock()
 
+	// Without hardware flow control (CP2102N has no RTS/CTS), the NCP can't
+	// signal backpressure. Wait before each frame to let the NCP process the
+	// previous one and clear its UART buffer.
+	if c.settings.DisableFlowControl {
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	c.log.Debug("sending EZSP command", slog.String("frame_id", fmt.Sprintf("0x%04X", frameID)), slog.Int("sequence", int(seqNum)), slog.String("frame", fmt.Sprintf("%X", ashDataFrame)))
 
 	if _, err := c.port.WriteBytes(ashDataFrame); err != nil {
@@ -1498,10 +1521,82 @@ func (c *Controller) sendEZSPCommand(frameID EZSPFrameID, params []byte, timeout
 	// Wait for response
 	response, err := handler.Receive()
 	if err != nil {
-		return nil, fmt.Errorf("waiting for EZSP command 0x%04X response: %w", frameID, err)
+		// Command timed out — the ASH session is likely stuck (e.g. after NAK retransmit
+		// was never ACK'd). Reset ASH and retry once.
+		c.resetASHSession()
+		c.log.Warn("EZSP command timed out, retrying after ASH reset",
+			slog.String("frame_id", fmt.Sprintf("0x%04X", frameID)))
+
+		// Retry: re-register handler, rebuild frame with new sequence, and send again
+		retrySeqNum := c.port.NextSequence()
+		retryFrame := &EZSPFrame{
+			Sequence:   retrySeqNum,
+			Control:    EZSP_FRAME_CONTROL_COMMAND,
+			FrameID:    frameID,
+			Parameters: params,
+		}
+		retryHandler := c.registerHandler(retrySeqNum, timeout)
+		retryEzspData := SerializeEZSPFrameExtended(retryFrame)
+		retryControl := byte((c.txSeq << 4) | (c.rxSeq & 0x07))
+		retryASHFrame := buildASHDataFrame(retryControl, retryEzspData)
+		c.txSeq = (c.txSeq + 1) % 8
+
+		c.lastDataMux.Lock()
+		c.lastFrameControl = retryControl
+		c.lastFrameEZSP = retryEzspData
+		c.lastDataMux.Unlock()
+
+		if c.settings.DisableFlowControl {
+			time.Sleep(200 * time.Millisecond)
+		}
+		if _, writeErr := c.port.WriteBytes(retryASHFrame); writeErr != nil {
+			c.removeHandler(retrySeqNum, retryHandler)
+			return nil, fmt.Errorf("retry sending EZSP command 0x%04X: %w", frameID, writeErr)
+		}
+		response, retryErr := retryHandler.Receive()
+		if retryErr != nil {
+			c.resetASHSession()
+			return nil, fmt.Errorf("retry waiting for EZSP command 0x%04X: %w", frameID, retryErr)
+		}
+		return response, nil
 	}
 
 	return response, nil
+}
+
+// SetConcentrator configures the NCP as a high-RAM source route concentrator.
+// This enables Many-to-One Route Request (MTORR) broadcasts so devices can
+// discover routes back to the coordinator. Must be called after network is up.
+func (c *Controller) SetConcentrator(ctx context.Context) error {
+	// SET_CONCENTRATOR params: enabled(1), type(2LE), minTime(2LE), maxTime(2LE),
+	//   routeErrorThreshold(1), deliveryFailureThreshold(1), maxHops(1)
+	params := []byte{
+		0x01,       // enabled = true
+		0xFE, 0xFF, // HIGH_RAM_CONCENTRATOR = 0xFFFE (little-endian)
+		0x05, 0x00, // minTime = 5 seconds
+		0x3C, 0x00, // maxTime = 60 seconds
+		0x03, // routeErrorThreshold = 3
+		0x01, // deliveryFailureThreshold = 1
+		0x00, // maxHops = 0 (use default)
+	}
+	resp, err := c.sendEZSPCommand(EZSP_SET_CONCENTRATOR, params, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("setConcentrator: %w", err)
+	}
+	if len(resp.Parameters) >= 1 && resp.Parameters[0] != 0x00 {
+		c.log.Warn("setConcentrator non-OK status", slog.String("status", fmt.Sprintf("0x%02X", resp.Parameters[0])))
+	} else {
+		c.log.Info("concentrator mode enabled (HIGH_RAM)")
+	}
+
+	// Enable source route discovery
+	if _, err := c.sendEZSPCommand(EZSP_SET_SOURCE_ROUTE_DISC, []byte{0x01}, 5*time.Second); err != nil {
+		c.log.Warn("setSourceRouteDiscoveryMode failed (continuing)", slog.Any("error", err))
+	} else {
+		c.log.Debug("source route discovery mode set to RESCHEDULE")
+	}
+
+	return nil
 }
 
 // GetNetworkInfo returns information about the current network state.
@@ -1517,19 +1612,18 @@ func (c *Controller) GetNetworkInfo(ctx context.Context) (*types.NetworkInfo, er
 	}
 	networkStatus := networkStateResp.Parameters[0]
 
-	// Map network status to NetworkState enum
+	// Map EmberNetworkStatus enum to NetworkState.
+	// EZSP_NETWORK_STATE returns EmberNetworkStatus (NOT SLStatus):
+	//   0x00 = NO_NETWORK, 0x01 = JOINING, 0x02 = JOINED, 0x03 = JOINED_NO_PARENT
 	var networkState types.NetworkState
 	switch networkStatus {
-	case 0x90: // EMBER_NETWORK_UP or SLStatus.NETWORK_UP
+	case 0x02, 0x03: // JOINED_NETWORK, JOINED_NETWORK_NO_PARENT
 		networkState = types.NetworkStateUp
-	case 0x91: // EMBER_NETWORK_DOWN or SLStatus.NETWORK_DOWN
+	case 0x00: // NO_NETWORK
+		networkState = types.NetworkStateNotJoined
+	case 0x01: // JOINING_NETWORK
 		networkState = types.NetworkStateDown
-	case 0x93: // EMBER_NOT_JOINED or SLStatus.NOT_JOINED
-		networkState = types.NetworkStateNotJoined
-	case 0x58: // SLStatus.TRANSMIT_BLOCKED - treat as not joined
-		networkState = types.NetworkStateNotJoined
 	default:
-		// Unknown status - treat as not joined
 		networkState = types.NetworkStateNotJoined
 	}
 
@@ -1670,7 +1764,11 @@ func (c *Controller) initEzsp() error {
 		// {EZSP_CONFIG_SECURITY_LEVEL, 5, "security_level"},
 		{EZSP_CONFIG_SUPPORTED_NETWORKS, 1, "supported_networks"},
 		{EZSP_CONFIG_TRUST_CENTER_ADDRESS_CACHE_SIZE, 2, "tc_address_cache_size"},
+		{EZSP_CONFIG_INDIRECT_TRANSMISSION_TIMEOUT, 7680, "indirect_transmission_timeout"},
 		{EZSP_CONFIG_MAX_HOPS, 30, "max_hops"},
+		{EZSP_CONFIG_MAX_END_DEVICE_CHILDREN, 32, "max_end_device_children"},
+		{EZSP_CONFIG_END_DEVICE_POLL_TIMEOUT, 8, "end_device_poll_timeout"}, // 2^8 = 256 seconds
+		{EZSP_CONFIG_TRANSIENT_KEY_TIMEOUT_S, 300, "transient_key_timeout_s"},
 	}
 	for _, cfg := range configs {
 		params := []byte{byte(cfg.id), byte(cfg.value), byte(cfg.value >> 8)}
@@ -1710,27 +1808,9 @@ func (c *Controller) initEzsp() error {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Verify SECURITY_LEVEL=5 is in effect (we skip the SET because it NAKs on CP2102/EFR32MG21
-	// hardware when the NCP already has it in NVM). If the NCP has security level 0 (cleartext),
-	// fail loudly rather than form an insecure network silently.
-	getSecResp, getSecErr := c.sendEZSPCommand(EZSP_GET_CONFIGURATION_VALUE,
-		[]byte{byte(EZSP_CONFIG_SECURITY_LEVEL)}, 5*time.Second)
-	if getSecErr != nil {
-		c.log.Warn("GET_CONFIGURATION_VALUE(security_level) failed (cannot verify)", slog.Any("error", getSecErr))
-	} else if len(getSecResp.Parameters) >= 3 {
-		// Response: [status(1)][value_lo(1)][value_hi(1)]
-		if getSecResp.Parameters[0] == 0x00 {
-			secLevel := uint16(getSecResp.Parameters[1]) | uint16(getSecResp.Parameters[2])<<8
-			if secLevel != 5 {
-				return fmt.Errorf("NCP security level is %d, expected 5 (AES-128-ENC+MIC-32); "+
-					"network would be insecure. Power-cycle the dongle to clear NVM and try again", secLevel)
-			}
-			c.log.Debug("security level verified", slog.Int("level", int(secLevel)))
-		} else {
-			c.log.Warn("GET_CONFIGURATION_VALUE(security_level) returned non-OK status (cannot verify)",
-				slog.String("status", fmt.Sprintf("0x%02X", getSecResp.Parameters[0])))
-		}
-	}
+	// NOTE: SECURITY_LEVEL (0x0D) cannot be queried or set on this hardware (CP2102/EFR32MG21) —
+	// both GET and SET NAK and leave the ASH session stuck, breaking all subsequent commands.
+	// The NCP retains security level 5 (AES-128) in NVM from prior formation; trust it.
 
 	// 2. Register application endpoint so the NCP can participate in the network.
 	if err := c.addEndpoint(1); err != nil {
@@ -1750,7 +1830,13 @@ func (c *Controller) initEzsp() error {
 			EZSP_TC_DECISION_ALLOW_JOINS | EZSP_TC_DECISION_ALLOW_UNSECURED_REJOINS,
 			"trust_center",
 		},
+		{
+			EZSP_POLICY_TC_KEY_REQUEST,
+			0x51, // ALLOW_TC_KEY_REQUESTS_AND_SEND_CURRENT_KEY
+			"tc_key_request",
+		},
 		{EZSP_POLICY_APP_KEY_REQUEST, 0x00 /* DENY */, "app_key_request"},
+		{EZSP_POLICY_MSG_CONTENTS_CB, 0x01 /* MESSAGE_TAG_ONLY */, "msg_contents_cb"},
 	}
 	for _, pol := range policies {
 		// SET_POLICY params: [policyId(1)][decisionId(1)] — exactly 2 bytes.
@@ -1806,6 +1892,67 @@ func (c *Controller) addEndpoint(endpoint uint8) error {
 	return nil
 }
 
+// setInitialSecurityState configures the NCP's trust center security so it can
+// distribute the network key to joining devices. This must be called both when
+// forming a new network AND when restoring from NVM — the NCP does not persist
+// trust center runtime state across restarts.
+func (c *Controller) setInitialSecurityState(params types.NetworkParameters) error {
+	// Well-known Zigbee 3.0 Trust Center Link Key ("ZigBeeAlliance09")
+	wellKnownLinkKey := []byte{
+		0x5A, 0x69, 0x67, 0x42, 0x65, 0x65, 0x41, 0x6C,
+		0x6C, 0x69, 0x61, 0x6E, 0x63, 0x65, 0x30, 0x39,
+	}
+
+	// Format: [bitmask:uint16][preconfiguredKey:16][networkKey:16][networkKeySequenceNumber:uint8][preconfiguredTrustCenterEui64:8]
+	securityParams := make([]byte, 0, 2+16+16+1+8)
+
+	// TRUST_CENTER_GLOBAL_LINK_KEY (0x0004) | HAVE_PRECONFIGURED_KEY (0x0100) | HAVE_NETWORK_KEY (0x0200)
+	// | TRUST_CENTER_USES_HASHED_LINK_KEY (0x0084) | REQUIRE_ENCRYPTED_KEY (0x0800)
+	bitmask := uint16(0x0004 | 0x0100 | 0x0200 | 0x0084 | 0x0800)
+	securityParams = append(securityParams, byte(bitmask), byte(bitmask>>8))
+	securityParams = append(securityParams, wellKnownLinkKey...)
+	securityParams = append(securityParams, params.NetworkKey[:]...)
+	securityParams = append(securityParams, 0x00)               // network key sequence number
+	securityParams = append(securityParams, make([]byte, 8)...) // trust center EUI64 (zeros)
+
+	c.log.Debug("setting initial security state")
+	securityResp, err := c.sendEZSPCommand(EZSP_SET_INITIAL_SECURITY_STATE, securityParams, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("setting initial security state: %w", err)
+	}
+	if len(securityResp.Parameters) < 1 {
+		return fmt.Errorf("security state response too short")
+	}
+	securityStatus := securityResp.Parameters[0]
+	if securityStatus == 0x00 || securityStatus == 0x46 {
+		c.log.Debug("initial security state set successfully")
+	} else if securityStatus == 0x58 || securityStatus == 0x68 {
+		c.log.Warn("SET_INITIAL_SECURITY_STATE non-fatal status (continuing)",
+			slog.String("status", fmt.Sprintf("0x%02X", securityStatus)))
+	} else {
+		return fmt.Errorf("setting initial security state failed with status 0x%02X", securityStatus)
+	}
+
+	// Extended security bitmask: JOINER_GLOBAL_LINK_KEY | NWK_LEAVE_REQUEST_NOT_ALLOWED
+	c.log.Debug("setting extended security bitmask")
+	extendedBitmask := uint16(0x0001 | 0x0002)
+	extendedSecurityResp, err := c.sendEZSPCommand(EZSP_SET_EXTENDED_SECURITY_BITMASK,
+		[]byte{byte(extendedBitmask), byte(extendedBitmask >> 8)}, 5*time.Second)
+	if err != nil {
+		c.log.Warn("SET_EXTENDED_SECURITY_BITMASK failed (continuing)", slog.Any("error", err))
+	} else if len(extendedSecurityResp.Parameters) >= 1 {
+		extendedStatus := extendedSecurityResp.Parameters[0]
+		if extendedStatus == 0x00 {
+			c.log.Debug("extended security bitmask set successfully")
+		} else {
+			c.log.Warn("SET_EXTENDED_SECURITY_BITMASK non-OK status",
+				slog.String("status", fmt.Sprintf("0x%02X", extendedStatus)))
+		}
+	}
+
+	return nil
+}
+
 // FormNetwork creates a new Zigbee network with the specified parameters.
 // This must be called before Start() if the device is not already part of a network.
 // The network parameters should be persisted so the same network can be restored
@@ -1830,16 +1977,11 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 		c.log.Debug("step -1: skipped (ember-skip-forced-leave; matching zigbee-herdsman order)")
 	}
 
-	// CRITICAL: Always call NETWORK_INIT first to restore network from tokens/NV memory
-	// According to EZSP documentation and zigbee-herdsman:
-	// - NETWORK_INIT should be called on startup whether or not the node was previously part of a network
-	// - If it returns SUCCESS (0x00), the device restored the network from stored state
-	// - If it returns EMBER_NOT_JOINED (0x93), no network exists and we need to form one
-	// - We should NOT call SET_INITIAL_SECURITY_STATE or FORM_NETWORK if NETWORK_INIT successfully restored a network
-	//
-	// This is the key insight: The device may already have network state stored in tokens/NV memory
-	// from a previous session. If we try to form a network when one already exists, the device may
-	// reject commands with 0x58 (TRANSMIT_BLOCKED) or other errors.
+	// Call NETWORK_INIT to restore network from tokens/NV memory.
+	// Security state must NOT be set before this — it would overwrite NVM tokens
+	// and prevent the restore. SET_INITIAL_SECURITY_STATE is only needed when forming new.
+	// - SUCCESS (0x00): network restored from stored state
+	// - EMBER_NOT_JOINED (0x93) / SL_STATUS_NOT_JOINED (0x17): no network, need to form
 	c.log.Debug("step 0: calling NETWORK_INIT to restore from tokens")
 
 	// EmberNetworkInitStruct: bitmask (uint16, little-endian)
@@ -1938,104 +2080,21 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 		}
 	}
 
-	// Step 1: Set initial security state with Network Key
-	// Only reached if NETWORK_INIT indicated no network exists or network parameters don't match
-	// This must be done before forming the network
-	// Bitmask: TRUST_CENTER_GLOBAL_LINK_KEY | HAVE_PRECONFIGURED_KEY | HAVE_NETWORK_KEY
-	// Use well-known link key (Zigbee Profile Interoperability Link Key) for preconfigured key
-	// This is: 0x5A 0x69 0x67 0x42 0x65 0x65 0x41 0x6C 0x6C 0x69 0x61 0x6E 0x63 0x65 0x30 0x39
-	wellKnownLinkKey := []byte{
-		0x5A, 0x69, 0x67, 0x42, 0x65, 0x65, 0x41, 0x6C,
-		0x6C, 0x69, 0x61, 0x6E, 0x63, 0x65, 0x30, 0x39,
+	// Set security state and clear key table before forming a new network.
+	// This is only reached when NETWORK_INIT did NOT restore — either no network exists
+	// or the parameters didn't match.
+	if err := c.setInitialSecurityState(params); err != nil {
+		return err
 	}
 
-	// Build initial security state
-	// Format: [bitmask:uint16][preconfiguredKey:16 bytes][networkKey:16 bytes][networkKeySequenceNumber:uint8][preconfiguredTrustCenterEui64:8 bytes]
-	// Must match zigbee-herdsman (emberAdapter formNetwork) or NCP may reject with 0x58 (invalid configuration).
-	securityParams := make([]byte, 0, 2+16+16+1+8)
-
-	// Bitmask: same as herdsman EmberInitialSecurityBitmask for formNetwork
-	// TRUST_CENTER_GLOBAL_LINK_KEY (0x0004) | HAVE_PRECONFIGURED_KEY (0x0100) | HAVE_NETWORK_KEY (0x0200)
-	// | TRUST_CENTER_USES_HASHED_LINK_KEY (0x0084) | REQUIRE_ENCRYPTED_KEY (0x0800)
-	bitmask := uint16(0x0004 | 0x0100 | 0x0200 | 0x0084 | 0x0800)
-	securityParams = append(securityParams, byte(bitmask), byte(bitmask>>8))
-
-	// Preconfigured key (well-known link key)
-	securityParams = append(securityParams, wellKnownLinkKey...)
-
-	// Network key
-	securityParams = append(securityParams, params.NetworkKey[:]...)
-
-	// Network key sequence number (0 for new network)
-	securityParams = append(securityParams, 0x00)
-
-	// Preconfigured Trust Center EUI64 (all zeros - will be learned during formation)
-	securityParams = append(securityParams, make([]byte, 8)...)
-
-	c.log.Debug("setting initial security state")
-
-	securityResp, err := c.sendEZSPCommand(EZSP_SET_INITIAL_SECURITY_STATE, securityParams, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("setting initial security state: %w", err)
-	}
-
-	if len(securityResp.Parameters) < 1 {
-		return fmt.Errorf("security state response too short")
-	}
-
-	securityStatus := securityResp.Parameters[0]
-	// Status 0x00 = SUCCESS
-	// Status 0x46 = INVALID_CALL: already set (non-fatal)
-	// Status 0x58 = TRANSMIT_BLOCKED: device may already have security configured
-	// Status 0x68 = SL_STATUS_ALREADY_INITIALIZED: security state already in NVM (non-fatal)
-	if securityStatus == 0x00 || securityStatus == 0x46 {
-		c.log.Debug("initial security state set successfully")
-	} else if securityStatus == 0x58 || securityStatus == 0x68 {
-		if c.settings.LogErrors {
-			c.log.Warn("SET_INITIAL_SECURITY_STATE non-fatal status (continuing with formation)",
-				slog.String("status", fmt.Sprintf("0x%02X", securityStatus)))
-		}
-	} else {
-		return fmt.Errorf("setting initial security state failed with status 0x%02X", securityStatus)
-	}
-
-	// Step 1.5: Set extended security bitmask (like zigbee-herdsman does)
-	// Extended security bitmask: JOINER_GLOBAL_LINK_KEY | NWK_LEAVE_REQUEST_NOT_ALLOWED
-	// JOINER_GLOBAL_LINK_KEY = 0x0001, NWK_LEAVE_REQUEST_NOT_ALLOWED = 0x0002
-	c.log.Debug("setting extended security bitmask")
-
-	extendedBitmask := uint16(0x0001 | 0x0002) // JOINER_GLOBAL_LINK_KEY | NWK_LEAVE_REQUEST_NOT_ALLOWED
-	extendedSecurityResp, err := c.sendEZSPCommand(EZSP_SET_EXTENDED_SECURITY_BITMASK,
-		[]byte{byte(extendedBitmask), byte(extendedBitmask >> 8)}, 5*time.Second)
-	if err != nil {
-		c.log.Warn("SET_EXTENDED_SECURITY_BITMASK failed (continuing)", slog.Any("error", err))
-	} else if len(extendedSecurityResp.Parameters) >= 1 {
-		extendedStatus := extendedSecurityResp.Parameters[0]
-		if extendedStatus == 0x00 {
-			c.log.Debug("extended security bitmask set successfully")
-		} else if extendedStatus == 0x58 {
-			if c.settings.LogErrors {
-				c.log.Warn("SET_EXTENDED_SECURITY_BITMASK returned 0x58",
-					slog.Int("response_len", len(extendedSecurityResp.Parameters)),
-					slog.String("response_hex", fmt.Sprintf("%X", extendedSecurityResp.Parameters)))
-			}
-		} else {
-			c.log.Warn("SET_EXTENDED_SECURITY_BITMASK returned non-OK status", slog.String("status", fmt.Sprintf("0x%02X", extendedStatus)))
-		}
-	}
-
-	// Step 1.6: Clear key table before forming network (like zigbee-herdsman does)
-	// This ensures we start with a clean key table
 	c.log.Debug("clearing key table before forming network")
 	clearKeyResp, clearKeyErr := c.sendEZSPCommand(EZSP_CLEAR_KEY_TABLE, nil, 5*time.Second)
 	if clearKeyErr == nil && len(clearKeyResp.Parameters) >= 1 {
 		clearKeyStatus := clearKeyResp.Parameters[0]
-		if clearKeyStatus == 0x00 {
-			c.log.Debug("key table cleared successfully")
-		} else if clearKeyStatus == 0x58 {
-			c.log.Debug("CLEAR_KEY_TABLE returned 0x58 (continuing)")
+		if clearKeyStatus != 0x00 {
+			c.log.Warn("CLEAR_KEY_TABLE non-OK status", slog.String("status", fmt.Sprintf("0x%02X", clearKeyStatus)))
 		} else {
-			c.log.Warn("CLEAR_KEY_TABLE returned non-OK status", slog.String("status", fmt.Sprintf("0x%02X", clearKeyStatus)))
+			c.log.Debug("key table cleared successfully")
 		}
 	} else if clearKeyErr != nil {
 		c.log.Warn("CLEAR_KEY_TABLE failed (continuing)", slog.Any("error", clearKeyErr))
@@ -2162,7 +2221,7 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 				if err == nil && len(stateResp.Parameters) >= 1 {
 					state := stateResp.Parameters[0]
 					lastPolledState = state
-					if state == 0x90 || state == 0x02 { // NETWORK_UP or JOINED_NETWORK
+					if state == 0x02 || state == 0x03 { // JOINED_NETWORK or JOINED_NETWORK_NO_PARENT
 						c.log.Info("network is up (from polling)", slog.String("status", fmt.Sprintf("0x%02X", state)), slog.Duration("elapsed", elapsed.Round(time.Second)))
 						return nil
 					}

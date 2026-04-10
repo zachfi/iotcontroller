@@ -56,6 +56,11 @@ const (
 	EZSP_MESSAGE_SENT_HANDLER          EZSPFrameID = 0x3F
 	EZSP_INCOMING_MESSAGE_HANDLER      EZSPFrameID = 0x45
 
+	EZSP_SET_VALUE                 EZSPFrameID = 0xAB // Set an NCP value
+	EZSP_SET_CONCENTRATOR          EZSPFrameID = 0x10 // Configure concentrator mode
+	EZSP_SET_SOURCE_ROUTE_DISC     EZSPFrameID = 0x5A // Set source route discovery mode
+	EZSP_SET_MULTICAST_TABLE_ENTRY EZSPFrameID = 0x64 // Set multicast table entry
+
 	// Extended-format-only commands (frame ID > 0xFF, requires 2-byte ID in 5-byte header).
 	EZSP_IMPORT_TRANSIENT_KEY      EZSPFrameID = 0x0111 // Add transient link key for joining
 	EZSP_CLEAR_TRANSIENT_LINK_KEYS EZSPFrameID = 0x006B // Remove all transient link keys
@@ -68,9 +73,13 @@ type EZSPConfigId uint8
 const (
 	EZSP_CONFIG_STACK_PROFILE                   EZSPConfigId = 0x0C // ZigBee Pro = 2
 	EZSP_CONFIG_SECURITY_LEVEL                  EZSPConfigId = 0x0D // AES-128-ENC+MIC-32 = 5
+	EZSP_CONFIG_INDIRECT_TRANSMISSION_TIMEOUT   EZSPConfigId = 0x12 // MAC indirect timeout (ms)
 	EZSP_CONFIG_SUPPORTED_NETWORKS              EZSPConfigId = 0x3E // 1 network
 	EZSP_CONFIG_TRUST_CENTER_ADDRESS_CACHE_SIZE EZSPConfigId = 0x19 // 2
 	EZSP_CONFIG_MAX_HOPS                        EZSPConfigId = 0x20 // 30
+	EZSP_CONFIG_MAX_END_DEVICE_CHILDREN         EZSPConfigId = 0x03 // max sleepy end devices
+	EZSP_CONFIG_END_DEVICE_POLL_TIMEOUT         EZSPConfigId = 0x44 // end device poll timeout (seconds exponent)
+	EZSP_CONFIG_TRANSIENT_KEY_TIMEOUT_S         EZSPConfigId = 0x36 // transient key timeout
 )
 
 // EZSPPolicyId identifies an NCP policy (EZSP_SET_POLICY).
@@ -78,7 +87,9 @@ type EZSPPolicyId uint8
 
 const (
 	EZSP_POLICY_TRUST_CENTER    EZSPPolicyId = 0x00
-	EZSP_POLICY_APP_KEY_REQUEST EZSPPolicyId = 0x06 // EzspPolicyId.APP_KEY_REQUEST_POLICY
+	EZSP_POLICY_TC_KEY_REQUEST  EZSPPolicyId = 0x05 // TC_KEY_REQUEST_POLICY
+	EZSP_POLICY_APP_KEY_REQUEST EZSPPolicyId = 0x06 // APP_KEY_REQUEST_POLICY
+	EZSP_POLICY_MSG_CONTENTS_CB EZSPPolicyId = 0x03 // MESSAGE_CONTENTS_IN_CALLBACK_POLICY
 )
 
 // Trust center decision bitmask values (EZSP protocol 8+, EmberZNet 7.x).

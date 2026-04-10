@@ -260,6 +260,24 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 		}
 	}
 
+	// Log the NCP's actual network state for diagnostics.
+	if netInfo, err := z.dongle.GetNetworkInfo(ctx); err == nil {
+		z.logger.Info("NCP network info",
+			slog.String("state", fmt.Sprintf("%v", netInfo.State)),
+			slog.Uint64("pan_id", uint64(netInfo.PanID)),
+			slog.String("extended_pan_id", fmt.Sprintf("%016x", netInfo.ExtendedPanID)),
+			slog.Int("channel", int(netInfo.Channel)),
+			slog.Uint64("short_address", uint64(netInfo.ShortAddress)),
+		)
+	} else {
+		z.logger.Warn("failed to query NCP network info", slog.String("error", err.Error()))
+	}
+
+	// Initialize concentrator mode so the coordinator broadcasts route discovery.
+	if err := z.dongle.SetConcentrator(ctx); err != nil {
+		z.logger.Warn("failed to set concentrator mode", slog.String("error", err.Error()))
+	}
+
 	z.logger.Info("listening for Zigbee messages")
 
 	// Enable permit join by default for 60 seconds to allow initial device pairing
