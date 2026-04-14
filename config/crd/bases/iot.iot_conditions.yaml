@@ -3,7 +3,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.9.2
+  creationTimestamp: null
   name: conditions.iot.iot
 spec:
   group: iot.iot
@@ -20,19 +21,14 @@ spec:
         description: Condition is the Schema for the conditions API
         properties:
           apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
-              may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
-              Cannot be updated.
-              In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -54,10 +50,10 @@ spec:
                 type: string
               remediations:
                 items:
-                  description: |-
-                    Remediation describes what to do to a zone when a condition matches: which
-                    zone, active/inactive state and scene, optional WhenGate (epoch window), and
-                    optional TimeIntervals (alert windows).
+                  description: 'Remediation describes what to do to a zone when a
+                    condition matches: which zone, active/inactive state and scene,
+                    optional WhenGate (epoch window), and optional TimeIntervals (alert
+                    windows).'
                   properties:
                     active_scene:
                       type: string
@@ -68,11 +64,10 @@ spec:
                     inactive_state:
                       type: string
                     time_intervals:
-                      description: |-
-                        TimeIntervals define the windows during which this remediation is
-                        applicable for Alerts.  If the conditioner receives an event outside of
-                        this range, the zone will be set to the inactive state, if defined in the
-                        condition spec.
+                      description: TimeIntervals define the windows during which this
+                        remediation is applicable for Alerts.  If the conditioner
+                        receives an event outside of this range, the zone will be
+                        set to the inactive state, if defined in the condition spec.
                       items:
                         description: TimeIntervalSpec mirrors the JSON/YAML *input*
                           format expected by Prometheus.
@@ -93,13 +88,12 @@ spec:
                               type: string
                             type: array
                           times:
-                            description: |-
-                              Times is a list of start/end times.
-                              We use a local struct here to ensure deepcopy generation works.
+                            description: Times is a list of start/end times. We use
+                              a local struct here to ensure deepcopy generation works.
                             items:
-                              description: |-
-                                TimePeriod defines a time range within a day. StartTime and EndTime use
-                                "HH:MM" format (24-hour). Mirrors the upstream Prometheus timeinterval format.
+                              description: TimePeriod defines a time range within
+                                a day. StartTime and EndTime use "HH:MM" format (24-hour).
+                                Mirrors the upstream Prometheus timeinterval format.
                               properties:
                                 end_time:
                                   type: string
@@ -124,10 +118,10 @@ spec:
                         type: object
                       type: array
                     when_gate:
-                      description: |-
-                        WhenGate is relative to the Epoch event and is used to create an
-                        activation window. When the window opens, the zone is activated; when
-                        the window closes, the zone is deactivated.
+                      description: WhenGate is relative to the Epoch event and is
+                        used to create an activation window. When the window opens,
+                        the zone is activated; when the window closes, the zone is
+                        deactivated.
                       properties:
                         start:
                           type: string
