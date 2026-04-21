@@ -14,7 +14,56 @@ import (
 	"github.com/zachfi/iotcontroller/pkg/mocks"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// fakeKubeClient is a minimal kubeclient.Client for tests. Only List is
+// implemented; all other methods panic.
+type fakeKubeClient struct {
+	conditions []apiv1.Condition
+}
+
+func (f *fakeKubeClient) List(_ context.Context, list kubeclient.ObjectList, _ ...kubeclient.ListOption) error {
+	if cl, ok := list.(*apiv1.ConditionList); ok {
+		cl.Items = append(cl.Items, f.conditions...)
+	}
+	return nil
+}
+
+func (f *fakeKubeClient) Get(_ context.Context, _ kubeclient.ObjectKey, _ kubeclient.Object, _ ...kubeclient.GetOption) error {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) Apply(_ context.Context, _ runtime.ApplyConfiguration, _ ...kubeclient.ApplyOption) error {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) Create(_ context.Context, _ kubeclient.Object, _ ...kubeclient.CreateOption) error {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) Delete(_ context.Context, _ kubeclient.Object, _ ...kubeclient.DeleteOption) error {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) Update(_ context.Context, _ kubeclient.Object, _ ...kubeclient.UpdateOption) error {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) Patch(_ context.Context, _ kubeclient.Object, _ kubeclient.Patch, _ ...kubeclient.PatchOption) error {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) DeleteAllOf(_ context.Context, _ kubeclient.Object, _ ...kubeclient.DeleteAllOfOption) error {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) Status() kubeclient.SubResourceWriter              { panic("not implemented") }
+func (f *fakeKubeClient) SubResource(_ string) kubeclient.SubResourceClient { panic("not implemented") }
+func (f *fakeKubeClient) Scheme() *runtime.Scheme                           { panic("not implemented") }
+func (f *fakeKubeClient) RESTMapper() meta.RESTMapper                       { panic("not implemented") }
+func (f *fakeKubeClient) GroupVersionKindFor(_ runtime.Object) (schema.GroupVersionKind, error) {
+	panic("not implemented")
+}
+func (f *fakeKubeClient) IsObjectNamespaced(_ runtime.Object) (bool, error) {
+	panic("not implemented")
+}
 
 var errExpectError = errors.New("expect error")
 
@@ -696,4 +745,101 @@ func Test_request(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEpoch_schedulesDeactivation confirms that when the epoch event is in the
+// future (now < start), both an activate and a deactivate event are added to
+// the schedule. This exercises the Bug 1 fix (inverted nil-check on line 279).
+func TestEpoch_schedulesDeactivation(t *testing.T) {
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{
+		conditions: []apiv1.Condition{
+			{
+				Spec: apiv1.ConditionSpec{
+					Enabled: true,
+					Matches: []apiv1.Match{
+						{Labels: map[string]string{"location": "home", "epoch": "sunset"}},
+					},
+					Remediations: []apiv1.Remediation{
+						{
+							Zone:          "zone1",
+							ActiveScene:   "warm",
+							InactiveState: "off",
+							WhenGate:      apiv1.When{Start: "-30m", Stop: "+2h"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := Config{EpochTimeWindow: time.Hour}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	// sunset is 2 hours from now; start = sunset-30m = ~90m from now (future)
+	sunsetTime := time.Now().Add(2 * time.Hour)
+	req := &iotv1proto.EpochRequest{
+		Location: "home",
+		Name:     "sunset",
+		When:     sunsetTime.Unix(),
+	}
+
+	_, err = c.Epoch(ctx, req)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, c.sched.len(), "expected both activate and deactivate events scheduled")
+	require.Equal(t, 0, rec.setSceneCount(), "no immediate SetScene expected")
+	require.Equal(t, 0, rec.setStateCount(), "no immediate SetState expected")
+}
+
+// TestEpoch_activatesWithinWindow confirms that when the current time falls
+// inside the epoch window, the remediation is activated immediately via
+// SetScene/SetState rather than being scheduled.
+func TestEpoch_activatesWithinWindow(t *testing.T) {
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{
+		conditions: []apiv1.Condition{
+			{
+				Spec: apiv1.ConditionSpec{
+					Enabled: true,
+					Matches: []apiv1.Match{
+						{Labels: map[string]string{"location": "home", "epoch": "sunset"}},
+					},
+					Remediations: []apiv1.Remediation{
+						{
+							Zone:          "zone1",
+							ActiveScene:   "warm",
+							InactiveState: "off",
+							WhenGate:      apiv1.When{Start: "-30m", Stop: "+2h"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := Config{EpochTimeWindow: time.Hour}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	// sunset is right now; start = now-30m (past), stop = now+2h (future) → we are within the window
+	sunsetTime := time.Now()
+	req := &iotv1proto.EpochRequest{
+		Location: "home",
+		Name:     "sunset",
+		When:     sunsetTime.Unix(),
+	}
+
+	_, err = c.Epoch(ctx, req)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, rec.setSceneCount(), "expected immediate SetScene activation")
+	require.Equal(t, 0, c.sched.len(), "no schedule events expected when activating immediately")
 }

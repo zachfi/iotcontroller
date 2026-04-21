@@ -10,6 +10,7 @@ import (
 	"github.com/grafana/dskit/services"
 
 	"github.com/prometheus/alertmanager/notify/webhook"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -118,18 +119,21 @@ func (h *HookReceiver) Handler(w http.ResponseWriter, r *http.Request) {
 		span.SetAttributes(attribute.String(fmt.Sprintf("%s_%d", iot.ZoneLabel, i), zone))
 		span.SetAttributes(attribute.String(fmt.Sprintf("%s_%d", iot.AlertNameLabel, i), name))
 
-		hookreceiverReceivedTotal.WithLabelValues(name, zone).Inc()
-
 		a := &iotv1proto.AlertRequest{
 			Name:   name,
 			Status: m.Status,
 			Zone:   zone,
 		}
 
-		_, err := h.eventReceiverClient.Alert(ctx, a)
+		timer := prometheus.NewTimer(hookreceiverGRPCDuration)
+		_, err := h.eventReceiverClient.Alert(context.WithoutCancel(ctx), a)
+		timer.ObserveDuration()
+
 		if err != nil {
-			hookreceiverReceiverErrorsTotal.WithLabelValues(name, zone).Inc()
+			hookreceiverAlertsTotal.WithLabelValues(name, zone, "error").Inc()
 			h.logger.Error("failed to send event", "err", err)
+		} else {
+			hookreceiverAlertsTotal.WithLabelValues(name, zone, "success").Inc()
 		}
 	}
 }
