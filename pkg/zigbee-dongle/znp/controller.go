@@ -449,11 +449,12 @@ func (c *Controller) FormNetwork(ctx context.Context, params types.NetworkParame
 	if err := c.nvWrite(nvExtendedPANID, 0, extPanIDBytes); err != nil {
 		return fmt.Errorf("writing extended PAN ID: %w", err)
 	}
-	// 4. Channel list (4 bytes): bitmask, bit 0 = channel 11, bit 1 = channel 12, ...
+	// 4. Channel list (4 bytes): IEEE 802.15.4 bitmask, bit N = channel N.
+	// Channel 11 = 0x00000800, channel 26 = 0x04000000.
 	if params.Channel < 11 || params.Channel > 26 {
 		return fmt.Errorf("channel must be 11-26, got %d", params.Channel)
 	}
-	chanMask := uint32(1 << (params.Channel - 11))
+	chanMask := uint32(1) << params.Channel
 	chanListBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(chanListBytes, chanMask)
 	if err := c.nvWrite(nvChannelList, 0, chanListBytes); err != nil {

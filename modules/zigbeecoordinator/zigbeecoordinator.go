@@ -163,8 +163,7 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 		}
 
 		if !needsNetwork {
-			// Device is already on a network. Config is source of truth: only write to disk
-			// when we're adopting (no config or config doesn't match device). Otherwise keep config as-is.
+			// Device is already on a network. Check whether it matches the saved state file.
 			if z.cfg.StateFile != "" {
 				savedParams, err := zigbeedongle.LoadNetworkState(z.cfg.StateFile)
 				deviceParamsMatch := err == nil && savedParams != nil &&
@@ -173,20 +172,25 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 					savedParams.Channel == uint8(info.Channel)
 
 				if deviceParamsMatch {
-					// Config matches device; don't overwrite (preserves user-edited key in config)
+					// Dongle is already on the saved network; nothing to do.
 					z.logger.Info("config matches device network; keeping config as source of truth",
 						slog.Bool("network_key_in_config", !zigbeedongle.IsZeroNetworkKey(savedParams.NetworkKey)),
 					)
+				} else if err == nil && savedParams != nil {
+					// Saved state exists but the dongle is on a different network.
+					// The state file wins: re-form so the dongle matches the saved network.
+					// This is the dongle-swap case (e.g. old NV state after swapping hardware).
+					z.logger.Info("dongle network differs from saved state; re-forming from state file",
+						slog.Uint64("device_pan_id", uint64(info.PanID)),
+						slog.Uint64("saved_pan_id", uint64(savedParams.PanID)),
+					)
+					needsNetwork = true
 				} else {
-					// Adopt: save device state to config. We cannot read the key from the device.
+					// No state file: adopt the dongle's current network as the source of truth.
+					// We cannot read the key from the device hardware.
 					var networkKey [16]byte
-					if err == nil && savedParams != nil {
-						networkKey = savedParams.NetworkKey
-						z.logger.Info("using network key from saved state file")
-					} else {
-						z.logger.Warn("no saved network state found - network key cannot be read from device. " +
-							"Set networkkey in config (e.g. hex from: openssl rand -hex 16) for device swap support.")
-					}
+					z.logger.Warn("no saved network state; adopting device network. " +
+						"Set networkkey in config (e.g. hex from: openssl rand -hex 16) for device swap support.")
 					params := zigbeedongle.NetworkParameters{
 						PanID:         info.PanID,
 						ExtendedPanID: info.ExtendedPanID,
@@ -200,12 +204,12 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 							slog.Uint64("pan_id", uint64(params.PanID)),
 							slog.String("extended_pan_id", fmt.Sprintf("%016x", params.ExtendedPanID)),
 							slog.Int("channel", int(params.Channel)),
-							slog.Bool("network_key_preserved", !zigbeedongle.IsZeroNetworkKey(networkKey)),
 						)
 					}
 				}
 			}
-		} else if needsNetwork {
+		}
+		if needsNetwork {
 			// Try to load saved network state first
 			var params *zigbeedongle.NetworkParameters
 			var err error
