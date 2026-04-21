@@ -309,6 +309,22 @@ func buildASHACKFrame(ackNum uint8) []byte {
 	return result
 }
 
+func buildASHNAKFrame(ackNum uint8) []byte {
+	// NAK control byte: 0xA0 (NAK type) + ackNum in lower 3 bits
+	control := byte(0xA0) | (ackNum & 0x07)
+	crc := crcCCITT([]byte{control})
+
+	frameData := []byte{control, byte(crc >> 8), byte(crc & 0xFF)}
+	escaped := escapeASHFrame(frameData)
+
+	result := make([]byte, 0, len(escaped)+2)
+	result = append(result, ASH_FLAG)
+	result = append(result, escaped...)
+	result = append(result, ASH_FLAG)
+
+	return result
+}
+
 // crcCCITT computes CRC-CCITT (poly 0x1021, init 0xFFFF) for ASH.
 func crcCCITT(data []byte) uint16 {
 	crc := uint16(0xFFFF)

@@ -577,8 +577,18 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent type
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
 		slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
 		slog.String("device_type", interviewInfo.DeviceType),
+		slog.Uint64("manufacturer_id", uint64(interviewInfo.ManufacturerID)),
 		slog.Int("endpoint_count", len(interviewInfo.Endpoints)),
 	)
+	for _, ep := range interviewInfo.Endpoints {
+		z.logger.Info("endpoint",
+			slog.Int("id", int(ep.ID)),
+			slog.String("profile_id", fmt.Sprintf("0x%04X", ep.ProfileID)),
+			slog.String("device_id", fmt.Sprintf("0x%04X", ep.DeviceID)),
+			slog.Any("input_clusters", ep.InputClusters),
+			slog.Any("output_clusters", ep.OutputClusters),
+		)
+	}
 	z.sendInterviewResult(ctx, joinEvent.IEEEAddress, joinEvent.NetworkAddress, interviewInfo, nil)
 }
 

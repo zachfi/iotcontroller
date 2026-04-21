@@ -1007,14 +1007,24 @@ func (c *Controller) handleASHFrame(rawFrame []byte, output chan<- types.Incomin
 
 	switch ashFrame.Type {
 	case ASH_FRAME_DATA:
-		// Verify CRC of received frame (diagnose CRC algorithm correctness).
-		// The received raw frame (unescaped, without flags) has: [control][data...][crcHi][crcLo]
+		// Verify CRC. A mismatch means the frame is corrupted — send NAK and discard.
+		// Per ASH spec, processing a corrupted frame causes EZSP parse garbage (wrong frame_id,
+		// wrong params), which breaks the session. NAK asks the NCP to retransmit.
 		unescapedRaw := unescapeASHFrame(rawFrame[1 : len(rawFrame)-1]) // strip flags, unescape
 		if len(unescapedRaw) >= 3 {
 			expectedCRC := binary.BigEndian.Uint16(unescapedRaw[len(unescapedRaw)-2:])
 			computedCRC := crcCCITT(unescapedRaw[:len(unescapedRaw)-2])
-			if computedCRC != expectedCRC && c.settings.LogErrors {
-				c.log.Warn("received DATA frame CRC mismatch", slog.String("computed", fmt.Sprintf("0x%04X", computedCRC)), slog.String("expected", fmt.Sprintf("0x%04X", expectedCRC)))
+			if computedCRC != expectedCRC {
+				if c.settings.LogErrors {
+					c.log.Warn("received DATA frame CRC mismatch — sending NAK, discarding frame",
+						slog.String("computed", fmt.Sprintf("0x%04X", computedCRC)),
+						slog.String("expected", fmt.Sprintf("0x%04X", expectedCRC)))
+				}
+				nakFrame := buildASHNAKFrame(c.rxSeq)
+				if _, err := c.port.WriteBytes(nakFrame); err != nil && c.settings.LogErrors {
+					c.log.Warn("failed to send NAK", slog.Any("error", err))
+				}
+				return
 			} else if c.settings.LogCommands {
 				c.log.Debug("received DATA frame CRC ok", slog.String("crc", fmt.Sprintf("0x%04X", computedCRC)))
 			}
@@ -1264,6 +1274,25 @@ func (c *Controller) handleCallback(frame *EZSPFrame, output chan<- types.Incomi
 				// Channel full, skip (shouldn't happen with buffered channel)
 			}
 		}
+
+	case 0x009B:
+		// zigbeeKeyEstablishmentHandler: partner(EUI64,8) + status(EmberKeyStatus,1)
+		// Status 0x32 = EMBER_TC_REJOIN_WITH_WELL_KNOWN_KEY: device is rejoining with ZigBeeAlliance09 key.
+		// This fires when the NCP starts processing a TC rejoin with the well-known key.
+		// trustCenterJoinHandler (0x0024) should fire separately when the join completes.
+		if len(frame.Parameters) >= 9 {
+			partner := frame.Parameters[0:8]
+			keyStatus := frame.Parameters[8]
+			c.log.Info("zigbee key establishment",
+				slog.String("partner_eui64", fmt.Sprintf("%X", partner)),
+				slog.String("key_status", fmt.Sprintf("0x%02X", keyStatus)))
+		}
+
+	default:
+		// Log all unhandled callbacks at info level so we can identify unknown join-related events.
+		c.log.Info("unhandled EZSP callback",
+			slog.String("frame_id", fmt.Sprintf("0x%04X", frame.FrameID)),
+			slog.String("params", fmt.Sprintf("%X", frame.Parameters)))
 	}
 }
 
@@ -1458,14 +1487,6 @@ func (c *Controller) PermitJoining(ctx context.Context, enabled bool) error {
 
 	if enabled {
 		c.log.Info("permit joining enabled", slog.Int("duration_sec", int(duration)))
-		// Log network info so operator can verify the device is joining the right network.
-		if info, err := c.GetNetworkInfo(ctx); err == nil && info.State == types.NetworkStateUp {
-			c.log.Info("coordinator network info",
-				slog.Int("channel", int(info.Channel)),
-				slog.String("pan_id", fmt.Sprintf("0x%04X", info.PanID)),
-				slog.String("extended_pan_id", fmt.Sprintf("0x%016X", info.ExtendedPanID)),
-			)
-		}
 	} else if c.settings.LogCommands {
 		c.log.Debug("permit joining disabled")
 	}

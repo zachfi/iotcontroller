@@ -178,6 +178,51 @@ func TestParseASHFrameTooShort(t *testing.T) {
 }
 
 // TestBuildRSTFrameStructure verifies the RST frame has cancel bytes and flag delimiters.
+func TestBuildASHNAKFrame(t *testing.T) {
+	for ackNum := uint8(0); ackNum < 8; ackNum++ {
+		raw := buildASHNAKFrame(ackNum)
+		parsed, err := ParseASHFrame(raw)
+		if err != nil {
+			t.Fatalf("ackNum=%d: ParseASHFrame: %v", ackNum, err)
+		}
+		if parsed.Type != ASH_FRAME_NAK {
+			t.Errorf("ackNum=%d: Type = %v, want ASH_FRAME_NAK", ackNum, parsed.Type)
+		}
+		if parsed.AckNum != ackNum {
+			t.Errorf("ackNum=%d: AckNum = %d, want %d", ackNum, parsed.AckNum, ackNum)
+		}
+	}
+}
+
+func TestBuildASHNAKFrameControlByte(t *testing.T) {
+	// NAK control byte must be 0xA0 | ackNum; verify the raw byte before FLAG/escape.
+	for ackNum := uint8(0); ackNum < 8; ackNum++ {
+		raw := buildASHNAKFrame(ackNum)
+		// Frame: FLAG + (escaped control + CRC) + FLAG
+		// After unescaping, first byte is the control byte.
+		inner := raw[1 : len(raw)-1]
+		unescaped := unescapeASHFrame(inner)
+		if len(unescaped) < 1 {
+			t.Fatalf("ackNum=%d: unescaped frame too short", ackNum)
+		}
+		want := byte(0xA0) | (ackNum & 0x07)
+		if unescaped[0] != want {
+			t.Errorf("ackNum=%d: control = 0x%02X, want 0x%02X", ackNum, unescaped[0], want)
+		}
+	}
+}
+
+func TestBuildASHNAKFrameDistinctFromACK(t *testing.T) {
+	// NAK and ACK frames for the same ackNum must be different bytes.
+	for ackNum := uint8(0); ackNum < 8; ackNum++ {
+		nak := buildASHNAKFrame(ackNum)
+		ack := buildASHACKFrame(ackNum)
+		if bytes.Equal(nak, ack) {
+			t.Errorf("ackNum=%d: NAK and ACK frames are identical", ackNum)
+		}
+	}
+}
+
 func TestBuildRSTFrameStructure(t *testing.T) {
 	raw := buildRSTFrame()
 
