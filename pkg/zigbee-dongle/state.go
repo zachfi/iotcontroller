@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 
@@ -149,6 +150,81 @@ func LoadNetworkState(statePath string) (*types.NetworkParameters, error) {
 		Channel:       state.Channel,
 		NetworkKey:    [16]byte(state.NetworkKey),
 	}, nil
+}
+
+// NWKMapPath derives the NWK address map file path from the network state file path.
+// For example "network.yaml" → "network-nwkmap.yaml".
+func NWKMapPath(statePath string) string {
+	ext := filepath.Ext(statePath)
+	base := strings.TrimSuffix(statePath, ext)
+	return base + "-nwkmap" + ext
+}
+
+// nwkMapFileFormat is the YAML layout for the NWK→IEEE address map.
+type nwkMapFileFormat struct {
+	Entries []nwkMapEntry `yaml:"entries"`
+}
+
+type nwkMapEntry struct {
+	NWK  uint16 `yaml:"nwk"`
+	IEEE uint64 `yaml:"ieee"`
+}
+
+// SaveNWKMap persists the NWK→IEEE address map to disk atomically.
+// The map file sits next to the network state file (see NWKMapPath).
+func SaveNWKMap(statePath string, nwkToIEEE map[uint16]uint64) error {
+	mapPath := NWKMapPath(statePath)
+
+	dir := filepath.Dir(mapPath)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("creating nwk map directory: %w", err)
+		}
+	}
+
+	f := nwkMapFileFormat{}
+	for nwk, ieee := range nwkToIEEE {
+		f.Entries = append(f.Entries, nwkMapEntry{NWK: nwk, IEEE: ieee})
+	}
+
+	data, err := yaml.Marshal(&f)
+	if err != nil {
+		return fmt.Errorf("marshaling nwk map: %w", err)
+	}
+
+	tmp := mapPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("writing nwk map tmp: %w", err)
+	}
+	if err := os.Rename(tmp, mapPath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("renaming nwk map: %w", err)
+	}
+	return nil
+}
+
+// LoadNWKMap loads the NWK→IEEE address map from disk.
+// Returns an empty map (not an error) when the file does not exist.
+func LoadNWKMap(statePath string) (map[uint16]uint64, error) {
+	mapPath := NWKMapPath(statePath)
+	data, err := os.ReadFile(mapPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[uint16]uint64), nil
+		}
+		return nil, fmt.Errorf("reading nwk map: %w", err)
+	}
+
+	var f nwkMapFileFormat
+	if err := yaml.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("unmarshaling nwk map: %w", err)
+	}
+
+	m := make(map[uint16]uint64, len(f.Entries))
+	for _, e := range f.Entries {
+		m[e.NWK] = e.IEEE
+	}
+	return m, nil
 }
 
 // GenerateRandomNetworkParameters creates random network parameters for a new network.

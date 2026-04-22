@@ -150,16 +150,10 @@ func (r *Router) send(ctx context.Context, path string, payload []byte) error {
 		r.ispindel().SpecificGravityRoute(ctx, payload, deviceID)
 	case r.match(path, "ispindel/([^/]+)/RSSI", &deviceID):
 		r.ispindel().RSSI(ctx, payload, deviceID)
-		// TODO:
-		/*
-			ispindel/brewHydroBlack/tilt 26.08455
-			ispindel/brewHydroBlack/temperature 9.6875
-			ispindel/brewHydroBlack/temp_units C
-			ispindel/brewHydroBlack/battery 3.534932
-			ispindel/brewHydroBlack/gravity 1.002085
-			ispindel/brewHydroBlack/interval 900
-			ispindel/brewHydroBlack/RSSI -91
-		*/
+	case r.match(path, "ispindel/([^/]+)/temp_units", &deviceID):
+		// temperature unit string (always "C") — no metric needed
+	case r.match(path, "ispindel/([^/]+)/interval", &deviceID):
+		// report interval in seconds — no metric needed
 	default:
 		r.logger.Debug("unhandled route", "path", path)
 		span.AddEvent("unhandled route")

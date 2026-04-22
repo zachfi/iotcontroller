@@ -115,16 +115,11 @@ func (z *ZigbeeCoordinator) SendCommand(ctx context.Context, req *iotv1proto.Sen
 // lookupNWK resolves an IEEE address to a network address.
 // The ieee string may or may not have a "0x" prefix.
 func (z *ZigbeeCoordinator) lookupNWK(ieee string) (uint16, bool) {
-	// Normalize IEEE address: strip "0x" prefix and lowercase
 	normalized := strings.ToLower(strings.TrimPrefix(ieee, "0x"))
 
 	z.nwkToIEEEMux.RLock()
-	defer z.nwkToIEEEMux.RUnlock()
+	nwk, ok := z.ieeeToNWK[normalized]
+	z.nwkToIEEEMux.RUnlock()
 
-	for nwk, ieeeAddr := range z.nwkToIEEE {
-		if fmt.Sprintf("%016x", ieeeAddr) == normalized {
-			return nwk, true
-		}
-	}
-	return 0, false
+	return nwk, ok
 }

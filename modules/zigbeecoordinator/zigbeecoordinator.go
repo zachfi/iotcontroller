@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -22,8 +23,7 @@ import (
 )
 
 const (
-	module    = "zigbee-coordinator"
-	namespace = "iot"
+	module = "zigbee-coordinator"
 )
 
 type ZigbeeCoordinator struct {
@@ -46,9 +46,10 @@ type ZigbeeCoordinator struct {
 	interviewingMux sync.Mutex
 	interviewing    map[uint16]bool // network address -> is interviewing
 
-	// NWK→IEEE address map (populated from join events)
+	// Bidirectional NWK↔IEEE address maps (populated from join events)
 	nwkToIEEEMux sync.RWMutex
 	nwkToIEEE    map[uint16]uint64 // network address -> IEEE address
+	ieeeToNWK    map[string]uint16 // normalized IEEE hex string -> network address
 
 	// Command sequence counter for ZCL transaction sequence numbers
 	cmdSequence uint32
@@ -63,6 +64,7 @@ func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceCli
 		zclParser:    zclpkg.NewParser(logger),
 		interviewing: make(map[uint16]bool),
 		nwkToIEEE:    make(map[uint16]uint64),
+		ieeeToNWK:    make(map[string]uint16),
 	}
 
 	dongleCfg := cfg.ToDongleConfig(z.logger)
@@ -100,7 +102,26 @@ func (z *ZigbeeCoordinator) starting(ctx context.Context) error {
 			}
 		}
 	}
-	// TODO: Add health check for Ember stack when implemented
+	// Ember stack: no pre-Start health check needed — the RSTACK+VERSION handshake
+	// in Start() already validates communication and fails fast if the NCP is unresponsive.
+
+	// Load NWK↔IEEE address maps from disk so devices are identified by IEEE
+	// address even before sending their first frame after a coordinator restart.
+	if z.cfg.StateFile != "" {
+		if nwkMap, err := zigbeedongle.LoadNWKMap(z.cfg.StateFile); err != nil {
+			z.logger.Warn("failed to load nwk map", slog.String("error", err.Error()))
+		} else if len(nwkMap) > 0 {
+			rev := make(map[string]uint16, len(nwkMap))
+			for nwk, ieee := range nwkMap {
+				rev[fmt.Sprintf("%016x", ieee)] = nwk
+			}
+			z.nwkToIEEEMux.Lock()
+			z.nwkToIEEE = nwkMap
+			z.ieeeToNWK = rev
+			z.nwkToIEEEMux.Unlock()
+			z.logger.Info("loaded nwk↔ieee maps from disk", slog.Int("entries", len(nwkMap)))
+		}
+	}
 
 	// Load network state from disk if available
 	// This allows restoring the same network when swapping devices
@@ -543,10 +564,20 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent type
 		z.interviewingMux.Unlock()
 	}()
 
-	// Store NWK→IEEE mapping for message routing (all stacks)
+	// Store NWK↔IEEE mappings for message routing and SendCommand lookups.
+	ieeeNormalized := fmt.Sprintf("%016x", joinEvent.IEEEAddress)
 	z.nwkToIEEEMux.Lock()
 	z.nwkToIEEE[joinEvent.NetworkAddress] = joinEvent.IEEEAddress
+	z.ieeeToNWK[ieeeNormalized] = joinEvent.NetworkAddress
+	mapSnapshot := make(map[uint16]uint64, len(z.nwkToIEEE))
+	maps.Copy(mapSnapshot, z.nwkToIEEE)
 	z.nwkToIEEEMux.Unlock()
+
+	if z.cfg.StateFile != "" {
+		if err := zigbeedongle.SaveNWKMap(z.cfg.StateFile, mapSnapshot); err != nil {
+			z.logger.Warn("failed to save nwk map", slog.String("error", err.Error()))
+		}
+	}
 
 	z.logger.Info("device joined",
 		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
@@ -678,9 +709,3 @@ func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr ui
 	}
 }
 
-func formatMessage(message, prefix string) string {
-	if prefix == "" {
-		return message
-	}
-	return fmt.Sprintf("%s-%s", prefix, message)
-}

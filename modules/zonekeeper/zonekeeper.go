@@ -305,10 +305,8 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 		return resp, fmt.Errorf("failed to get zone %q for action %q: %w", req.Zone, req.Event, err)
 	}
 
-	// TODO: move the strings here to constants
-
 	switch req.Event {
-	case "single", "button_1_press":
+	case ActionSingle, ActionButton1Press:
 		// Toggle from current state
 		currentState := zone.State()
 		switch currentState {
@@ -321,16 +319,16 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 			zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
 			zone.On(ctx)
 		}
-	case "on", "double", "tap", "slide", "on_press":
+	case ActionOn, ActionDouble, ActionTap, ActionSlide, ActionOnPress:
 		zone.SetColorTemperature(ctx, iotv1proto.ColorTemperature_COLOR_TEMPERATURE_DAY)
 		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_FULL)
 		zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
 		zone.On(ctx)
-	case "off", "triple", "off_press":
+	case ActionOff, ActionTriple, ActionOffPress:
 		zone.Off(ctx)
-	case "quadruple", "flip90", "flip180", "fall", "button_3_press":
+	case ActionQuadruple, ActionFlip90, ActionFlip180, ActionFall, ActionButton3Press:
 		zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR)
-	case "hold", "button_2_press":
+	case ActionHold, ActionButton2Press:
 		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_DIM)
 		zone.On(ctx)
 	case UpPress, RotateRight, DialRotateRightSlow, DialRotateRightFast, DialRotateRightStep, BrightnessStepUp:
@@ -340,16 +338,16 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 		zone.DecrementBrightness(ctx)
 		zone.On(ctx)
 	case
-		"wakeup",
-		"press",
-		"release",
-		"off_hold",
-		"off_hold_release",
-		"on_press_release",
-		"off_press_release",
-		"up_press_release",
-		"down_press_release",
-		"button_1_press_release": // do nothing
+		ActionWakeup,
+		ActionPress,
+		ActionRelease,
+		ActionOffHold,
+		ActionOffHoldRelease,
+		ActionOnPressRelease,
+		ActionOffPressRelease,
+		ActionUpPressRelease,
+		ActionDownPressRelease,
+		ActionButton1PressRelease: // do nothing
 		return resp, nil
 	default:
 		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", req.Event, req.Device, req.Zone))
@@ -365,7 +363,46 @@ func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHa
 }
 
 const (
-	// Incprement Brightness
+	// Toggle / single press
+	ActionSingle       = "single"
+	ActionButton1Press = "button_1_press"
+
+	// On actions
+	ActionOn      = "on"
+	ActionDouble  = "double"
+	ActionTap     = "tap"
+	ActionSlide   = "slide"
+	ActionOnPress = "on_press"
+
+	// Off actions
+	ActionOff      = "off"
+	ActionTriple   = "triple"
+	ActionOffPress = "off_press"
+
+	// Color / scene actions
+	ActionQuadruple    = "quadruple"
+	ActionFlip90       = "flip90"
+	ActionFlip180      = "flip180"
+	ActionFall         = "fall"
+	ActionButton3Press = "button_3_press"
+
+	// Dim actions
+	ActionHold        = "hold"
+	ActionButton2Press = "button_2_press"
+
+	// No-op actions
+	ActionWakeup              = "wakeup"
+	ActionPress               = "press"
+	ActionRelease             = "release"
+	ActionOffHold             = "off_hold"
+	ActionOffHoldRelease      = "off_hold_release"
+	ActionOnPressRelease      = "on_press_release"
+	ActionOffPressRelease     = "off_press_release"
+	ActionUpPressRelease      = "up_press_release"
+	ActionDownPressRelease    = "down_press_release"
+	ActionButton1PressRelease = "button_1_press_release"
+
+	// Increment Brightness
 	UpPress             = "up_press"
 	RotateRight         = "rotate_right"
 	DialRotateRightSlow = "dial_rotate_right_slow"

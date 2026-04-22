@@ -8,6 +8,97 @@ import (
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/types"
 )
 
+// TestNWKMapPath verifies the derived map file path.
+func TestNWKMapPath(t *testing.T) {
+	cases := []struct {
+		statePath string
+		want      string
+	}{
+		{"network.yaml", "network-nwkmap.yaml"},
+		{"/etc/iot/state.yaml", "/etc/iot/state-nwkmap.yaml"},
+		{"no-ext", "no-ext-nwkmap"},
+	}
+	for _, tc := range cases {
+		got := NWKMapPath(tc.statePath)
+		if got != tc.want {
+			t.Errorf("NWKMapPath(%q) = %q, want %q", tc.statePath, got, tc.want)
+		}
+	}
+}
+
+// TestSaveLoadNWKMapRoundTrip verifies that the map survives a save/load cycle.
+func TestSaveLoadNWKMapRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "network.yaml")
+
+	original := map[uint16]uint64{
+		0x1234: 0xaabbccddeeff0011,
+		0x5678: 0x0011223344556677,
+	}
+
+	if err := SaveNWKMap(statePath, original); err != nil {
+		t.Fatalf("SaveNWKMap: %v", err)
+	}
+
+	loaded, err := LoadNWKMap(statePath)
+	if err != nil {
+		t.Fatalf("LoadNWKMap: %v", err)
+	}
+
+	if len(loaded) != len(original) {
+		t.Fatalf("len = %d, want %d", len(loaded), len(original))
+	}
+	for nwk, ieee := range original {
+		if got := loaded[nwk]; got != ieee {
+			t.Errorf("loaded[0x%04x] = 0x%016x, want 0x%016x", nwk, got, ieee)
+		}
+	}
+}
+
+// TestLoadNWKMapNotExist verifies that a missing file returns an empty map without error.
+func TestLoadNWKMapNotExist(t *testing.T) {
+	dir := t.TempDir()
+	m, err := LoadNWKMap(filepath.Join(dir, "nonexistent.yaml"))
+	if err != nil {
+		t.Fatalf("expected nil error for missing file, got: %v", err)
+	}
+	if len(m) != 0 {
+		t.Errorf("expected empty map, got %v", m)
+	}
+}
+
+// TestSaveNWKMapEmptyMap verifies that an empty map is saved and loaded cleanly.
+func TestSaveNWKMapEmptyMap(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "network.yaml")
+
+	if err := SaveNWKMap(statePath, map[uint16]uint64{}); err != nil {
+		t.Fatalf("SaveNWKMap empty: %v", err)
+	}
+
+	loaded, err := LoadNWKMap(statePath)
+	if err != nil {
+		t.Fatalf("LoadNWKMap: %v", err)
+	}
+	if len(loaded) != 0 {
+		t.Errorf("expected empty map, got %v", loaded)
+	}
+}
+
+// TestSaveNWKMapCreatesDirectory verifies that missing parent dirs are created.
+func TestSaveNWKMapCreatesDirectory(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "sub", "network.yaml")
+
+	if err := SaveNWKMap(statePath, map[uint16]uint64{0x0001: 0xdeadbeef}); err != nil {
+		t.Fatalf("SaveNWKMap: %v", err)
+	}
+
+	if _, err := os.Stat(NWKMapPath(statePath)); os.IsNotExist(err) {
+		t.Error("nwk map file was not created")
+	}
+}
+
 // TestIsZeroNetworkKey verifies detection of an all-zero key.
 func TestIsZeroNetworkKey(t *testing.T) {
 	var zero [16]byte
