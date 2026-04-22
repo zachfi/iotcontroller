@@ -1,0 +1,99 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.9.2
+  creationTimestamp: null
+  name: bindings.iot.iot
+spec:
+  group: iot.iot
+  names:
+    kind: Binding
+    listKind: BindingList
+    plural: bindings
+    singular: binding
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: Binding maps a device trigger (ZCL command or MQTT message) to
+          a Condition. When the trigger fires, the named Condition's remediations
+          are applied to its zones. This replaces hardcoded action strings in the
+          router.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: BindingSpec defines a trigger → condition mapping. Exactly
+              one of ZCL or MQTT must be set. When the trigger fires, the named Condition
+              is activated.
+            properties:
+              condition:
+                description: Condition is the name of the Condition resource to activate
+                  when this binding fires. The Condition must exist in the same namespace.
+                type: string
+              mqtt:
+                description: MQTT matches a message on an MQTT topic by extracting
+                  a JSON field and comparing its string value. Covers zigbee2mqtt,
+                  Tasmota, ESPHome, etc.
+                properties:
+                  field:
+                    description: Field is the top-level JSON key to extract from the
+                      payload (e.g. "action").
+                    type: string
+                  topic:
+                    description: Topic is the exact MQTT topic to match (e.g. "zigbee2mqtt/my-button").
+                    type: string
+                  value:
+                    description: Value is the expected string value of the field (e.g.
+                      "single").
+                    type: string
+                required:
+                - field
+                - topic
+                - value
+                type: object
+              zcl:
+                description: ZCL matches a native Zigbee command by IEEE address,
+                  cluster, and command ID.
+                properties:
+                  cluster_id:
+                    description: ClusterID is the ZCL cluster identifier (e.g. 6 for
+                      On/Off).
+                    type: integer
+                  command_id:
+                    description: CommandID is the ZCL command identifier within the
+                      cluster (e.g. 1 for On).
+                    type: integer
+                  ieee:
+                    description: IEEE is the 64-bit IEEE address of the device (e.g.
+                      "0xffffb40e06032b2e").
+                    type: string
+                required:
+                - cluster_id
+                - command_id
+                - ieee
+                type: object
+            required:
+            - condition
+            type: object
+          status:
+            description: BindingStatus defines the observed state of Binding.
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

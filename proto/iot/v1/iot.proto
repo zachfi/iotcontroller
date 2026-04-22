@@ -38,18 +38,16 @@ message EpochRequest {
 message EpochResponse {}
 
 
-// message ActionRequest {
-//   string name = 1;
-//   string action = 2;
-//   string device = 3;
-//   string zone = 4;
-// }
+message ActivateConditionRequest {
+  // condition is the name of the Condition resource to activate.
+  string condition = 1;
+}
+message ActivateConditionResponse {}
 
 service EventReceiverService {
   rpc Alert(AlertRequest) returns (AlertResponse);
   rpc Epoch(EpochRequest) returns (EpochResponse);
-  // rpc Action(ActionRequest) returns (ActionResponse);
-  // TODO: rpc Motion(MotionRequest) returns (MotionResponse);
+  rpc ActivateCondition(ActivateConditionRequest) returns (ActivateConditionResponse);
 }
 
 message SendRequest {

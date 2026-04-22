@@ -212,7 +212,17 @@ func (a *App) initRouter() (services.Service, error) {
 		return nil, fmt.Errorf("failed to create new client connection; %w", err)
 	}
 
-	r, err := router.New(a.cfg.Router, a.logger, a.kubeclient, iotv1proto.NewZoneKeeperServiceClient(c))
+	var eventReceiverClient iotv1proto.EventReceiverServiceClient
+	if a.cfg.Router.ConditionerClient.ServerAddress != "" {
+		cc, err := common.NewClientConn(a.cfg.Router.ConditionerClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create conditioner client connection: %w", err)
+		}
+		eventReceiverClient = iotv1proto.NewEventReceiverServiceClient(cc)
+		a.logger.Info("conditioner client configured for binding activation", "address", a.cfg.Router.ConditionerClient.ServerAddress)
+	}
+
+	r, err := router.New(a.cfg.Router, a.logger, a.kubeclient, iotv1proto.NewZoneKeeperServiceClient(c), eventReceiverClient)
 	if err != nil {
 		return nil, err
 	}

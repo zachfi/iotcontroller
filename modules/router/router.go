@@ -42,10 +42,10 @@ type Router struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	kubeclient kubeclient.Client
-
-	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
-	itemCh           chan *item
+	kubeclient          kubeclient.Client
+	zonekeeperClient    iotv1proto.ZoneKeeperServiceClient
+	eventReceiverClient iotv1proto.EventReceiverServiceClient
+	itemCh              chan *item
 
 	regexps map[string]*regexp.Regexp
 	routers map[RouteTypes]any
@@ -57,21 +57,20 @@ type item struct {
 	Payload []byte
 }
 
-/* type RouteFunc func([]byte, ...interface{}) error */
-
-func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) (*Router, error) {
+func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient, eventReceiverClient iotv1proto.EventReceiverServiceClient) (*Router, error) {
 	c := &Router{
-		cfg:              &cfg,
-		logger:           logger.With("module", module),
-		tracer:           otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
-		kubeclient:       kubeclient,
-		zonekeeperClient: zonekeeperClient,
-		itemCh:           make(chan *item, 100), // Some amount of queue to maintain order
-		regexps:          make(map[string]*regexp.Regexp, 10),
-		routers:          make(map[RouteTypes]any),
+		cfg:                 &cfg,
+		logger:              logger.With("module", module),
+		tracer:              otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
+		kubeclient:          kubeclient,
+		zonekeeperClient:    zonekeeperClient,
+		eventReceiverClient: eventReceiverClient,
+		itemCh:              make(chan *item, 100),
+		regexps:             make(map[string]*regexp.Regexp, 10),
+		routers:             make(map[RouteTypes]any),
 	}
 
-	z2m, err := zigbee2mqtt.New(logger, c.tracer, kubeclient, c.zonekeeperClient)
+	z2m, err := zigbee2mqtt.New(logger, c.tracer, kubeclient, c.zonekeeperClient, c.eventReceiverClient)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +84,7 @@ func New(cfg Config, logger *slog.Logger, kubeclient kubeclient.Client, zonekeep
 
 	c.routers[Ispindel] = isp
 
-	nz, err := nativezigbee.New(logger, c.tracer, kubeclient, c.zonekeeperClient)
+	nz, err := nativezigbee.New(logger, c.tracer, kubeclient, c.zonekeeperClient, c.eventReceiverClient)
 	if err != nil {
 		return nil, err
 	}
