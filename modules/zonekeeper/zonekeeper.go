@@ -387,7 +387,7 @@ const (
 	ActionButton3Press = "button_3_press"
 
 	// Dim actions
-	ActionHold        = "hold"
+	ActionHold         = "hold"
 	ActionButton2Press = "button_2_press"
 
 	// No-op actions

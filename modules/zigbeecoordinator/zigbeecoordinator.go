@@ -708,4 +708,3 @@ func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr ui
 		)
 	}
 }
-
