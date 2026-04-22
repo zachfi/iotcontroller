@@ -357,7 +357,7 @@ github.com/jacobsa/go-serial/serial
 ## explicit; go 1.22.7
 github.com/jaegertracing/jaeger-idl/model/v1
 github.com/jaegertracing/jaeger-idl/proto-gen/api_v2
-# github.com/jedib0t/go-pretty/v6 v6.6.7
+# github.com/jedib0t/go-pretty/v6 v6.7.10
 ## explicit; go 1.18
 github.com/jedib0t/go-pretty/v6/table
 github.com/jedib0t/go-pretty/v6/text
