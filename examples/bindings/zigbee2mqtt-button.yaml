@@ -1,0 +1,32 @@
+# Example Bindings for a button device managed by zigbee2mqtt.
+#
+# MQTT bindings match on topic, a top-level JSON field, and its string value.
+# zigbee2mqtt publishes to "zigbee2mqtt/<friendly_name>" with payloads like:
+#   {"action": "single", "battery": 95, "linkquality": 182}
+#
+# This covers any device connected via zigbee2mqtt, Tasmota, ESPHome, or
+# any other source that writes JSON to MQTT topics.
+---
+apiVersion: iot.iot/v1
+kind: Binding
+metadata:
+  name: z2m-button-living-area-on
+  namespace: iot
+spec:
+  mqtt:
+    topic: "zigbee2mqtt/my-button"
+    field: "action"
+    value: "single"
+  condition: living-area-on
+---
+apiVersion: iot.iot/v1
+kind: Binding
+metadata:
+  name: z2m-button-living-area-off
+  namespace: iot
+spec:
+  mqtt:
+    topic: "zigbee2mqtt/my-button"
+    field: "action"
+    value: "double"
+  condition: living-area-off

@@ -36,20 +36,20 @@ type Zigbee2Mqtt struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
-	kubeclient kubeclient.Client
-
-	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
-	/* reportStream     telemetryv1proto.TelemetryService_TelemetryReportIOTDeviceClient */
+	kubeclient          kubeclient.Client
+	zonekeeperClient    iotv1proto.ZoneKeeperServiceClient
+	eventReceiverClient iotv1proto.EventReceiverServiceClient
 
 	deviceTracker *iotutil.DeviceTracker
 }
 
-func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) (*Zigbee2Mqtt, error) {
+func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client, zonekeeperClient iotv1proto.ZoneKeeperServiceClient, eventReceiverClient iotv1proto.EventReceiverServiceClient) (*Zigbee2Mqtt, error) {
 	z := &Zigbee2Mqtt{
-		logger:           logger.With("router", routeName),
-		tracer:           tracer,
-		kubeclient:       kubeclient,
-		zonekeeperClient: zonekeeperClient,
+		logger:              logger.With("router", routeName),
+		tracer:              tracer,
+		kubeclient:          kubeclient,
+		zonekeeperClient:    zonekeeperClient,
+		eventReceiverClient: eventReceiverClient,
 
 		deviceTracker: iotutil.NewDeviceTracker(
 			[]iotutil.Metric{
@@ -289,6 +289,17 @@ func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
 	))
 	defer func() { _ = tracing.ErrHandler(span, err, "action", z.logger) }()
 
+	// Try binding lookup: find a Binding for (topic, field="action", value=action)
+	// and activate the named Condition. Fall back to ActionHandler for unbound devices.
+	topic := "zigbee2mqtt/" + device
+	if conditionName := z.findMQTTBinding(ctx, topic, "action", action); conditionName != "" {
+		span.SetAttributes(attribute.String("condition", conditionName))
+		_, err = z.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
+			Condition: conditionName,
+		})
+		return
+	}
+
 	_, err = z.zonekeeperClient.ActionHandler(ctx,
 		&iotv1proto.ActionHandlerRequest{
 			Event:  action,
@@ -296,6 +307,32 @@ func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
 			Zone:   zone,
 		},
 	)
+}
+
+// findMQTTBinding lists Binding CRDs and returns the condition name for the
+// first MQTT binding matching (topic, field, value), or "" if none match.
+func (z *Zigbee2Mqtt) findMQTTBinding(ctx context.Context, topic, field, value string) string {
+	if z.eventReceiverClient == nil {
+		return ""
+	}
+
+	list := &apiv1.BindingList{}
+	if err := z.kubeclient.List(ctx, list, kubeclient.InNamespace("iot")); err != nil {
+		z.logger.Debug("failed to list bindings", slog.String("error", err.Error()))
+		return ""
+	}
+
+	for _, b := range list.Items {
+		if b.Spec.MQTT == nil {
+			continue
+		}
+		if b.Spec.MQTT.Topic == topic &&
+			b.Spec.MQTT.Field == field &&
+			b.Spec.MQTT.Value == value {
+			return b.Spec.Condition
+		}
+	}
+	return ""
 }
 
 func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMessage, device *apiv1.Device) {

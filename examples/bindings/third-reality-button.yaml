@@ -1,0 +1,61 @@
+# Example Bindings for the Third Reality Smart Button (3RSB22BZ)
+#
+# A Binding maps a device trigger to a named Condition. When the trigger
+# fires, the Condition's remediations are applied to its zones. This
+# replaces hardcoded action strings in the router.
+#
+# ZCL cluster 0x0006 = On/Off
+#   command 0x00 = Off
+#   command 0x01 = On
+#   command 0x02 = Toggle
+#
+# Replace the IEEE address and condition names to match your deployment.
+# The Condition resources must exist in the same namespace.
+---
+apiVersion: iot.iot/v1
+kind: Binding
+metadata:
+  name: button-bedside-zach-on
+  namespace: iot
+spec:
+  zcl:
+    ieee: "0xffffb40e06036411"
+    cluster_id: 6
+    command_id: 1    # On
+  condition: bedside-zach-on
+---
+apiVersion: iot.iot/v1
+kind: Binding
+metadata:
+  name: button-bedside-zach-off
+  namespace: iot
+spec:
+  zcl:
+    ieee: "0xffffb40e06036411"
+    cluster_id: 6
+    command_id: 0    # Off
+  condition: bedside-zach-off
+---
+# Example Conditions activated by the bindings above.
+# active_scene references a Scene resource; active_state sets zone power state.
+apiVersion: iot.iot/v1
+kind: Condition
+metadata:
+  name: bedside-zach-on
+  namespace: iot
+spec:
+  enabled: true
+  remediations:
+    - zone: bedside-zach
+      active_state: ZONE_STATE_ON
+---
+apiVersion: iot.iot/v1
+kind: Condition
+metadata:
+  name: bedside-zach-off
+  namespace: iot
+spec:
+  enabled: true
+  remediations:
+    - zone: bedside-zach
+      active_state: ZONE_STATE_OFF

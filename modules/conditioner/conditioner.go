@@ -302,6 +302,42 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 	return nil, nil
 }
 
+// ActivateCondition looks up the named Condition and immediately applies all of
+// its remediations. This is the entry point for binding-triggered activations
+// (ZCL commands, MQTT messages, or any other input that has already been mapped
+// to a Condition name).
+func (c *Conditioner) ActivateCondition(ctx context.Context, req *iotv1proto.ActivateConditionRequest) (*iotv1proto.ActivateConditionResponse, error) {
+	var err error
+	ctx, span := c.tracer.Start(ctx, "Conditioner.ActivateCondition",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(attribute.String("condition", req.Condition)),
+	)
+	defer tracing.ErrHandler(span, err, "activate condition failed", c.logger)
+
+	var cond apiv1.Condition
+	if err = c.kubeClient.Get(ctx, kubeclient.ObjectKey{Name: req.Condition, Namespace: "iot"}, &cond); err != nil {
+		return &iotv1proto.ActivateConditionResponse{}, fmt.Errorf("condition %q not found: %w", req.Condition, err)
+	}
+
+	if !cond.Spec.Enabled {
+		span.AddEvent("condition disabled")
+		return &iotv1proto.ActivateConditionResponse{}, nil
+	}
+
+	var errs []error
+	for _, rem := range cond.Spec.Remediations {
+		if activateErr := c.sched.activateRemediation(ctx, rem, c.zonekeeperClient); activateErr != nil {
+			errs = append(errs, activateErr)
+		}
+	}
+
+	if len(errs) > 0 {
+		err = errors.Join(errs...)
+	}
+
+	return &iotv1proto.ActivateConditionResponse{}, err
+}
+
 // Status returns the current scheduled events (name, next run time, scene/state).
 func (c *Conditioner) Status() []scheduleStatus {
 	return c.sched.Status()

@@ -123,8 +123,9 @@ var IOTService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	EventReceiverService_Alert_FullMethodName = "/iot.v1.EventReceiverService/Alert"
-	EventReceiverService_Epoch_FullMethodName = "/iot.v1.EventReceiverService/Epoch"
+	EventReceiverService_Alert_FullMethodName             = "/iot.v1.EventReceiverService/Alert"
+	EventReceiverService_Epoch_FullMethodName             = "/iot.v1.EventReceiverService/Epoch"
+	EventReceiverService_ActivateCondition_FullMethodName = "/iot.v1.EventReceiverService/ActivateCondition"
 )
 
 // EventReceiverServiceClient is the client API for EventReceiverService service.
@@ -133,6 +134,7 @@ const (
 type EventReceiverServiceClient interface {
 	Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error)
 	Epoch(ctx context.Context, in *EpochRequest, opts ...grpc.CallOption) (*EpochResponse, error)
+	ActivateCondition(ctx context.Context, in *ActivateConditionRequest, opts ...grpc.CallOption) (*ActivateConditionResponse, error)
 }
 
 type eventReceiverServiceClient struct {
@@ -163,12 +165,23 @@ func (c *eventReceiverServiceClient) Epoch(ctx context.Context, in *EpochRequest
 	return out, nil
 }
 
+func (c *eventReceiverServiceClient) ActivateCondition(ctx context.Context, in *ActivateConditionRequest, opts ...grpc.CallOption) (*ActivateConditionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActivateConditionResponse)
+	err := c.cc.Invoke(ctx, EventReceiverService_ActivateCondition_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EventReceiverServiceServer is the server API for EventReceiverService service.
 // All implementations should embed UnimplementedEventReceiverServiceServer
 // for forward compatibility.
 type EventReceiverServiceServer interface {
 	Alert(context.Context, *AlertRequest) (*AlertResponse, error)
 	Epoch(context.Context, *EpochRequest) (*EpochResponse, error)
+	ActivateCondition(context.Context, *ActivateConditionRequest) (*ActivateConditionResponse, error)
 }
 
 // UnimplementedEventReceiverServiceServer should be embedded to have
@@ -183,6 +196,9 @@ func (UnimplementedEventReceiverServiceServer) Alert(context.Context, *AlertRequ
 }
 func (UnimplementedEventReceiverServiceServer) Epoch(context.Context, *EpochRequest) (*EpochResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Epoch not implemented")
+}
+func (UnimplementedEventReceiverServiceServer) ActivateCondition(context.Context, *ActivateConditionRequest) (*ActivateConditionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ActivateCondition not implemented")
 }
 func (UnimplementedEventReceiverServiceServer) testEmbeddedByValue() {}
 
@@ -240,6 +256,24 @@ func _EventReceiverService_Epoch_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EventReceiverService_ActivateCondition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ActivateConditionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventReceiverServiceServer).ActivateCondition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventReceiverService_ActivateCondition_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventReceiverServiceServer).ActivateCondition(ctx, req.(*ActivateConditionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EventReceiverService_ServiceDesc is the grpc.ServiceDesc for EventReceiverService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -254,6 +288,10 @@ var EventReceiverService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Epoch",
 			Handler:    _EventReceiverService_Epoch_Handler,
+		},
+		{
+			MethodName: "ActivateCondition",
+			Handler:    _EventReceiverService_ActivateCondition_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -637,6 +637,87 @@ func (*EpochResponse) Descriptor() ([]byte, []int) {
 	return file_iot_v1_iot_proto_rawDescGZIP(), []int{6}
 }
 
+type ActivateConditionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// condition is the name of the Condition resource to activate.
+	Condition     string `protobuf:"bytes,1,opt,name=condition,proto3" json:"condition,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ActivateConditionRequest) Reset() {
+	*x = ActivateConditionRequest{}
+	mi := &file_iot_v1_iot_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActivateConditionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActivateConditionRequest) ProtoMessage() {}
+
+func (x *ActivateConditionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_v1_iot_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActivateConditionRequest.ProtoReflect.Descriptor instead.
+func (*ActivateConditionRequest) Descriptor() ([]byte, []int) {
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ActivateConditionRequest) GetCondition() string {
+	if x != nil {
+		return x.Condition
+	}
+	return ""
+}
+
+type ActivateConditionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ActivateConditionResponse) Reset() {
+	*x = ActivateConditionResponse{}
+	mi := &file_iot_v1_iot_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActivateConditionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActivateConditionResponse) ProtoMessage() {}
+
+func (x *ActivateConditionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_iot_v1_iot_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActivateConditionResponse.ProtoReflect.Descriptor instead.
+func (*ActivateConditionResponse) Descriptor() ([]byte, []int) {
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{8}
+}
+
 type SendRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
@@ -647,7 +728,7 @@ type SendRequest struct {
 
 func (x *SendRequest) Reset() {
 	*x = SendRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[7]
+	mi := &file_iot_v1_iot_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -659,7 +740,7 @@ func (x *SendRequest) String() string {
 func (*SendRequest) ProtoMessage() {}
 
 func (x *SendRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[7]
+	mi := &file_iot_v1_iot_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -672,7 +753,7 @@ func (x *SendRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendRequest.ProtoReflect.Descriptor instead.
 func (*SendRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{7}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SendRequest) GetPath() string {
@@ -697,7 +778,7 @@ type SendResponse struct {
 
 func (x *SendResponse) Reset() {
 	*x = SendResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[8]
+	mi := &file_iot_v1_iot_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +790,7 @@ func (x *SendResponse) String() string {
 func (*SendResponse) ProtoMessage() {}
 
 func (x *SendResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[8]
+	mi := &file_iot_v1_iot_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +803,7 @@ func (x *SendResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendResponse.ProtoReflect.Descriptor instead.
 func (*SendResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{8}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{10}
 }
 
 type SetStateResponse struct {
@@ -733,7 +814,7 @@ type SetStateResponse struct {
 
 func (x *SetStateResponse) Reset() {
 	*x = SetStateResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[9]
+	mi := &file_iot_v1_iot_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -745,7 +826,7 @@ func (x *SetStateResponse) String() string {
 func (*SetStateResponse) ProtoMessage() {}
 
 func (x *SetStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[9]
+	mi := &file_iot_v1_iot_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -758,7 +839,7 @@ func (x *SetStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetStateResponse.ProtoReflect.Descriptor instead.
 func (*SetStateResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{9}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{11}
 }
 
 type SetStateRequest struct {
@@ -771,7 +852,7 @@ type SetStateRequest struct {
 
 func (x *SetStateRequest) Reset() {
 	*x = SetStateRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[10]
+	mi := &file_iot_v1_iot_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -783,7 +864,7 @@ func (x *SetStateRequest) String() string {
 func (*SetStateRequest) ProtoMessage() {}
 
 func (x *SetStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[10]
+	mi := &file_iot_v1_iot_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +877,7 @@ func (x *SetStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetStateRequest.ProtoReflect.Descriptor instead.
 func (*SetStateRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{10}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SetStateRequest) GetName() string {
@@ -821,7 +902,7 @@ type SetSceneResponse struct {
 
 func (x *SetSceneResponse) Reset() {
 	*x = SetSceneResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[11]
+	mi := &file_iot_v1_iot_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -833,7 +914,7 @@ func (x *SetSceneResponse) String() string {
 func (*SetSceneResponse) ProtoMessage() {}
 
 func (x *SetSceneResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[11]
+	mi := &file_iot_v1_iot_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -846,7 +927,7 @@ func (x *SetSceneResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSceneResponse.ProtoReflect.Descriptor instead.
 func (*SetSceneResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{11}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{13}
 }
 
 type SetSceneRequest struct {
@@ -859,7 +940,7 @@ type SetSceneRequest struct {
 
 func (x *SetSceneRequest) Reset() {
 	*x = SetSceneRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[12]
+	mi := &file_iot_v1_iot_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +952,7 @@ func (x *SetSceneRequest) String() string {
 func (*SetSceneRequest) ProtoMessage() {}
 
 func (x *SetSceneRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[12]
+	mi := &file_iot_v1_iot_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +965,7 @@ func (x *SetSceneRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSceneRequest.ProtoReflect.Descriptor instead.
 func (*SetSceneRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{12}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SetSceneRequest) GetName() string {
@@ -910,7 +991,7 @@ type GetDeviceZoneRequest struct {
 
 func (x *GetDeviceZoneRequest) Reset() {
 	*x = GetDeviceZoneRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[13]
+	mi := &file_iot_v1_iot_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -922,7 +1003,7 @@ func (x *GetDeviceZoneRequest) String() string {
 func (*GetDeviceZoneRequest) ProtoMessage() {}
 
 func (x *GetDeviceZoneRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[13]
+	mi := &file_iot_v1_iot_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -935,7 +1016,7 @@ func (x *GetDeviceZoneRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeviceZoneRequest.ProtoReflect.Descriptor instead.
 func (*GetDeviceZoneRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{13}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetDeviceZoneRequest) GetDevice() string {
@@ -954,7 +1035,7 @@ type GetDeviceZoneResponse struct {
 
 func (x *GetDeviceZoneResponse) Reset() {
 	*x = GetDeviceZoneResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[14]
+	mi := &file_iot_v1_iot_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1047,7 @@ func (x *GetDeviceZoneResponse) String() string {
 func (*GetDeviceZoneResponse) ProtoMessage() {}
 
 func (x *GetDeviceZoneResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[14]
+	mi := &file_iot_v1_iot_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1060,7 @@ func (x *GetDeviceZoneResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeviceZoneResponse.ProtoReflect.Descriptor instead.
 func (*GetDeviceZoneResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{14}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetDeviceZoneResponse) GetZone() string {
@@ -1000,7 +1081,7 @@ type ActionHandlerRequest struct {
 
 func (x *ActionHandlerRequest) Reset() {
 	*x = ActionHandlerRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[15]
+	mi := &file_iot_v1_iot_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +1093,7 @@ func (x *ActionHandlerRequest) String() string {
 func (*ActionHandlerRequest) ProtoMessage() {}
 
 func (x *ActionHandlerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[15]
+	mi := &file_iot_v1_iot_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1025,7 +1106,7 @@ func (x *ActionHandlerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActionHandlerRequest.ProtoReflect.Descriptor instead.
 func (*ActionHandlerRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{15}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ActionHandlerRequest) GetEvent() string {
@@ -1057,7 +1138,7 @@ type ActionHandlerResponse struct {
 
 func (x *ActionHandlerResponse) Reset() {
 	*x = ActionHandlerResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[16]
+	mi := &file_iot_v1_iot_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1069,7 +1150,7 @@ func (x *ActionHandlerResponse) String() string {
 func (*ActionHandlerResponse) ProtoMessage() {}
 
 func (x *ActionHandlerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[16]
+	mi := &file_iot_v1_iot_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1082,7 +1163,7 @@ func (x *ActionHandlerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActionHandlerResponse.ProtoReflect.Descriptor instead.
 func (*ActionHandlerResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{16}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{18}
 }
 
 type SelfAnnounceRequest struct {
@@ -1095,7 +1176,7 @@ type SelfAnnounceRequest struct {
 
 func (x *SelfAnnounceRequest) Reset() {
 	*x = SelfAnnounceRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[17]
+	mi := &file_iot_v1_iot_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1107,7 +1188,7 @@ func (x *SelfAnnounceRequest) String() string {
 func (*SelfAnnounceRequest) ProtoMessage() {}
 
 func (x *SelfAnnounceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[17]
+	mi := &file_iot_v1_iot_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1120,7 +1201,7 @@ func (x *SelfAnnounceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelfAnnounceRequest.ProtoReflect.Descriptor instead.
 func (*SelfAnnounceRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{17}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SelfAnnounceRequest) GetDevice() string {
@@ -1145,7 +1226,7 @@ type SelfAnnounceResponse struct {
 
 func (x *SelfAnnounceResponse) Reset() {
 	*x = SelfAnnounceResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[18]
+	mi := &file_iot_v1_iot_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1157,7 +1238,7 @@ func (x *SelfAnnounceResponse) String() string {
 func (*SelfAnnounceResponse) ProtoMessage() {}
 
 func (x *SelfAnnounceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[18]
+	mi := &file_iot_v1_iot_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1170,7 +1251,7 @@ func (x *SelfAnnounceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelfAnnounceResponse.ProtoReflect.Descriptor instead.
 func (*SelfAnnounceResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{18}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{20}
 }
 
 type OccupancyHandlerRequest struct {
@@ -1183,7 +1264,7 @@ type OccupancyHandlerRequest struct {
 
 func (x *OccupancyHandlerRequest) Reset() {
 	*x = OccupancyHandlerRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[19]
+	mi := &file_iot_v1_iot_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1195,7 +1276,7 @@ func (x *OccupancyHandlerRequest) String() string {
 func (*OccupancyHandlerRequest) ProtoMessage() {}
 
 func (x *OccupancyHandlerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[19]
+	mi := &file_iot_v1_iot_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1208,7 +1289,7 @@ func (x *OccupancyHandlerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OccupancyHandlerRequest.ProtoReflect.Descriptor instead.
 func (*OccupancyHandlerRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{19}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *OccupancyHandlerRequest) GetDevice() string {
@@ -1233,7 +1314,7 @@ type OccupancyHandlerResponse struct {
 
 func (x *OccupancyHandlerResponse) Reset() {
 	*x = OccupancyHandlerResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[20]
+	mi := &file_iot_v1_iot_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1245,7 +1326,7 @@ func (x *OccupancyHandlerResponse) String() string {
 func (*OccupancyHandlerResponse) ProtoMessage() {}
 
 func (x *OccupancyHandlerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[20]
+	mi := &file_iot_v1_iot_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1258,7 +1339,7 @@ func (x *OccupancyHandlerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OccupancyHandlerResponse.ProtoReflect.Descriptor instead.
 func (*OccupancyHandlerResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{20}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{22}
 }
 
 // SendCommandRequest carries a high-level Zigbee device command.
@@ -1285,7 +1366,7 @@ type SendCommandRequest struct {
 
 func (x *SendCommandRequest) Reset() {
 	*x = SendCommandRequest{}
-	mi := &file_iot_v1_iot_proto_msgTypes[21]
+	mi := &file_iot_v1_iot_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1297,7 +1378,7 @@ func (x *SendCommandRequest) String() string {
 func (*SendCommandRequest) ProtoMessage() {}
 
 func (x *SendCommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[21]
+	mi := &file_iot_v1_iot_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1310,7 +1391,7 @@ func (x *SendCommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendCommandRequest.ProtoReflect.Descriptor instead.
 func (*SendCommandRequest) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{21}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SendCommandRequest) GetIeeeAddress() string {
@@ -1423,7 +1504,7 @@ type SendCommandResponse struct {
 
 func (x *SendCommandResponse) Reset() {
 	*x = SendCommandResponse{}
-	mi := &file_iot_v1_iot_proto_msgTypes[22]
+	mi := &file_iot_v1_iot_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1435,7 +1516,7 @@ func (x *SendCommandResponse) String() string {
 func (*SendCommandResponse) ProtoMessage() {}
 
 func (x *SendCommandResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[22]
+	mi := &file_iot_v1_iot_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1448,7 +1529,7 @@ func (x *SendCommandResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendCommandResponse.ProtoReflect.Descriptor instead.
 func (*SendCommandResponse) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{22}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SendCommandResponse) GetSuccess() bool {
@@ -1473,7 +1554,7 @@ type ZigbeeCommandOn struct {
 
 func (x *ZigbeeCommandOn) Reset() {
 	*x = ZigbeeCommandOn{}
-	mi := &file_iot_v1_iot_proto_msgTypes[23]
+	mi := &file_iot_v1_iot_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1485,7 +1566,7 @@ func (x *ZigbeeCommandOn) String() string {
 func (*ZigbeeCommandOn) ProtoMessage() {}
 
 func (x *ZigbeeCommandOn) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[23]
+	mi := &file_iot_v1_iot_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1498,7 +1579,7 @@ func (x *ZigbeeCommandOn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ZigbeeCommandOn.ProtoReflect.Descriptor instead.
 func (*ZigbeeCommandOn) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{23}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{25}
 }
 
 type ZigbeeCommandOff struct {
@@ -1509,7 +1590,7 @@ type ZigbeeCommandOff struct {
 
 func (x *ZigbeeCommandOff) Reset() {
 	*x = ZigbeeCommandOff{}
-	mi := &file_iot_v1_iot_proto_msgTypes[24]
+	mi := &file_iot_v1_iot_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1521,7 +1602,7 @@ func (x *ZigbeeCommandOff) String() string {
 func (*ZigbeeCommandOff) ProtoMessage() {}
 
 func (x *ZigbeeCommandOff) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[24]
+	mi := &file_iot_v1_iot_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1534,7 +1615,7 @@ func (x *ZigbeeCommandOff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ZigbeeCommandOff.ProtoReflect.Descriptor instead.
 func (*ZigbeeCommandOff) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{24}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{26}
 }
 
 type ZigbeeCommandToggle struct {
@@ -1545,7 +1626,7 @@ type ZigbeeCommandToggle struct {
 
 func (x *ZigbeeCommandToggle) Reset() {
 	*x = ZigbeeCommandToggle{}
-	mi := &file_iot_v1_iot_proto_msgTypes[25]
+	mi := &file_iot_v1_iot_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1557,7 +1638,7 @@ func (x *ZigbeeCommandToggle) String() string {
 func (*ZigbeeCommandToggle) ProtoMessage() {}
 
 func (x *ZigbeeCommandToggle) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[25]
+	mi := &file_iot_v1_iot_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1570,7 +1651,7 @@ func (x *ZigbeeCommandToggle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ZigbeeCommandToggle.ProtoReflect.Descriptor instead.
 func (*ZigbeeCommandToggle) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{25}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{27}
 }
 
 type ZigbeeCommandSetBrightness struct {
@@ -1585,7 +1666,7 @@ type ZigbeeCommandSetBrightness struct {
 
 func (x *ZigbeeCommandSetBrightness) Reset() {
 	*x = ZigbeeCommandSetBrightness{}
-	mi := &file_iot_v1_iot_proto_msgTypes[26]
+	mi := &file_iot_v1_iot_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1597,7 +1678,7 @@ func (x *ZigbeeCommandSetBrightness) String() string {
 func (*ZigbeeCommandSetBrightness) ProtoMessage() {}
 
 func (x *ZigbeeCommandSetBrightness) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[26]
+	mi := &file_iot_v1_iot_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1610,7 +1691,7 @@ func (x *ZigbeeCommandSetBrightness) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ZigbeeCommandSetBrightness.ProtoReflect.Descriptor instead.
 func (*ZigbeeCommandSetBrightness) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{26}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ZigbeeCommandSetBrightness) GetLevel() uint32 {
@@ -1639,7 +1720,7 @@ type ZigbeeCommandSetColorTemp struct {
 
 func (x *ZigbeeCommandSetColorTemp) Reset() {
 	*x = ZigbeeCommandSetColorTemp{}
-	mi := &file_iot_v1_iot_proto_msgTypes[27]
+	mi := &file_iot_v1_iot_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1651,7 +1732,7 @@ func (x *ZigbeeCommandSetColorTemp) String() string {
 func (*ZigbeeCommandSetColorTemp) ProtoMessage() {}
 
 func (x *ZigbeeCommandSetColorTemp) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[27]
+	mi := &file_iot_v1_iot_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1664,7 +1745,7 @@ func (x *ZigbeeCommandSetColorTemp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ZigbeeCommandSetColorTemp.ProtoReflect.Descriptor instead.
 func (*ZigbeeCommandSetColorTemp) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{27}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ZigbeeCommandSetColorTemp) GetColorTemperatureMired() uint32 {
@@ -1694,7 +1775,7 @@ type Device struct {
 
 func (x *Device) Reset() {
 	*x = Device{}
-	mi := &file_iot_v1_iot_proto_msgTypes[28]
+	mi := &file_iot_v1_iot_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1706,7 +1787,7 @@ func (x *Device) String() string {
 func (*Device) ProtoMessage() {}
 
 func (x *Device) ProtoReflect() protoreflect.Message {
-	mi := &file_iot_v1_iot_proto_msgTypes[28]
+	mi := &file_iot_v1_iot_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1719,7 +1800,7 @@ func (x *Device) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Device.ProtoReflect.Descriptor instead.
 func (*Device) Descriptor() ([]byte, []int) {
-	return file_iot_v1_iot_proto_rawDescGZIP(), []int{28}
+	return file_iot_v1_iot_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Device) GetName() string {
@@ -1767,7 +1848,10 @@ const file_iot_v1_iot_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\blocation\x18\x02 \x01(\tR\blocation\x12\x12\n" +
 	"\x04when\x18\x03 \x01(\x03R\x04when\"\x0f\n" +
-	"\rEpochResponse\";\n" +
+	"\rEpochResponse\"8\n" +
+	"\x18ActivateConditionRequest\x12\x1c\n" +
+	"\tcondition\x18\x01 \x01(\tR\tcondition\"\x1b\n" +
+	"\x19ActivateConditionResponse\";\n" +
 	"\vSendRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\fR\amessage\"\x0e\n" +
@@ -1865,10 +1949,11 @@ const file_iot_v1_iot_proto_rawDesc = "" +
 	"\x12DEVICE_TYPE_ROUTER\x10\r2W\n" +
 	"\n" +
 	"IOTService\x12I\n" +
-	"\fUpdateDevice\x12\x1b.iot.v1.UpdateDeviceRequest\x1a\x1c.iot.v1.UpdateDeviceResponse2\x82\x01\n" +
+	"\fUpdateDevice\x12\x1b.iot.v1.UpdateDeviceRequest\x1a\x1c.iot.v1.UpdateDeviceResponse2\xdc\x01\n" +
 	"\x14EventReceiverService\x124\n" +
 	"\x05Alert\x12\x14.iot.v1.AlertRequest\x1a\x15.iot.v1.AlertResponse\x124\n" +
-	"\x05Epoch\x12\x14.iot.v1.EpochRequest\x1a\x15.iot.v1.EpochResponse2A\n" +
+	"\x05Epoch\x12\x14.iot.v1.EpochRequest\x1a\x15.iot.v1.EpochResponse\x12X\n" +
+	"\x11ActivateCondition\x12 .iot.v1.ActivateConditionRequest\x1a!.iot.v1.ActivateConditionResponse2A\n" +
 	"\fRouteService\x121\n" +
 	"\x04Send\x12\x13.iot.v1.SendRequest\x1a\x14.iot.v1.SendResponse2\xcf\x03\n" +
 	"\x11ZoneKeeperService\x12=\n" +
@@ -1896,7 +1981,7 @@ func file_iot_v1_iot_proto_rawDescGZIP() []byte {
 }
 
 var file_iot_v1_iot_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_iot_v1_iot_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_iot_v1_iot_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_iot_v1_iot_proto_goTypes = []any{
 	(ColorTemperature)(0),              // 0: iot.v1.ColorTemperature
 	(Brightness)(0),                    // 1: iot.v1.Brightness
@@ -1909,61 +1994,65 @@ var file_iot_v1_iot_proto_goTypes = []any{
 	(*AlertResponse)(nil),              // 8: iot.v1.AlertResponse
 	(*EpochRequest)(nil),               // 9: iot.v1.EpochRequest
 	(*EpochResponse)(nil),              // 10: iot.v1.EpochResponse
-	(*SendRequest)(nil),                // 11: iot.v1.SendRequest
-	(*SendResponse)(nil),               // 12: iot.v1.SendResponse
-	(*SetStateResponse)(nil),           // 13: iot.v1.SetStateResponse
-	(*SetStateRequest)(nil),            // 14: iot.v1.SetStateRequest
-	(*SetSceneResponse)(nil),           // 15: iot.v1.SetSceneResponse
-	(*SetSceneRequest)(nil),            // 16: iot.v1.SetSceneRequest
-	(*GetDeviceZoneRequest)(nil),       // 17: iot.v1.GetDeviceZoneRequest
-	(*GetDeviceZoneResponse)(nil),      // 18: iot.v1.GetDeviceZoneResponse
-	(*ActionHandlerRequest)(nil),       // 19: iot.v1.ActionHandlerRequest
-	(*ActionHandlerResponse)(nil),      // 20: iot.v1.ActionHandlerResponse
-	(*SelfAnnounceRequest)(nil),        // 21: iot.v1.SelfAnnounceRequest
-	(*SelfAnnounceResponse)(nil),       // 22: iot.v1.SelfAnnounceResponse
-	(*OccupancyHandlerRequest)(nil),    // 23: iot.v1.OccupancyHandlerRequest
-	(*OccupancyHandlerResponse)(nil),   // 24: iot.v1.OccupancyHandlerResponse
-	(*SendCommandRequest)(nil),         // 25: iot.v1.SendCommandRequest
-	(*SendCommandResponse)(nil),        // 26: iot.v1.SendCommandResponse
-	(*ZigbeeCommandOn)(nil),            // 27: iot.v1.ZigbeeCommandOn
-	(*ZigbeeCommandOff)(nil),           // 28: iot.v1.ZigbeeCommandOff
-	(*ZigbeeCommandToggle)(nil),        // 29: iot.v1.ZigbeeCommandToggle
-	(*ZigbeeCommandSetBrightness)(nil), // 30: iot.v1.ZigbeeCommandSetBrightness
-	(*ZigbeeCommandSetColorTemp)(nil),  // 31: iot.v1.ZigbeeCommandSetColorTemp
-	(*Device)(nil),                     // 32: iot.v1.Device
+	(*ActivateConditionRequest)(nil),   // 11: iot.v1.ActivateConditionRequest
+	(*ActivateConditionResponse)(nil),  // 12: iot.v1.ActivateConditionResponse
+	(*SendRequest)(nil),                // 13: iot.v1.SendRequest
+	(*SendResponse)(nil),               // 14: iot.v1.SendResponse
+	(*SetStateResponse)(nil),           // 15: iot.v1.SetStateResponse
+	(*SetStateRequest)(nil),            // 16: iot.v1.SetStateRequest
+	(*SetSceneResponse)(nil),           // 17: iot.v1.SetSceneResponse
+	(*SetSceneRequest)(nil),            // 18: iot.v1.SetSceneRequest
+	(*GetDeviceZoneRequest)(nil),       // 19: iot.v1.GetDeviceZoneRequest
+	(*GetDeviceZoneResponse)(nil),      // 20: iot.v1.GetDeviceZoneResponse
+	(*ActionHandlerRequest)(nil),       // 21: iot.v1.ActionHandlerRequest
+	(*ActionHandlerResponse)(nil),      // 22: iot.v1.ActionHandlerResponse
+	(*SelfAnnounceRequest)(nil),        // 23: iot.v1.SelfAnnounceRequest
+	(*SelfAnnounceResponse)(nil),       // 24: iot.v1.SelfAnnounceResponse
+	(*OccupancyHandlerRequest)(nil),    // 25: iot.v1.OccupancyHandlerRequest
+	(*OccupancyHandlerResponse)(nil),   // 26: iot.v1.OccupancyHandlerResponse
+	(*SendCommandRequest)(nil),         // 27: iot.v1.SendCommandRequest
+	(*SendCommandResponse)(nil),        // 28: iot.v1.SendCommandResponse
+	(*ZigbeeCommandOn)(nil),            // 29: iot.v1.ZigbeeCommandOn
+	(*ZigbeeCommandOff)(nil),           // 30: iot.v1.ZigbeeCommandOff
+	(*ZigbeeCommandToggle)(nil),        // 31: iot.v1.ZigbeeCommandToggle
+	(*ZigbeeCommandSetBrightness)(nil), // 32: iot.v1.ZigbeeCommandSetBrightness
+	(*ZigbeeCommandSetColorTemp)(nil),  // 33: iot.v1.ZigbeeCommandSetColorTemp
+	(*Device)(nil),                     // 34: iot.v1.Device
 }
 var file_iot_v1_iot_proto_depIdxs = []int32{
 	2,  // 0: iot.v1.SetStateRequest.state:type_name -> iot.v1.ZoneState
-	27, // 1: iot.v1.SendCommandRequest.on:type_name -> iot.v1.ZigbeeCommandOn
-	28, // 2: iot.v1.SendCommandRequest.off:type_name -> iot.v1.ZigbeeCommandOff
-	29, // 3: iot.v1.SendCommandRequest.toggle:type_name -> iot.v1.ZigbeeCommandToggle
-	30, // 4: iot.v1.SendCommandRequest.set_brightness:type_name -> iot.v1.ZigbeeCommandSetBrightness
-	31, // 5: iot.v1.SendCommandRequest.set_color_temp:type_name -> iot.v1.ZigbeeCommandSetColorTemp
+	29, // 1: iot.v1.SendCommandRequest.on:type_name -> iot.v1.ZigbeeCommandOn
+	30, // 2: iot.v1.SendCommandRequest.off:type_name -> iot.v1.ZigbeeCommandOff
+	31, // 3: iot.v1.SendCommandRequest.toggle:type_name -> iot.v1.ZigbeeCommandToggle
+	32, // 4: iot.v1.SendCommandRequest.set_brightness:type_name -> iot.v1.ZigbeeCommandSetBrightness
+	33, // 5: iot.v1.SendCommandRequest.set_color_temp:type_name -> iot.v1.ZigbeeCommandSetColorTemp
 	3,  // 6: iot.v1.Device.type:type_name -> iot.v1.DeviceType
 	6,  // 7: iot.v1.IOTService.UpdateDevice:input_type -> iot.v1.UpdateDeviceRequest
 	7,  // 8: iot.v1.EventReceiverService.Alert:input_type -> iot.v1.AlertRequest
 	9,  // 9: iot.v1.EventReceiverService.Epoch:input_type -> iot.v1.EpochRequest
-	11, // 10: iot.v1.RouteService.Send:input_type -> iot.v1.SendRequest
-	14, // 11: iot.v1.ZoneKeeperService.SetState:input_type -> iot.v1.SetStateRequest
-	16, // 12: iot.v1.ZoneKeeperService.SetScene:input_type -> iot.v1.SetSceneRequest
-	17, // 13: iot.v1.ZoneKeeperService.GetDeviceZone:input_type -> iot.v1.GetDeviceZoneRequest
-	19, // 14: iot.v1.ZoneKeeperService.ActionHandler:input_type -> iot.v1.ActionHandlerRequest
-	21, // 15: iot.v1.ZoneKeeperService.SelfAnnounce:input_type -> iot.v1.SelfAnnounceRequest
-	23, // 16: iot.v1.ZoneKeeperService.OccupancyHandler:input_type -> iot.v1.OccupancyHandlerRequest
-	25, // 17: iot.v1.ZigbeeCommandService.SendCommand:input_type -> iot.v1.SendCommandRequest
-	4,  // 18: iot.v1.IOTService.UpdateDevice:output_type -> iot.v1.UpdateDeviceResponse
-	8,  // 19: iot.v1.EventReceiverService.Alert:output_type -> iot.v1.AlertResponse
-	10, // 20: iot.v1.EventReceiverService.Epoch:output_type -> iot.v1.EpochResponse
-	12, // 21: iot.v1.RouteService.Send:output_type -> iot.v1.SendResponse
-	13, // 22: iot.v1.ZoneKeeperService.SetState:output_type -> iot.v1.SetStateResponse
-	15, // 23: iot.v1.ZoneKeeperService.SetScene:output_type -> iot.v1.SetSceneResponse
-	18, // 24: iot.v1.ZoneKeeperService.GetDeviceZone:output_type -> iot.v1.GetDeviceZoneResponse
-	20, // 25: iot.v1.ZoneKeeperService.ActionHandler:output_type -> iot.v1.ActionHandlerResponse
-	22, // 26: iot.v1.ZoneKeeperService.SelfAnnounce:output_type -> iot.v1.SelfAnnounceResponse
-	24, // 27: iot.v1.ZoneKeeperService.OccupancyHandler:output_type -> iot.v1.OccupancyHandlerResponse
-	26, // 28: iot.v1.ZigbeeCommandService.SendCommand:output_type -> iot.v1.SendCommandResponse
-	18, // [18:29] is the sub-list for method output_type
-	7,  // [7:18] is the sub-list for method input_type
+	11, // 10: iot.v1.EventReceiverService.ActivateCondition:input_type -> iot.v1.ActivateConditionRequest
+	13, // 11: iot.v1.RouteService.Send:input_type -> iot.v1.SendRequest
+	16, // 12: iot.v1.ZoneKeeperService.SetState:input_type -> iot.v1.SetStateRequest
+	18, // 13: iot.v1.ZoneKeeperService.SetScene:input_type -> iot.v1.SetSceneRequest
+	19, // 14: iot.v1.ZoneKeeperService.GetDeviceZone:input_type -> iot.v1.GetDeviceZoneRequest
+	21, // 15: iot.v1.ZoneKeeperService.ActionHandler:input_type -> iot.v1.ActionHandlerRequest
+	23, // 16: iot.v1.ZoneKeeperService.SelfAnnounce:input_type -> iot.v1.SelfAnnounceRequest
+	25, // 17: iot.v1.ZoneKeeperService.OccupancyHandler:input_type -> iot.v1.OccupancyHandlerRequest
+	27, // 18: iot.v1.ZigbeeCommandService.SendCommand:input_type -> iot.v1.SendCommandRequest
+	4,  // 19: iot.v1.IOTService.UpdateDevice:output_type -> iot.v1.UpdateDeviceResponse
+	8,  // 20: iot.v1.EventReceiverService.Alert:output_type -> iot.v1.AlertResponse
+	10, // 21: iot.v1.EventReceiverService.Epoch:output_type -> iot.v1.EpochResponse
+	12, // 22: iot.v1.EventReceiverService.ActivateCondition:output_type -> iot.v1.ActivateConditionResponse
+	14, // 23: iot.v1.RouteService.Send:output_type -> iot.v1.SendResponse
+	15, // 24: iot.v1.ZoneKeeperService.SetState:output_type -> iot.v1.SetStateResponse
+	17, // 25: iot.v1.ZoneKeeperService.SetScene:output_type -> iot.v1.SetSceneResponse
+	20, // 26: iot.v1.ZoneKeeperService.GetDeviceZone:output_type -> iot.v1.GetDeviceZoneResponse
+	22, // 27: iot.v1.ZoneKeeperService.ActionHandler:output_type -> iot.v1.ActionHandlerResponse
+	24, // 28: iot.v1.ZoneKeeperService.SelfAnnounce:output_type -> iot.v1.SelfAnnounceResponse
+	26, // 29: iot.v1.ZoneKeeperService.OccupancyHandler:output_type -> iot.v1.OccupancyHandlerResponse
+	28, // 30: iot.v1.ZigbeeCommandService.SendCommand:output_type -> iot.v1.SendCommandResponse
+	19, // [19:31] is the sub-list for method output_type
+	7,  // [7:19] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
 	7,  // [7:7] is the sub-list for extension extendee
 	0,  // [0:7] is the sub-list for field type_name
@@ -1974,7 +2063,7 @@ func file_iot_v1_iot_proto_init() {
 	if File_iot_v1_iot_proto != nil {
 		return
 	}
-	file_iot_v1_iot_proto_msgTypes[21].OneofWrappers = []any{
+	file_iot_v1_iot_proto_msgTypes[23].OneofWrappers = []any{
 		(*SendCommandRequest_On)(nil),
 		(*SendCommandRequest_Off)(nil),
 		(*SendCommandRequest_Toggle)(nil),
@@ -1987,7 +2076,7 @@ func file_iot_v1_iot_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_iot_v1_iot_proto_rawDesc), len(file_iot_v1_iot_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   29,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   5,
 		},
