@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/briandowns/openweathermap v0.21.1
 	github.com/drone/envsubst v1.0.3
-	github.com/eclipse/paho.mqtt.golang v1.5.0
+	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-kit/log v0.2.1
 	github.com/go-logr/logr v1.4.3
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
