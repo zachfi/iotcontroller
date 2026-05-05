@@ -29,7 +29,7 @@ snapshot: release-clean
 	$(REL_CMD) --skip=publish --snapshot
 
 # Build and push a docker image to a registry.
-# Usage: make ci-docker registry=reg.dist.svc.cluster.znet:5000
+# Usage: make ci-docker registry=registry.znet
 ci-docker:
 	@if [ -z "$(registry)" ]; then echo "registry is required: make ci-docker registry=<host:port>"; exit 1; fi
 	@echo "=== $(PROJECT_NAME) === [ ci-docker        ]: Building $(registry)/$(IMG_NAME):$(VERSION)"
