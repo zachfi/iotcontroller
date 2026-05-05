@@ -17,7 +17,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.6.7
 	github.com/nathan-osman/go-sunrise v1.1.0
 	github.com/onsi/ginkgo/v2 v2.27.3
-	github.com/onsi/gomega v1.38.2
+	github.com/onsi/gomega v1.40.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/alertmanager v0.29.0
 	github.com/prometheus/client_golang v1.23.2
