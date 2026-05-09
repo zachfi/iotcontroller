@@ -5,6 +5,25 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+// setBinaryMetric writes 1 / 0 for a binary sensor reading, but ONLY when
+// the device actually reported the field (val != nil). The previous
+// `if … else` pattern wrote a 0 even when the field was absent, which
+// produced phantom series like iot_zigbee2mqtt_water_leak{device=…} for
+// every device whose payload the controller processed — including devices
+// (radiator switches, smart plugs, temperature probes) that have no leak
+// sensor at all. That bloated cardinality and diluted the actual leak
+// signal. Now: nil → no series.
+func setBinaryMetric(g *prometheus.GaugeVec, val *bool, labels ...string) {
+	if val == nil {
+		return
+	}
+	v := float64(0)
+	if *val {
+		v = 1
+	}
+	g.WithLabelValues(labels...).Set(v)
+}
+
 var (
 	metricsNamespace = "iot_zigbee2mqtt"
 

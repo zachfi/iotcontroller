@@ -393,21 +393,7 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 		metricIOTIlluminance.WithLabelValues(device.Name, routeName, zone).Set(float64(*m.Illuminance))
 	}
 
-	if m.Occupancy != nil && *m.Occupancy {
-		metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
-	} else {
-		metricIOTOccupancy.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
-	}
-
-	if m.WaterLeak != nil && *m.WaterLeak {
-		metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
-	} else {
-		metricIOTWaterLeak.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
-	}
-
-	if m.Tamper != nil && *m.Tamper {
-		metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(1))
-	} else {
-		metricIOTTamper.WithLabelValues(device.Name, routeName, zone).Set(float64(0))
-	}
+	setBinaryMetric(metricIOTOccupancy, m.Occupancy, device.Name, routeName, zone)
+	setBinaryMetric(metricIOTWaterLeak, m.WaterLeak, device.Name, routeName, zone)
+	setBinaryMetric(metricIOTTamper, m.Tamper, device.Name, routeName, zone)
 }

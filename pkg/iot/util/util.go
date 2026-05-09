@@ -17,24 +17,37 @@ const (
 )
 
 func GetOrCreateAPIDevice(ctx context.Context, kubeclient kubeclient.Client, name string) (*apiv1.Device, error) {
-	var (
-		err    error
-		device apiv1.Device
-	)
-
 	nsn := types.NamespacedName{
 		Name:      strings.ToLower(name),
 		Namespace: namespace,
 	}
 
-	err = kubeclient.Get(ctx, nsn, &device)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			err = createAPIDevice(ctx, kubeclient, &device, nsn.Name)
-			if err != nil {
-				return nil, err
-			}
-		}
+	var device apiv1.Device
+	err := kubeclient.Get(ctx, nsn, &device)
+	if err == nil {
+		return &device, nil
+	}
+	if !apierrors.IsNotFound(err) {
+		// Surface real errors instead of silently returning an empty device,
+		// which the previous implementation did when the Get failed with
+		// anything other than NotFound (e.g. transient API errors, RBAC).
+		return nil, err
+	}
+
+	// Not found at Get time — try Create. Two controller-core replicas
+	// subscribe to the same MQTT topic, so a Create can race with a parallel
+	// Create from the peer pod and lose with AlreadyExists. Re-fetch in that
+	// case and return the now-existing object so callers can Update it.
+	if err = createAPIDevice(ctx, kubeclient, &device, nsn.Name); err == nil {
+		return &device, nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return nil, err
+	}
+
+	device = apiv1.Device{}
+	if err := kubeclient.Get(ctx, nsn, &device); err != nil {
+		return nil, err
 	}
 	return &device, nil
 }
