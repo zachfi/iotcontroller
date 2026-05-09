@@ -21,7 +21,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/alertmanager v0.29.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/common v0.67.1
+	github.com/prometheus/common v0.67.5
 	github.com/shimmeringbee/bytecodec v0.0.0-20240614104652-9d31c74dcd13
 	github.com/shimmeringbee/zcl v0.0.0-20240614104719-4eee02c0ffd1
 	github.com/shimmeringbee/zigbee v0.0.0-20240614104723-f4c0c0231568
@@ -93,6 +93,7 @@ require (
 	github.com/gogo/googleapis v1.4.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/gogo/status v1.1.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
