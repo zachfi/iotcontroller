@@ -188,6 +188,17 @@ func deviceType(z Device) iotv1proto.DeviceType {
 		}
 	}
 
+	// Fall back to a bare temperature exposure last, so devices that also
+	// expose temperature alongside a more specific feature (occupancy, water
+	// leak, action, etc.) keep their more specific classification. A pure
+	// temperature probe (e.g. SONOFF SNZB-02LD) reaches this point with only
+	// temperature/battery/linkquality exposed.
+	for _, e := range z.Definition.Exposes {
+		if e.Property == PropertyTemperature {
+			return iotv1proto.DeviceType_DEVICE_TYPE_TEMPERATURE
+		}
+	}
+
 	switch z.Type {
 	case "Coordinator":
 		return iotv1proto.DeviceType_DEVICE_TYPE_COORDINATOR
