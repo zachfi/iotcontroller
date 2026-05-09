@@ -188,5 +188,4 @@ proto-grpc:
 
 include build/lint.mk
 include build/release.mk
-include build/drone.mk
 include build/tools.mk
