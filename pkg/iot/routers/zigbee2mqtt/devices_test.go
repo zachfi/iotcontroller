@@ -11,6 +11,20 @@ import (
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
+// TestExposeFractionalValueMax ensures the bridge/devices decoder accepts
+// fractional value_max / value_min values (e.g. a timer numeric expose with
+// half-second resolution: "value_max":3599.5). Regression test for an entire
+// devices payload aborting mid-decode and no devices being identified.
+func TestExposeFractionalValueMax(t *testing.T) {
+	payload := []byte(`[{"definition":{"exposes":[{"type":"numeric","name":"timer","property":"timer","value_max":3599.5,"value_min":0.5}]}}]`)
+	obj := Devices{}
+	require.NoError(t, json.Unmarshal(payload, &obj))
+	require.Len(t, obj, 1)
+	require.Len(t, obj[0].Definition.Exposes, 1)
+	require.InDelta(t, 3599.5, obj[0].Definition.Exposes[0].ValueMax, 0.0001)
+	require.InDelta(t, 0.5, obj[0].Definition.Exposes[0].ValueMin, 0.0001)
+}
+
 func TestDevices(t *testing.T) {
 	cases := []struct {
 		name string

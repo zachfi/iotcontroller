@@ -88,8 +88,8 @@ type exposeCommon struct {
 	Property    string   `json:"property,omitempty"`
 	Type        string   `json:"type,omitempty"`
 	Unit        string   `json:"unit,omitempty"`
-	ValueMax    int      `json:"value_max,omitempty"`
-	ValueMin    int      `json:"value_min,omitempty"`
+	ValueMax    float64  `json:"value_max,omitempty"`
+	ValueMin    float64  `json:"value_min,omitempty"`
 	Values      []string `json:"values,omitempty"`
 }
 
