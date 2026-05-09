@@ -22,16 +22,16 @@ type ZigbeeMessage struct {
 	Co2           *float64 `json:"co2,omitempty"`
 	Formaldehyde  *float64 `json:"formaldehyd,omitempty"`
 	Humidity      *float64 `json:"humidity,omitempty"`
-	Illuminance   *int     `json:"illuminance,omitempty"`
+	Illuminance   *float64 `json:"illuminance,omitempty"`
 	LinkQuality   *int     `json:"linkquality,omitempty"`
 	Occupancy     *bool    `json:"occupancy,omitempty"`
 	SoilMoisture  *float64 `json:"soil_moisture,omitempty"`
 	State         *string  `json:"state,omitempty"`
 	Tamper        *bool    `json:"tamper,omitempty"`
 	Temperature   *float64 `json:"temperature,omitempty"`
-	TransmitPower *int     `json:"transmit_power,omitempty"`
-	VOC           *int     `json:"voc,omitempty"`
-	Voltage       *int     `json:"voltage,omitempty"`
+	TransmitPower *float64 `json:"transmit_power,omitempty"`
+	VOC           *float64 `json:"voc,omitempty"`
+	Voltage       *float64 `json:"voltage,omitempty"`
 	WaterLeak     *bool    `json:"water_leak,omitempty"`
 }
 
