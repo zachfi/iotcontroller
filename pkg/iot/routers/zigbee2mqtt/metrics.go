@@ -196,4 +196,43 @@ var (
 		Namespace: metricsNamespace,
 		Help:      "Device wireless RSSI",
 	}, []string{"device", "zone"})
+
+	// Power-metering plug gauges. Populated when a device reports
+	// voltage/current/power/energy/power_factor/ac_frequency in its z2m
+	// payload (e.g. Third Reality 3RSP02028BZ on the pond pump).
+	metricIOTVoltage = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "voltage",
+		Namespace: metricsNamespace,
+		Help:      "Mains voltage (V) reported by metering plug",
+	}, []string{"device", "router", "zone"})
+
+	metricIOTCurrent = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "current",
+		Namespace: metricsNamespace,
+		Help:      "Load current (A) reported by metering plug",
+	}, []string{"device", "router", "zone"})
+
+	metricIOTPower = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "power",
+		Namespace: metricsNamespace,
+		Help:      "Instantaneous active power (W) reported by metering plug",
+	}, []string{"device", "router", "zone"})
+
+	metricIOTEnergy = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "energy_kwh",
+		Namespace: metricsNamespace,
+		Help:      "Cumulative energy (kWh) reported by metering plug",
+	}, []string{"device", "router", "zone"})
+
+	metricIOTPowerFactor = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "power_factor",
+		Namespace: metricsNamespace,
+		Help:      "Power factor (0..1) reported by metering plug",
+	}, []string{"device", "router", "zone"})
+
+	metricIOTAcFrequency = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name:      "ac_frequency_hz",
+		Namespace: metricsNamespace,
+		Help:      "Mains AC frequency (Hz) reported by metering plug",
+	}, []string{"device", "router", "zone"})
 )

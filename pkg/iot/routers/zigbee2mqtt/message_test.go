@@ -38,6 +38,19 @@ func TestZigbeeMessageFractionalNumerics(t *testing.T) {
 	require.Equal(t, 51, *m.LinkQuality)
 	require.NotNil(t, m.State)
 	require.Equal(t, "OFF", *m.State)
+
+	// Power-metering fields must round-trip into typed gauges so the plug
+	// shows up as a real power meter rather than a bare on/off switch.
+	require.NotNil(t, m.AcFrequency)
+	require.InDelta(t, 60.0, *m.AcFrequency, 0.0001)
+	require.NotNil(t, m.Current)
+	require.InDelta(t, 0.024, *m.Current, 0.0001)
+	require.NotNil(t, m.Energy)
+	require.InDelta(t, 0.001, *m.Energy, 0.0001)
+	require.NotNil(t, m.Power)
+	require.InDelta(t, 0.5, *m.Power, 0.0001)
+	require.NotNil(t, m.PowerFactor)
+	require.InDelta(t, 0.42, *m.PowerFactor, 0.0001)
 }
 
 // TestZigbeeMessageFloatVOCAndIlluminance guards against the same regression

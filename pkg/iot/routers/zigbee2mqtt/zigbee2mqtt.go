@@ -396,4 +396,25 @@ func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMess
 	setBinaryMetric(metricIOTOccupancy, m.Occupancy, device.Name, routeName, zone)
 	setBinaryMetric(metricIOTWaterLeak, m.WaterLeak, device.Name, routeName, zone)
 	setBinaryMetric(metricIOTTamper, m.Tamper, device.Name, routeName, zone)
+
+	// Power-metering plug fields — only emit when the device actually
+	// reported them, so non-metering devices don't get phantom 0 series.
+	if m.Voltage != nil {
+		metricIOTVoltage.WithLabelValues(device.Name, routeName, zone).Set(*m.Voltage)
+	}
+	if m.Current != nil {
+		metricIOTCurrent.WithLabelValues(device.Name, routeName, zone).Set(*m.Current)
+	}
+	if m.Power != nil {
+		metricIOTPower.WithLabelValues(device.Name, routeName, zone).Set(*m.Power)
+	}
+	if m.Energy != nil {
+		metricIOTEnergy.WithLabelValues(device.Name, routeName, zone).Set(*m.Energy)
+	}
+	if m.PowerFactor != nil {
+		metricIOTPowerFactor.WithLabelValues(device.Name, routeName, zone).Set(*m.PowerFactor)
+	}
+	if m.AcFrequency != nil {
+		metricIOTAcFrequency.WithLabelValues(device.Name, routeName, zone).Set(*m.AcFrequency)
+	}
 }

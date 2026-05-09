@@ -33,6 +33,16 @@ type ZigbeeMessage struct {
 	VOC           *float64 `json:"voc,omitempty"`
 	Voltage       *float64 `json:"voltage,omitempty"`
 	WaterLeak     *bool    `json:"water_leak,omitempty"`
+
+	// Power-metering fields. Reported by mains-powered metering plugs such as
+	// the Third Reality 3RSP02028BZ, which publishes voltage/current/power
+	// alongside cumulative energy and PF. Without these, the decoder silently
+	// drops the readings and the device shows up as a bare on/off switch.
+	AcFrequency *float64 `json:"ac_frequency,omitempty"`
+	Current     *float64 `json:"current,omitempty"`
+	Energy      *float64 `json:"energy,omitempty"`
+	Power       *float64 `json:"power,omitempty"`
+	PowerFactor *float64 `json:"power_factor,omitempty"`
 }
 
 // zigbee2mqtt/0xa4c1386fc2751121 {"battery":20,"battery_state":"low","linkquality":87,"soil_moisture":76,"temperature":23}
