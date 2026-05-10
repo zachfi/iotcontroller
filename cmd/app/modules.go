@@ -16,8 +16,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	iotv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/internal/common"
@@ -174,6 +175,17 @@ func (a *App) initMqttClient() (services.Service, error) {
 	return c, nil
 }
 
+// initKubeClient builds the shared kube client used by Router, Conditioner,
+// ZoneKeeper, and pkg/iot/util. It uses controller-runtime's cluster.Cluster
+// so reads (Get/List) are served from a local informer cache and only writes
+// (Create/Update/Patch/Delete + Status) hit the apiserver. This drops the
+// router's per-message GET devices and per-event LIST conditions / bindings
+// from ~42 rps against the iot.iot group to ~0, while adding one WATCH per
+// type per pod.
+//
+// Cache scope is the configured controller namespace, matching the previous
+// client.NewNamespacedClient wrapping. Cluster-scoped reads would fail; we
+// have none.
 func (a *App) initKubeClient() (services.Service, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -184,16 +196,58 @@ func (a *App) initKubeClient() (services.Service, error) {
 		return nil, err
 	}
 
-	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	ns := a.cfg.Controller.Namespace
+	cl, err := cluster.New(cfg, func(o *cluster.Options) {
+		o.Scheme = scheme
+		o.Cache.DefaultNamespaces = map[string]cache.Config{ns: {}}
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	c = client.NewNamespacedClient(c, a.cfg.Controller.Namespace)
+	a.kubeclient = cl.GetClient()
 
-	a.kubeclient = c
+	// cluster.Start is blocking and runs the informer reflectors. We launch
+	// it on a background goroutine in starting() (using a derived context so
+	// its lifetime is independent of the per-phase ctx), then wait for the
+	// first list to complete before declaring the service running.
+	// stopping() cancels the derived context so reflectors shut down cleanly.
+	var (
+		startCtx    context.Context
+		cancelStart context.CancelFunc
+	)
 
-	return services.NewIdleService(nil, nil), nil
+	startingFn := func(ctx context.Context) error {
+		// Start reflectors in the background and wait for the first list to
+		// complete before declaring this service Running. dskit ordering
+		// guarantees Router/ZoneKeeper/Conditioner only enter starting after
+		// this returns, so their first cache read sees a populated store.
+		startCtx, cancelStart = context.WithCancel(context.Background())
+		go func() {
+			if err := cl.Start(startCtx); err != nil && err != context.Canceled {
+				a.logger.Error("kube cache stopped", "error", err)
+			}
+		}()
+		if !cl.GetCache().WaitForCacheSync(ctx) {
+			cancelStart()
+			return fmt.Errorf("kube cache failed to sync for namespace %q", ns)
+		}
+		return nil
+	}
+
+	runningFn := func(ctx context.Context) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	stoppingFn := func(_ error) error {
+		if cancelStart != nil {
+			cancelStart()
+		}
+		return nil
+	}
+
+	return services.NewBasicService(startingFn, runningFn, stoppingFn), nil
 }
 
 func (a *App) initController() (services.Service, error) {
