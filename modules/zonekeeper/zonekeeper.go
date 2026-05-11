@@ -560,6 +560,30 @@ func (z *ZoneKeeper) stopping(_ error) error {
 	return nil
 }
 
+// applyZoneRefreshAges sets the per-zone flush-cache TTL according to
+// the configured FlushRefreshAge / FlushRefreshAgeRelay, choosing the
+// relay value when the zone holds at least one DEVICE_TYPE_RELAY. A
+// zero-valued config keeps the zone's built-in default.
+func (z *ZoneKeeper) applyZoneRefreshAges(zonesWithRelay map[string]bool) {
+	z.mtx.Lock()
+	zones := make([]*iot.Zone, 0, len(z.zones))
+	for _, zone := range z.zones {
+		zones = append(zones, zone)
+	}
+	z.mtx.Unlock()
+
+	for _, zone := range zones {
+		age := z.cfg.FlushRefreshAge
+		if zonesWithRelay[zone.Name()] && z.cfg.FlushRefreshAgeRelay > 0 {
+			age = z.cfg.FlushRefreshAgeRelay
+		}
+		if age <= 0 {
+			continue
+		}
+		zone.SetRefreshAge(age)
+	}
+}
+
 func (z *ZoneKeeper) GetZone(ctx context.Context, name string) (*iot.Zone, error) {
 	var err error
 	_, span := z.tracer.Start(ctx, "ZoneKeeper.GetZone", trace.WithSpanKind(trace.SpanKindInternal))
@@ -651,6 +675,13 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 		deviceList     apiv1.DeviceList
 		handler        iot.Handler
 		devicesSkipped []string
+
+		// zonesWithRelay collects zones that contain at least one
+		// DEVICE_TYPE_RELAY actuator. These get the shorter
+		// FlushRefreshAgeRelay TTL on their idempotent-flush cache so
+		// drift on safety-relevant relays is corrected faster than
+		// the lighting default.
+		zonesWithRelay = map[string]bool{}
 	)
 
 	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.zoneUpdate")
@@ -724,10 +755,18 @@ func (z *ZoneKeeper) zoneUpdate(ctx context.Context) error {
 			errs = append(errs, err)
 			err = nil
 		}
+		if device.Type == iotv1proto.DeviceType_DEVICE_TYPE_RELAY {
+			zonesWithRelay[zoneName] = true
+		}
 
 		// TODO: remove/update a device when its zone changes
 
 	}
+
+	// Apply per-zone idempotent-flush cache TTL based on actuator mix.
+	// Done after the device-registration pass so a zone's relay status
+	// reflects all of its current devices.
+	z.applyZoneRefreshAges(zonesWithRelay)
 
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
