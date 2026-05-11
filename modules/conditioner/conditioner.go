@@ -114,10 +114,22 @@ func (c *Conditioner) applyDesired(ctx context.Context, condName, zone string, r
 // directly via schedule.run() — those are unique time-bound events that
 // have their own dedup at schedule.add time, so they bypass the cache.
 //
+// Time-gating: if rem.TimeIntervals is non-empty and `now` is not in
+// any of them, the activation is suppressed and metricApplySuppressed
+// records "time-gated". This makes TimeIntervals honored uniformly
+// across all activation sources (Alert RPC, Binding-driven
+// ActivateCondition, Epoch); it's the prerequisite for using
+// multi-remediation Conditions to express time-of-day-aware behaviour
+// like motion-detector responses.
+//
 // If rem.ActiveState is the "toggle" shorthand, it's resolved to "on"
 // or "off" here (based on the zone's current CRD status.state) so
 // downstream apply / cache layers only ever see concrete states.
 func (c *Conditioner) activateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	if len(rem.TimeIntervals) > 0 && !c.withinActiveWindow(ctx, rem, time.Now()) {
+		metricApplySuppressed.WithLabelValues(condName, rem.Zone, "time-gated").Inc()
+		return nil
+	}
 	if strings.EqualFold(rem.ActiveState, shortHandStateToggle) {
 		rem.ActiveState = c.resolveToggleState(ctx, rem.Zone)
 	}
@@ -129,6 +141,11 @@ func (c *Conditioner) activateRemediation(ctx context.Context, condName string, 
 // a definite direction (revert to the alert-resolved state) and using
 // toggle there would make alert-resolved behaviour depend on whatever
 // state the zone happens to be in when the alert clears.
+//
+// Deactivation is NOT time-gated. An alert resolving outside the
+// remediation's TimeIntervals still needs to revert the zone to its
+// inactive state — gating that would leave the zone stuck in whatever
+// state the previous activation set.
 func (c *Conditioner) deactivateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
 	return c.applyDesired(ctx, condName, rem.Zone, deactivateRequest(ctx, rem), "deactivate")
 }

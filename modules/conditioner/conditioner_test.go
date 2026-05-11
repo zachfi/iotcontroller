@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -1126,4 +1127,113 @@ func TestApplyDesired_ToggleReadFailureDefaultsOn(t *testing.T) {
 	require.Equal(t, 1, rec.setStateCount())
 	_, state := rec.firstSetState()
 	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_ON, state, "toggle on read failure defaults to ON")
+}
+
+// TestActivateRemediation_TimeGated_OutsideWindow: a Remediation with
+// TimeIntervals that don't contain "now" must be suppressed at
+// activation time, regardless of where the activation came from
+// (Alert RPC, Binding via ActivateCondition, etc.). This is Stage 1
+// of the unified-evaluator plan: TimeIntervals become uniformly
+// honored across all activation sources.
+func TestActivateRemediation_TimeGated_OutsideWindow(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	// TimeInterval pinned to Years=1970 → never contains "now".
+	rem := apiv1.Remediation{
+		Zone:        "office",
+		ActiveState: "on",
+		TimeIntervals: []apiv1.TimeIntervalSpec{
+			{Years: []string{"1970"}},
+		},
+	}
+
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.Equal(t, 0, rec.setStateCount(),
+		"activation outside the window must not produce a SetState")
+}
+
+// TestActivateRemediation_TimeGated_InsideWindow: a Remediation whose
+// TimeIntervals contain "now" activates as it always has.
+func TestActivateRemediation_TimeGated_InsideWindow(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	// TimeInterval covering the current year. A bit of a hack to make
+	// the test time-portable but reliable.
+	thisYear := strconv.Itoa(time.Now().Year())
+	rem := apiv1.Remediation{
+		Zone:        "office",
+		ActiveState: "on",
+		TimeIntervals: []apiv1.TimeIntervalSpec{
+			{Years: []string{thisYear}},
+		},
+	}
+
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.Equal(t, 1, rec.setStateCount(),
+		"activation inside the window must fire SetState")
+	_, state := rec.firstSetState()
+	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_ON, state)
+}
+
+// TestActivateRemediation_TimeGated_NoIntervals: when TimeIntervals is
+// empty, activation fires regardless. Preserves today's behaviour for
+// every existing Condition that doesn't author windows.
+func TestActivateRemediation_TimeGated_NoIntervals(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office", ActiveState: "on"}
+
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.Equal(t, 1, rec.setStateCount())
+}
+
+// TestDeactivateRemediation_NotTimeGated: deactivation must fire even
+// when the Remediation's TimeIntervals don't contain "now". The
+// semantic is "alert resolved; revert" — gating that would leave the
+// zone stuck in the previous activation's state.
+func TestDeactivateRemediation_NotTimeGated(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{
+		Zone:          "office",
+		ActiveState:   "on",
+		InactiveState: "off",
+		TimeIntervals: []apiv1.TimeIntervalSpec{
+			{Years: []string{"1970"}}, // out of window
+		},
+	}
+
+	require.NoError(t, c.deactivateRemediation(ctx, "cond", rem))
+	require.Equal(t, 1, rec.setStateCount(),
+		"deactivation must fire regardless of TimeIntervals")
+	_, state := rec.firstSetState()
+	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_OFF, state)
 }
