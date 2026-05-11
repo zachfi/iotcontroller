@@ -238,6 +238,15 @@ func (z *Zigbee2Mqtt) handleZigbeeBridgeDevice(ctx context.Context, logger *slog
 	device.Spec.Model = d.Definition.Model
 	device.Spec.Vendor = d.Definition.Vendor
 	device.Spec.Description = d.Definition.Description
+	// IEEEAddress unifies device identity across transports. Without it,
+	// Bindings with `selector.ieee` silently never match z2m-discovered
+	// devices — they have to use `selector.device` (the CR name), which
+	// then drifts from the equivalent native-Zigbee Binding which uses
+	// the stripped form as its name. Set it from the z2m bridge JSON so
+	// the same Binding works on both transports.
+	if d.IeeeAddress != "" {
+		device.Spec.IEEEAddress = d.IeeeAddress
+	}
 
 	span.SetAttributes(
 		attribute.String("d", fmt.Sprintf("%+v", d)),
