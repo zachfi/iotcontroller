@@ -843,3 +843,153 @@ func TestEpoch_activatesWithinWindow(t *testing.T) {
 	require.Equal(t, 1, rec.setSceneCount(), "expected immediate SetScene activation")
 	require.Equal(t, 0, c.sched.len(), "no schedule events expected when activating immediately")
 }
+
+// TestApplyDesired_SuppressesRepeatedActivation: the most common cause
+// of churn in production — alertmanager re-firing the same alert every
+// group_interval. Repeated activateRemediation with the same desired
+// (state, scene) for the same (condition, zone) must collapse to one
+// SetState call. The cache invalidates only on real transition or
+// after ApplyDesiredRefreshAge.
+func TestApplyDesired_SuppressesRepeatedActivation(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office-heater", ActiveState: "on", InactiveState: "off"}
+
+	for i := 0; i < 5; i++ {
+		require.NoError(t, c.activateRemediation(ctx, "zone-office-low-temp", rem))
+	}
+	require.Equal(t, 1, rec.setStateCount(), "5 redundant activates should collapse to 1 SetState")
+}
+
+// TestApplyDesired_TransitionForcesApply: activate then deactivate
+// (different desired) must emit two SetState calls. The cache stores
+// the most-recent desired and any change re-invalidates.
+func TestApplyDesired_TransitionForcesApply(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office-heater", ActiveState: "on", InactiveState: "off"}
+
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.NoError(t, c.deactivateRemediation(ctx, "cond", rem))
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.NoError(t, c.deactivateRemediation(ctx, "cond", rem))
+
+	// Four genuine transitions → four SetStates.
+	require.Equal(t, 4, rec.setStateCount(), "alternating activate/deactivate should not dedup")
+}
+
+// TestApplyDesired_RefreshAgeReapplies: a fresh cache entry suppresses;
+// once it ages past ApplyDesiredRefreshAge the next call re-applies
+// regardless. This is the drift-correction safety net for things that
+// changed externally and that the cache doesn't know about.
+func TestApplyDesired_RefreshAgeReapplies(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: 50 * time.Millisecond}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office-heater", ActiveState: "on"}
+
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.Equal(t, 1, rec.setStateCount())
+
+	// Within refreshAge — suppressed.
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.Equal(t, 1, rec.setStateCount())
+
+	time.Sleep(70 * time.Millisecond)
+
+	// Past refreshAge — re-applies even though desired unchanged.
+	require.NoError(t, c.activateRemediation(ctx, "cond", rem))
+	require.Equal(t, 2, rec.setStateCount(), "stale cache should force re-apply")
+}
+
+// TestApplyDesired_PerConditionZoneIsolation: two different
+// (condition, zone) pairs have independent cache entries — activating
+// one must not suppress the other.
+func TestApplyDesired_PerConditionZoneIsolation(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	office := apiv1.Remediation{Zone: "office", ActiveState: "on"}
+	main := apiv1.Remediation{Zone: "mainsuite", ActiveState: "on"}
+
+	require.NoError(t, c.activateRemediation(ctx, "office-cond", office))
+	require.NoError(t, c.activateRemediation(ctx, "main-cond", main))
+	require.Equal(t, 2, rec.setStateCount(), "different (cond, zone) keys must not share cache")
+
+	require.NoError(t, c.activateRemediation(ctx, "office-cond", office))
+	require.NoError(t, c.activateRemediation(ctx, "main-cond", main))
+	require.Equal(t, 2, rec.setStateCount(), "second round dedups both")
+}
+
+// TestAlert_FiringOutsideWindowDeactivates: the windowing-logic fix.
+// A firing alert with TimeIntervals that do NOT contain `now` must
+// deactivate (or stay deactivated), not activate. Before the fix, the
+// override path forced active=true regardless of window membership,
+// producing ON/OFF flip-flop with every webhook.
+func TestAlert_FiringOutsideWindowDeactivates(t *testing.T) {
+	// TimeInterval that covers a narrow past window — definitely not now.
+	rem := apiv1.Remediation{
+		Zone:          "office-heater",
+		ActiveState:   "on",
+		InactiveState: "off",
+		// Years=1970 ensures the window can never contain "now".
+		TimeIntervals: []apiv1.TimeIntervalSpec{
+			{Years: []string{"1970"}},
+		},
+	}
+	cond := apiv1.Condition{Spec: apiv1.ConditionSpec{
+		Enabled:      true,
+		Matches:      []apiv1.Match{{Labels: map[string]string{"alertname": "zoneTempLow", "zone": "office"}}},
+		Remediations: []apiv1.Remediation{rem},
+	}}
+	cond.Name = "zone-office-low-temp"
+
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{conditions: []apiv1.Condition{cond}}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	// Alert is firing, but we're outside the configured TimeInterval.
+	// Pre-fix: this activated. Post-fix: should deactivate (active=false).
+	_, err = c.Alert(ctx, &iotv1proto.AlertRequest{
+		Name:   "zoneTempLow",
+		Zone:   "office",
+		Status: "firing",
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 1, rec.setStateCount(), "firing-outside-window should hit SetState once (deactivate)")
+	name, state := rec.firstSetState()
+	require.Equal(t, "office-heater", name)
+	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_OFF, state, "firing-outside-window should deactivate")
+}

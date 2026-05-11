@@ -53,6 +53,75 @@ func alertActiveKey(conditionName, zone string) string {
 	return conditionName + "/" + zone
 }
 
+// condStateKey is the same shape as alertActiveKey — kept as a separate
+// helper so the two caches can diverge if needed (e.g. if condState
+// later needs a per-direction component).
+func condStateKey(conditionName, zone string) string {
+	return conditionName + "/" + zone
+}
+
+// applyDesired sends req to the ZoneKeeper unless the (condName, zone)
+// cache already shows the same desired (state, scene) within
+// cfg.ApplyDesiredRefreshAge. Suppressed calls increment
+// metricApplySuppressed{direction}.
+//
+// direction is a label ("activate" / "deactivate") for the metric;
+// the cache key intentionally does NOT include direction, so a
+// deactivate after an activate (or vice versa) correctly invalidates
+// the cache and re-applies.
+func (c *Conditioner) applyDesired(ctx context.Context, condName, zone string, req *request, direction string) error {
+	if req == nil {
+		return nil
+	}
+
+	var (
+		desiredState iotv1proto.ZoneState
+		desiredScene string
+	)
+	if req.stateReq != nil {
+		desiredState = req.stateReq.State
+	}
+	if req.sceneReq != nil {
+		desiredScene = req.sceneReq.Scene
+	}
+
+	key := condStateKey(condName, zone)
+	now := time.Now()
+
+	c.condStateMu.Lock()
+	prev, ok := c.condState[key]
+	fresh := ok && !prev.ts.IsZero() && now.Sub(prev.ts) < c.cfg.ApplyDesiredRefreshAge
+	c.condStateMu.Unlock()
+
+	if ok && fresh && prev.state == desiredState && prev.scene == desiredScene {
+		metricApplySuppressed.WithLabelValues(condName, zone, direction).Inc()
+		return nil
+	}
+
+	err := c.sched.execRequest(ctx, req, c.zonekeeperClient)
+	if err != nil {
+		return err
+	}
+
+	c.condStateMu.Lock()
+	c.condState[key] = conditionState{state: desiredState, scene: desiredScene, ts: now}
+	c.condStateMu.Unlock()
+	return nil
+}
+
+// activateRemediation routes through applyDesired for idempotency.
+// Scheduled-fire paths (cron, epoch-add-then-fire) call execRequest
+// directly via schedule.run() — those are unique time-bound events that
+// have their own dedup at schedule.add time, so they bypass the cache.
+func (c *Conditioner) activateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	return c.applyDesired(ctx, condName, rem.Zone, activateRequest(ctx, rem), "activate")
+}
+
+// deactivateRemediation is the inverse of activateRemediation.
+func (c *Conditioner) deactivateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	return c.applyDesired(ctx, condName, rem.Zone, deactivateRequest(ctx, rem), "deactivate")
+}
+
 // Conditioner evaluates Conditions from the cluster and applies remediations
 // (zone state/scene) via the ZoneKeeper. It runs a timer loop to process
 // cron schedules and to deactivate alert-driven remediations when their
@@ -74,6 +143,24 @@ type Conditioner struct {
 	// a background check deactivates them.
 	alertActiveMu sync.Mutex
 	alertActive   map[string]apiv1.Remediation
+
+	// condState is the per-(condition, zone) cache of the last desired
+	// (state, scene) we successfully applied. activateRemediation and
+	// deactivateRemediation route through applyDesired, which consults
+	// this cache and skips the underlying ZoneKeeper SetState/SetScene
+	// when nothing has changed. The TTL (cfg.ApplyDesiredRefreshAge)
+	// forces a re-apply after the window expires to absorb drift.
+	condStateMu sync.Mutex
+	condState   map[string]conditionState
+}
+
+// conditionState records the last desired (state, scene) we sent for a
+// (condition, zone) pair, along with when it was applied. zero ts =
+// never applied (treat as cache miss regardless of value).
+type conditionState struct {
+	state iotv1proto.ZoneState
+	scene string
+	ts    time.Time
 }
 
 // New builds a Conditioner. ZoneKeeper client is required for activation and
@@ -90,6 +177,7 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 
 		sched:       newSchedule(logger),
 		alertActive: make(map[string]apiv1.Remediation),
+		condState:   make(map[string]conditionState),
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
@@ -141,26 +229,35 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 		}
 
 		for _, rem := range cond.Spec.Remediations {
+			// Alert windowing semantics:
+			//   firing  + no TimeIntervals          → active
+			//   firing  + currently in TimeInterval → active
+			//   firing  + outside TimeInterval      → INACTIVE (suppress
+			//       repeated activations from Alertmanager re-firing for
+			//       an alert whose window has already closed)
+			//   resolved                            → inactive
+			//   other                               → skip
+			//
+			// The dedup in applyDesired further collapses repeat-firing
+			// webhooks for the same alert into a single SetState per
+			// transition.
 			var active bool
-			if status := req.Status; status != "" {
-				span.SetAttributes(attribute.String(iot.StatusLabel, status))
-				switch status {
-				case alertStatusFiring:
-					active = true
-				case alertStatusResolved:
-					// active = false
-				default:
-					continue
-				}
-
-				// Override based on the window.
-				if c.withinActiveWindow(ctx, rem, time.Now()) {
-					active = true
-				}
+			status := req.Status
+			if status == "" {
+				continue
+			}
+			span.SetAttributes(attribute.String(iot.StatusLabel, status))
+			switch status {
+			case alertStatusFiring:
+				active = len(rem.TimeIntervals) == 0 || c.withinActiveWindow(ctx, rem, time.Now())
+			case alertStatusResolved:
+				active = false
+			default:
+				continue
 			}
 
 			if active {
-				err = c.sched.activateRemediation(ctx, rem, c.zonekeeperClient)
+				err = c.activateRemediation(ctx, cond.Name, rem)
 				if err != nil {
 					c.logger.Error("failed to activate condition alert", "err", err)
 				} else if len(rem.TimeIntervals) > 0 {
@@ -169,7 +266,7 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 				}
 			} else {
 				c.untrackAlertActive(cond.Name, rem)
-				err = c.sched.deactivateRemediation(ctx, rem, c.zonekeeperClient)
+				err = c.deactivateRemediation(ctx, cond.Name, rem)
 				if err != nil {
 					c.logger.Error("failed to deactivate condition alert", "err", err)
 				}
@@ -250,7 +347,7 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 					),
 				)
 
-				err = c.sched.activateRemediation(ctx, rem, c.zonekeeperClient)
+				err = c.activateRemediation(ctx, cond.Name, rem)
 				if err != nil {
 					c.logger.Error("failed to run condition epoch", "err", err)
 				}
@@ -285,7 +382,7 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 					}
 				} else if now.After(stop) {
 					// If we are past the stop time, deactivate immediately.
-					err = c.sched.deactivateRemediation(ctx, rem, c.zonekeeperClient)
+					err = c.deactivateRemediation(ctx, cond.Name, rem)
 					if err != nil {
 						c.logger.Error("failed to run condition epoch", "err", err)
 					}
@@ -326,7 +423,7 @@ func (c *Conditioner) ActivateCondition(ctx context.Context, req *iotv1proto.Act
 
 	var errs []error
 	for _, rem := range cond.Spec.Remediations {
-		if activateErr := c.sched.activateRemediation(ctx, rem, c.zonekeeperClient); activateErr != nil {
+		if activateErr := c.activateRemediation(ctx, cond.Name, rem); activateErr != nil {
 			errs = append(errs, activateErr)
 		}
 	}
@@ -529,11 +626,14 @@ func (c *Conditioner) runAlertWindowCheckAt(ctx context.Context, now time.Time) 
 
 	for key, rem := range snapshot {
 		if !c.withinActiveWindow(ctx, rem, now) {
+			// alertActive keys are "<condName>/<zone>"; we need the
+			// condName for the applyDesired cache.
+			condName, _, _ := strings.Cut(key, "/")
 			c.logger.Info("alert time window closed, deactivating remediation",
 				slog.String("key", key),
 				slog.String("zone", rem.Zone),
 			)
-			if err := c.sched.deactivateRemediation(ctx, rem, c.zonekeeperClient); err != nil {
+			if err := c.deactivateRemediation(ctx, condName, rem); err != nil {
 				c.logger.Error("failed to deactivate remediation after window close", "err", err, "zone", rem.Zone)
 			}
 			c.alertActiveMu.Lock()
@@ -634,14 +734,6 @@ func (c *Conditioner) running(ctx context.Context) error {
 
 func (c *Conditioner) stopping(_ error) error {
 	return nil
-}
-
-func (s *schedule) activateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
-	return s.execRequest(ctx, activateRequest(ctx, rem), zonekeeperClient)
-}
-
-func (s *schedule) deactivateRemediation(ctx context.Context, rem apiv1.Remediation, zonekeeperClient iotv1proto.ZoneKeeperServiceClient) error {
-	return s.execRequest(ctx, deactivateRequest(ctx, rem), zonekeeperClient)
 }
 
 // activateRequest builds a request that applies the remediation's ActiveScene
