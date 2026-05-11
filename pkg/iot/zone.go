@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	sync "sync"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -67,7 +69,50 @@ type Zone struct {
 
 	colorTempMap map[iotv1proto.ColorTemperature]int32
 	/* brightnessMap map[iotv1proto.Brightness]uint8 */
+
+	// applied is the per-(device, kind) cache of what we last
+	// successfully sent. Each handler in Flush consults this before
+	// calling its underlying transport handler; a cache hit whose value
+	// matches the desired one and is still within refreshAge causes the
+	// call to be suppressed (and metricFlushSuppressed to increment).
+	//
+	// Drift correction comes from the refreshAge TTL: when the entry
+	// is stale, the suppression check returns false and the handler is
+	// called regardless of cached value. A device that has drifted will
+	// be re-asserted within refreshAge.
+	//
+	// appliedMu only guards the map. It is NOT held while calling the
+	// handler — that would serialize all per-device IO.
+	appliedMu  sync.Mutex
+	applied    map[appliedKey]appliedRecord
+	refreshAge time.Duration
 }
+
+// appliedKey identifies a single field on a single device in the
+// idempotency cache. The string-keyed map is simpler than four typed
+// maps and adds negligible overhead.
+type appliedKey struct {
+	device string
+	kind   string // one of the appliedKind* constants
+}
+
+type appliedRecord struct {
+	value string // stringified so the comparison is kind-agnostic
+	ts    time.Time
+}
+
+const (
+	appliedKindState      = "state"
+	appliedKindBrightness = "brightness"
+	appliedKindColorTemp  = "color_temp"
+	appliedKindColor      = "color"
+
+	// defaultRefreshAge is how long a cached "last applied" value is
+	// trusted before the next flush re-sends regardless. 5 minutes is
+	// the right ballpark for lighting; faster zones (relays, heaters)
+	// can shorten this via SetRefreshAge.
+	defaultRefreshAge = 5 * time.Minute
+)
 
 func NewZone(name string, logger *slog.Logger) (*Zone, error) {
 	if name == "" {
@@ -82,9 +127,44 @@ func NewZone(name string, logger *slog.Logger) (*Zone, error) {
 		/* colorTemp: tempDay, */
 		/* brightnessMap: defaultBrightnessMap, */
 		colorTempMap: defaultColorTemperatureMap,
+		applied:      make(map[appliedKey]appliedRecord),
+		refreshAge:   defaultRefreshAge,
 	}
 
 	return z, nil
+}
+
+// SetRefreshAge overrides the per-device cache TTL. Use a shorter value
+// for safety-relevant zones (pumps, heaters) where drift should be
+// corrected faster than the lighting default.
+func (z *Zone) SetRefreshAge(d time.Duration) {
+	z.appliedMu.Lock()
+	defer z.appliedMu.Unlock()
+	z.refreshAge = d
+}
+
+// shouldSuppress returns true when the cache holds a fresh entry whose
+// value matches the desired stringified value. The boolean signal alone
+// is enough; the caller increments the suppression metric on true.
+func (z *Zone) shouldSuppress(device, kind, desired string) bool {
+	z.appliedMu.Lock()
+	defer z.appliedMu.Unlock()
+	rec, ok := z.applied[appliedKey{device: device, kind: kind}]
+	if !ok {
+		return false
+	}
+	if time.Since(rec.ts) >= z.refreshAge {
+		return false
+	}
+	return rec.value == desired
+}
+
+// markApplied records that a value of `kind` was successfully sent to
+// `device`. Only called from handlerX paths that returned nil error.
+func (z *Zone) markApplied(device, kind, value string) {
+	z.appliedMu.Lock()
+	defer z.appliedMu.Unlock()
+	z.applied[appliedKey{device: device, kind: kind}] = appliedRecord{value: value, ts: time.Now()}
 }
 
 func (z *Zone) State() iotv1proto.ZoneState {
@@ -397,6 +477,10 @@ func (z *Zone) handleOn(ctx context.Context, limiter FlushLimiter) error {
 		deviceNames []string
 	)
 
+	// handleOn fires when z.state is ON or OFFTIMER (both want lights
+	// on). Canonicalize to ZONE_STATE_ON for cache parity so a flip
+	// from OFFTIMER to ON doesn't force a redundant On() call.
+	desired := iotv1proto.ZoneState_ZONE_STATE_ON.String()
 	for device, h := range z.devices {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
@@ -409,12 +493,20 @@ func (z *Zone) handleOn(ctx context.Context, limiter FlushLimiter) error {
 		if limiter != nil && !limiter(device.Name) {
 			continue
 		}
+
+		if z.shouldSuppress(device.Name, appliedKindState, desired) {
+			metricFlushSuppressed.WithLabelValues(z.name, device.Name, appliedKindState).Inc()
+			continue
+		}
+
 		deviceNames = append(deviceNames, device.Name)
 
 		err = h.On(ctx, device)
 		if err != nil {
 			errs = append(errs, err)
+			continue
 		}
+		z.markApplied(device.Name, appliedKindState, desired)
 	}
 
 	span.SetAttributes(
@@ -439,6 +531,7 @@ func (z *Zone) handleOff(ctx context.Context, limiter FlushLimiter) error {
 		deviceNames []string
 	)
 
+	desired := iotv1proto.ZoneState_ZONE_STATE_OFF.String()
 	for device, h := range z.devices {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_BASIC_LIGHT:
@@ -451,12 +544,20 @@ func (z *Zone) handleOff(ctx context.Context, limiter FlushLimiter) error {
 		if limiter != nil && !limiter(device.Name) {
 			continue
 		}
+
+		if z.shouldSuppress(device.Name, appliedKindState, desired) {
+			metricFlushSuppressed.WithLabelValues(z.name, device.Name, appliedKindState).Inc()
+			continue
+		}
+
 		deviceNames = append(deviceNames, device.Name)
 
 		err = h.Off(ctx, device)
 		if err != nil {
 			errs = append(errs, err)
+			continue
 		}
+		z.markApplied(device.Name, appliedKindState, desired)
 	}
 
 	span.SetAttributes(
@@ -481,6 +582,8 @@ func (z *Zone) handleColorTemperature(ctx context.Context, limiter FlushLimiter)
 		deviceNames []string
 	)
 
+	tempVal := defaultColorTemperatureMap[z.colorTemp]
+	desired := strconv.Itoa(int(tempVal))
 	for device, h := range z.devices {
 		switch device.Type {
 		case iotv1proto.DeviceType_DEVICE_TYPE_COLOR_LIGHT:
@@ -491,12 +594,20 @@ func (z *Zone) handleColorTemperature(ctx context.Context, limiter FlushLimiter)
 		if limiter != nil && !limiter(device.Name) {
 			continue
 		}
+
+		if z.shouldSuppress(device.Name, appliedKindColorTemp, desired) {
+			metricFlushSuppressed.WithLabelValues(z.name, device.Name, appliedKindColorTemp).Inc()
+			continue
+		}
+
 		deviceNames = append(deviceNames, device.Name)
 
-		err = h.SetColorTemp(ctx, device, defaultColorTemperatureMap[z.colorTemp])
+		err = h.SetColorTemp(ctx, device, tempVal)
 		if err != nil {
 			errs = append(errs, err)
+			continue
 		}
+		z.markApplied(device.Name, appliedKindColorTemp, desired)
 	}
 
 	span.SetAttributes(
@@ -521,6 +632,8 @@ func (z *Zone) handleBrightness(ctx context.Context, limiter FlushLimiter) error
 		deviceNames []string
 	)
 
+	brightVal := defaultBrightnessMap[z.brightness]
+	desired := strconv.Itoa(int(brightVal))
 	for device, h := range z.devices {
 
 		switch device.Type {
@@ -533,12 +646,20 @@ func (z *Zone) handleBrightness(ctx context.Context, limiter FlushLimiter) error
 		if limiter != nil && !limiter(device.Name) {
 			continue
 		}
+
+		if z.shouldSuppress(device.Name, appliedKindBrightness, desired) {
+			metricFlushSuppressed.WithLabelValues(z.name, device.Name, appliedKindBrightness).Inc()
+			continue
+		}
+
 		deviceNames = append(deviceNames, device.Name)
 
-		err = h.SetBrightness(ctx, device, defaultBrightnessMap[z.brightness])
+		err = h.SetBrightness(ctx, device, brightVal)
 		if err != nil {
 			errs = append(errs, err)
+			continue
 		}
+		z.markApplied(device.Name, appliedKindBrightness, desired)
 	}
 
 	span.SetAttributes(
@@ -563,6 +684,7 @@ func (z *Zone) handleColor(ctx context.Context, limiter FlushLimiter) error {
 		deviceNames []string
 	)
 
+	desired := z.color
 	for device, h := range z.devices {
 
 		switch device.Type {
@@ -575,12 +697,19 @@ func (z *Zone) handleColor(ctx context.Context, limiter FlushLimiter) error {
 			continue
 		}
 
+		if z.shouldSuppress(device.Name, appliedKindColor, desired) {
+			metricFlushSuppressed.WithLabelValues(z.name, device.Name, appliedKindColor).Inc()
+			continue
+		}
+
 		deviceNames = append(deviceNames, device.Name)
 
-		err = h.SetColor(ctx, device, z.color)
+		err = h.SetColor(ctx, device, desired)
 		if err != nil {
 			errs = append(errs, err)
+			continue
 		}
+		z.markApplied(device.Name, appliedKindColor, desired)
 	}
 
 	span.SetAttributes(
