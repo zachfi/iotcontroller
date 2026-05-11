@@ -155,7 +155,7 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		attribute.String("action", action),
 	)
 
-	metricFallbackTotal.WithLabelValues(action, zone).Inc()
+	metricFallbackTotal.WithLabelValues(device.Name, action, zone).Inc()
 	_, err = n.zonekeeperClient.ActionHandler(ctx, &iotv1proto.ActionHandlerRequest{
 		Event:  action,
 		Device: device.Name,

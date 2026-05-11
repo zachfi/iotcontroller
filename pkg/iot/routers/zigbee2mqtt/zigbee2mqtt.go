@@ -363,7 +363,7 @@ func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
 			Zone:   zone,
 		},
 	)
-	metricFallbackTotal.WithLabelValues(action, zone).Inc()
+	metricFallbackTotal.WithLabelValues(device, action, zone).Inc()
 }
 
 func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMessage, device *apiv1.Device) {
