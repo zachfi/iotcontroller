@@ -44,7 +44,18 @@ type EventTrigger struct {
 	// Value is the expected value rendered as a string. For booleans use
 	// "true" / "false". For action enums use the action name (e.g. "single",
 	// "double", "on"). May be empty to match any value of the property.
+	// Ignored when Values is non-empty.
 	Value string `json:"value,omitempty"`
+
+	// Values is the list of accepted values for this trigger. Use this
+	// when a single Binding should match multiple device-specific
+	// action vocabularies for the same intent — e.g. ["single",
+	// "1_single", "button_1_press"] all meaning "primary press."
+	// When Values is non-empty it takes precedence over Value.
+	// Multi-value matching is for *aliases of the same intent*; if you
+	// want different actions to trigger different Conditions, write
+	// separate Bindings.
+	Values []string `json:"values,omitempty"`
 
 	// Selector restricts which devices can fire this binding. All non-empty
 	// fields must match the device. An empty selector matches every device

@@ -107,9 +107,15 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 	return candidates[0].condition
 }
 
-// propertyMatches returns true when the binding's property/value pair
-// matches the event. Empty trigger.Value is a wildcard for the value field;
-// trigger.Property must always match exactly.
+// propertyMatches returns true when the binding's property/value
+// constraint matches the event. Rules:
+//
+//   - trigger.Property must always match exactly.
+//   - trigger.Values takes precedence when non-empty: ev.Value must
+//     equal one of the listed values.
+//   - trigger.Value (singular) is checked only when Values is empty.
+//   - When both Value and Values are empty, the trigger is a wildcard
+//     for the value field — any value of the property matches.
 func propertyMatches(trigger apiv1.EventTrigger, ev events.DeviceEvent) bool {
 	if trigger.Property == "" {
 		return false
@@ -117,6 +123,16 @@ func propertyMatches(trigger apiv1.EventTrigger, ev events.DeviceEvent) bool {
 	if trigger.Property != ev.Property {
 		return false
 	}
+
+	if len(trigger.Values) > 0 {
+		for _, v := range trigger.Values {
+			if v == ev.Value {
+				return true
+			}
+		}
+		return false
+	}
+
 	if trigger.Value != "" && trigger.Value != ev.Value {
 		return false
 	}

@@ -105,6 +105,35 @@ debounce, not a missed toggle. If you intentionally want N toggles
 faster than the status-update round-trip, that's a config concern
 (`-conditioner.apply-desired-refresh-age`) not an API one.
 
+## Cross-device vocabulary: `event.values`
+
+Different button families emit different action strings for the same
+physical intent: Third Reality says `single`, Moes says `1_single`,
+Philips/Hue says `on_press`. To avoid writing N near-identical Bindings
+per zone, an `EventTrigger` can list multiple accepted values:
+
+```yaml
+spec:
+  event:
+    property: action
+    values: [single, 1_single, button_1_press]
+    selector:
+      zone: office
+  condition: office-toggle
+```
+
+This one Binding handles "primary press" on every device in `office`,
+whichever vocabulary they emit. Rules:
+
+- `value` (singular) and `values` (list) coexist on the schema.
+- When `values` is non-empty it wins; `value` is ignored.
+- Both empty → wildcard match on the property.
+
+**Reserve `values` for aliases of the same intent.** Bindings stay 1:1
+with Conditions; if `single` should fire one Condition and `double`
+another, write two Bindings. Don't try to express different intents
+through a single multi-value list.
+
 ## Specificity recap
 
 The matcher's selector precedence (highest specificity wins; ties

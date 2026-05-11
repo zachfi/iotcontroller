@@ -110,6 +110,49 @@ func TestPropertyMatch_Exact(t *testing.T) {
 	}))
 }
 
+// TestPropertyMatch_Values: a Binding with a Values list matches when
+// ev.Value is in the list. This is the cross-device-vocabulary case:
+// one Binding handles "single" from a single-button remote AND
+// "1_single" from a multi-button scene controller.
+func TestPropertyMatch_Values(t *testing.T) {
+	m := makeMatcher(t, b("press-primary", apiv1.EventTrigger{
+		Property: events.PropertyAction,
+		Values:   []string{"single", "1_single", "button_1_press"},
+	}, "cond-primary"))
+	d := dev("btn", "0xaa", "DEVICE_TYPE_BUTTON", "office", nil)
+
+	for _, v := range []string{"single", "1_single", "button_1_press"} {
+		got := m.FindCondition(context.Background(), events.DeviceEvent{
+			Property: events.PropertyAction, Value: v, Device: d,
+		})
+		require.Equal(t, "cond-primary", got, "value %q must match the list", v)
+	}
+	// Not in the list — no match.
+	got := m.FindCondition(context.Background(), events.DeviceEvent{
+		Property: events.PropertyAction, Value: "double", Device: d,
+	})
+	require.Equal(t, "", got, "value not in Values list should not match")
+}
+
+// TestPropertyMatch_ValuesPrecedence: when both Value and Values are
+// set, Values wins. (Documented behaviour; preferred over silent
+// AND/OR semantics.)
+func TestPropertyMatch_ValuesPrecedence(t *testing.T) {
+	m := makeMatcher(t, b("trigger", apiv1.EventTrigger{
+		Property: events.PropertyAction,
+		Value:    "this-is-ignored",
+		Values:   []string{"single"},
+	}, "cond"))
+	d := dev("btn", "0xaa", "DEVICE_TYPE_BUTTON", "office", nil)
+
+	require.Equal(t, "cond", m.FindCondition(context.Background(), events.DeviceEvent{
+		Property: events.PropertyAction, Value: "single", Device: d,
+	}))
+	require.Equal(t, "", m.FindCondition(context.Background(), events.DeviceEvent{
+		Property: events.PropertyAction, Value: "this-is-ignored", Device: d,
+	}))
+}
+
 // TestPropertyMatch_AnyValue: empty trigger.Value is a wildcard for value;
 // property must still match exactly.
 func TestPropertyMatch_AnyValue(t *testing.T) {
