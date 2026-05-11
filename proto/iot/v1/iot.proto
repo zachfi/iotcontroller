@@ -132,11 +132,28 @@ message OccupancyHandlerRequest {
 
 message OccupancyHandlerResponse {}
 
+// AdjustBrightness applies a relative brightness change to a zone.
+// Positive delta walks the Brightness enum up N steps (toward
+// BRIGHTNESS_FULL); negative walks it down (toward BRIGHTNESS_VERYLOW).
+// Clamped at the enum boundaries — pressing "brighter" at FULL stays
+// at FULL.
+//
+// Side effect: if the zone is OFF, the call also sets it ON, matching
+// the legacy ActionHandler.UpPress/DownPress behaviour ("pressing the
+// brightness button on an off room turns it on at the new level").
+message AdjustBrightnessRequest {
+  string name = 1; // zone name
+  int32 delta = 2; // +1 / -1 / +n / -n
+}
+
+message AdjustBrightnessResponse {}
+
 service ZoneKeeperService {
   rpc SetState(SetStateRequest) returns (SetStateResponse);
   rpc SetScene(SetSceneRequest) returns (SetSceneResponse);
   rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
   rpc ActionHandler(ActionHandlerRequest) returns (ActionHandlerResponse);
+  rpc AdjustBrightness(AdjustBrightnessRequest) returns (AdjustBrightnessResponse);
   rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
   rpc OccupancyHandler(OccupancyHandlerRequest) returns (OccupancyHandlerResponse);
 }

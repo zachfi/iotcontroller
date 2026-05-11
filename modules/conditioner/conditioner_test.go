@@ -80,12 +80,13 @@ func (f *fakeKubeClient) IsObjectNamespaced(_ runtime.Object) (bool, error) {
 
 var errExpectError = errors.New("expect error")
 
-// recordingZoneKeeper records SetState/SetScene calls for tests.
+// recordingZoneKeeper records SetState/SetScene/AdjustBrightness calls for tests.
 type recordingZoneKeeper struct {
 	mocks.ZoneKeeperClientMock
-	mu            sync.Mutex
-	setStateCalls []*iotv1proto.SetStateRequest
-	setSceneCalls []*iotv1proto.SetSceneRequest
+	mu                sync.Mutex
+	setStateCalls     []*iotv1proto.SetStateRequest
+	setSceneCalls     []*iotv1proto.SetSceneRequest
+	adjustBrightCalls []*iotv1proto.AdjustBrightnessRequest
 }
 
 func (r *recordingZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateRequest, opts ...grpc.CallOption) (*iotv1proto.SetStateResponse, error) {
@@ -116,6 +117,21 @@ func (r *recordingZoneKeeper) setSceneCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.setSceneCalls)
+}
+
+func (r *recordingZoneKeeper) AdjustBrightness(ctx context.Context, req *iotv1proto.AdjustBrightnessRequest, opts ...grpc.CallOption) (*iotv1proto.AdjustBrightnessResponse, error) {
+	r.mu.Lock()
+	if req != nil {
+		r.adjustBrightCalls = append(r.adjustBrightCalls, &iotv1proto.AdjustBrightnessRequest{Name: req.Name, Delta: req.Delta})
+	}
+	r.mu.Unlock()
+	return r.ZoneKeeperClientMock.AdjustBrightness(ctx, req, opts...)
+}
+
+func (r *recordingZoneKeeper) adjustBrightCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.adjustBrightCalls)
 }
 
 func (r *recordingZoneKeeper) firstSetState() (name string, state iotv1proto.ZoneState) {
@@ -1236,4 +1252,119 @@ func TestDeactivateRemediation_NotTimeGated(t *testing.T) {
 		"deactivation must fire regardless of TimeIntervals")
 	_, state := rec.firstSetState()
 	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_OFF, state)
+}
+
+// TestActivateRemediation_BrightnessDelta_Positive: a Remediation
+// with a positive ActiveBrightnessDelta routes to AdjustBrightness
+// instead of applyDesired. The delta is propagated unchanged.
+func TestActivateRemediation_BrightnessDelta_Positive(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office", ActiveBrightnessDelta: 1}
+	require.NoError(t, c.activateRemediation(ctx, "office-brighter", rem))
+
+	require.Equal(t, 1, rec.adjustBrightCount())
+	require.Equal(t, int32(1), rec.adjustBrightCalls[0].Delta)
+	require.Equal(t, "office", rec.adjustBrightCalls[0].Name)
+	require.Equal(t, 0, rec.setStateCount(),
+		"delta path must NOT also call SetState — AdjustBrightness owns the state-side effect")
+}
+
+// TestActivateRemediation_BrightnessDelta_Negative: negative delta
+// preserved as-is.
+func TestActivateRemediation_BrightnessDelta_Negative(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office", ActiveBrightnessDelta: -1}
+	require.NoError(t, c.activateRemediation(ctx, "office-dimmer", rem))
+
+	require.Equal(t, 1, rec.adjustBrightCount())
+	require.Equal(t, int32(-1), rec.adjustBrightCalls[0].Delta)
+}
+
+// TestActivateRemediation_BrightnessDelta_BypassesCache: deltas are
+// non-idempotent — N consecutive activations must produce N calls.
+// This is the property the user explicitly asked for (each press
+// of "hold" walks brightness one more step).
+func TestActivateRemediation_BrightnessDelta_BypassesCache(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office", ActiveBrightnessDelta: -1}
+	for i := 0; i < 5; i++ {
+		require.NoError(t, c.activateRemediation(ctx, "office-dimmer", rem))
+	}
+	require.Equal(t, 5, rec.adjustBrightCount(),
+		"5 consecutive deltas must produce 5 RPCs (no dedup)")
+}
+
+// TestActivateRemediation_BrightnessDelta_TimeGated: time-gating
+// (Stage 1) applies BEFORE the delta path. Out-of-window deltas
+// don't fire.
+func TestActivateRemediation_BrightnessDelta_TimeGated(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{
+		Zone:                  "office",
+		ActiveBrightnessDelta: 1,
+		TimeIntervals: []apiv1.TimeIntervalSpec{
+			{Years: []string{"1970"}}, // never contains "now"
+		},
+	}
+	require.NoError(t, c.activateRemediation(ctx, "office-brighter", rem))
+	require.Equal(t, 0, rec.adjustBrightCount(),
+		"delta out of window must be suppressed by time-gating")
+}
+
+// TestActivateRemediation_BrightnessDelta_OverridesAbsolute: when
+// both ActiveBrightnessDelta and ActiveState are set, the delta
+// path wins and ActiveState is not applied via SetState. The
+// underlying RPC handles "ensure on" as a side effect.
+func TestActivateRemediation_BrightnessDelta_OverridesAbsolute(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{
+		Zone:                  "office",
+		ActiveState:           "off", // contradictory; delta wins
+		ActiveBrightnessDelta: 1,
+	}
+	require.NoError(t, c.activateRemediation(ctx, "office-brighter", rem))
+
+	require.Equal(t, 1, rec.adjustBrightCount())
+	require.Equal(t, 0, rec.setStateCount(),
+		"delta path takes the activation; SetState is not called")
 }

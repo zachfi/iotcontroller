@@ -91,6 +91,22 @@ type Remediation struct {
 	// this range, the zone will be set to the inactive state, if defined in the
 	// condition spec.
 	TimeIntervals []TimeIntervalSpec `json:"time_intervals,omitempty"`
+
+	// ActiveBrightnessDelta applies a relative brightness change instead
+	// of (or in addition to) an absolute ActiveState/ActiveScene. Positive
+	// walks the Brightness enum up N steps (toward BRIGHTNESS_FULL);
+	// negative walks down. Clamped at the enum boundaries.
+	//
+	// Bypasses the conditioner's applyDesired cache — each fire takes
+	// effect, regardless of whether the previous fire targeted the
+	// same value. This is the right semantic for "press to brighten":
+	// repeated presses must each bump one step.
+	//
+	// When set alongside ActiveState=on or unset state, the side effect
+	// of the underlying RPC also sets the zone to ON if it was OFF,
+	// matching the legacy ActionHandler.UpPress/DownPress behaviour
+	// ("press brighter on a dark room → turn on at the new level").
+	ActiveBrightnessDelta int `json:"active_brightness_delta,omitempty"`
 }
 
 // When defines an activation window relative to an epoch event time.

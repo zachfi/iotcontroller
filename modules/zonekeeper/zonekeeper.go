@@ -123,6 +123,65 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 	return resp, err
 }
 
+// AdjustBrightness walks the zone's brightness up or down by N steps
+// along the Brightness enum. Positive delta brightens; negative dims.
+// Clamped at the enum boundaries by the underlying
+// Zone.IncrementBrightness / DecrementBrightness loops.
+//
+// Side effect: if the zone is OFF before the call, it's set to ON so
+// the brightness change is actually visible — matches the legacy
+// ActionHandler.UpPress/DownPress behaviour.
+func (z *ZoneKeeper) AdjustBrightness(ctx context.Context, req *iotv1proto.AdjustBrightnessRequest) (*iotv1proto.AdjustBrightnessResponse, error) {
+	var (
+		err  error
+		zone *iot.Zone
+		resp = &iotv1proto.AdjustBrightnessResponse{}
+	)
+
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.AdjustBrightness",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("name", req.Name),
+			attribute.Int("delta", int(req.Delta)),
+		),
+	)
+	defer func() { _ = tracing.ErrHandler(span, err, "adjust brightness", z.logger) }()
+
+	zone, err = z.GetZone(ctx, req.Name)
+	if err != nil {
+		return resp, err
+	}
+
+	delta := int(req.Delta)
+	switch {
+	case delta > 0:
+		for i := 0; i < delta; i++ {
+			zone.IncrementBrightness(ctx)
+		}
+	case delta < 0:
+		for i := 0; i < -delta; i++ {
+			zone.DecrementBrightness(ctx)
+		}
+	default:
+		// delta=0 is a no-op; don't waste a flush
+		return resp, nil
+	}
+
+	// Ensure the lights are actually on so the change registers.
+	if zone.State() != iotv1proto.ZoneState_ZONE_STATE_ON {
+		zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
+	}
+
+	err = zone.Flush(ctx, unlimited)
+	if err != nil {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Name, "error").Inc()
+	} else {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Name, "success").Inc()
+	}
+	z.apiStatusUpdate(ctx, zone)
+	return resp, err
+}
+
 func (z *ZoneKeeper) SetScene(ctx context.Context, req *iotv1proto.SetSceneRequest) (*iotv1proto.SetSceneResponse, error) {
 	if req.Scene == "" {
 		return nil, fmt.Errorf("unable to operate on empty scene name")

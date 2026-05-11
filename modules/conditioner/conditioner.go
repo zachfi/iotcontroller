@@ -130,10 +130,33 @@ func (c *Conditioner) activateRemediation(ctx context.Context, condName string, 
 		metricApplySuppressed.WithLabelValues(condName, rem.Zone, "time-gated").Inc()
 		return nil
 	}
+	// Relative brightness adjust: bypass applyDesired entirely. The
+	// cache is for absolute values where "we already sent this" makes
+	// sense; deltas must fire every time (each press = one more step).
+	// Other Remediation fields (ActiveState/ActiveScene) are ignored
+	// when ActiveBrightnessDelta is set — the underlying RPC sets the
+	// zone ON as a side effect, which is what you want for a "press
+	// brighter" intent.
+	if rem.ActiveBrightnessDelta != 0 {
+		return c.adjustBrightness(ctx, condName, rem.Zone, rem.ActiveBrightnessDelta)
+	}
 	if strings.EqualFold(rem.ActiveState, shortHandStateToggle) {
 		rem.ActiveState = c.resolveToggleState(ctx, rem.Zone)
 	}
 	return c.applyDesired(ctx, condName, rem.Zone, activateRequest(ctx, rem), "activate")
+}
+
+// adjustBrightness sends an AdjustBrightness RPC to the ZoneKeeper.
+// Records the call in metricApplySuppressed for parity with the cache
+// path? No — adjust is non-idempotent and should not be in a
+// suppression metric. The flush_total / state_changes metrics on the
+// zonekeeper side are sufficient to observe its effects.
+func (c *Conditioner) adjustBrightness(ctx context.Context, condName, zone string, delta int) error {
+	_, err := c.zonekeeperClient.AdjustBrightness(ctx, &iotv1proto.AdjustBrightnessRequest{
+		Name:  zone,
+		Delta: int32(delta),
+	})
+	return err
 }
 
 // deactivateRemediation is the inverse of activateRemediation. Toggle
