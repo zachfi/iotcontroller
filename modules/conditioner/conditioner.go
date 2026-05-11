@@ -113,13 +113,54 @@ func (c *Conditioner) applyDesired(ctx context.Context, condName, zone string, r
 // Scheduled-fire paths (cron, epoch-add-then-fire) call execRequest
 // directly via schedule.run() — those are unique time-bound events that
 // have their own dedup at schedule.add time, so they bypass the cache.
+//
+// If rem.ActiveState is the "toggle" shorthand, it's resolved to "on"
+// or "off" here (based on the zone's current CRD status.state) so
+// downstream apply / cache layers only ever see concrete states.
 func (c *Conditioner) activateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	if strings.EqualFold(rem.ActiveState, shortHandStateToggle) {
+		rem.ActiveState = c.resolveToggleState(ctx, rem.Zone)
+	}
 	return c.applyDesired(ctx, condName, rem.Zone, activateRequest(ctx, rem), "activate")
 }
 
-// deactivateRemediation is the inverse of activateRemediation.
+// deactivateRemediation is the inverse of activateRemediation. Toggle
+// on inactive_state is intentionally NOT supported: deactivation has
+// a definite direction (revert to the alert-resolved state) and using
+// toggle there would make alert-resolved behaviour depend on whatever
+// state the zone happens to be in when the alert clears.
 func (c *Conditioner) deactivateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
 	return c.applyDesired(ctx, condName, rem.Zone, deactivateRequest(ctx, rem), "deactivate")
+}
+
+// resolveToggleState reads the named Zone's CRD status.state and
+// returns "off" if the zone looks lights-on right now (ON, OFFTIMER,
+// COLOR, RANDOMCOLOR) or "on" otherwise. On any read error the safer
+// default is "on" — easier for the user to recover from than a dark
+// room. The read is served from the local informer cache, so this is
+// cheap.
+//
+// Two consecutive toggle calls within the cache-update window will
+// resolve to the same value and the second is suppressed by
+// applyDesired — that's a deliberate physical-button-bounce debounce,
+// not a missed toggle.
+func (c *Conditioner) resolveToggleState(ctx context.Context, zone string) string {
+	var z apiv1.Zone
+	if err := c.kubeClient.Get(ctx, kubeclient.ObjectKey{Name: zone, Namespace: "iot"}, &z); err != nil {
+		c.logger.Debug("toggle: zone status read failed; defaulting to on",
+			slog.String("zone", zone),
+			slog.String("error", err.Error()),
+		)
+		return shortHandStateOn
+	}
+	switch z.Status.State {
+	case iotv1proto.ZoneState_ZONE_STATE_ON.String(),
+		iotv1proto.ZoneState_ZONE_STATE_OFFTIMER.String(),
+		iotv1proto.ZoneState_ZONE_STATE_COLOR.String(),
+		iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR.String():
+		return shortHandStateOff
+	}
+	return shortHandStateOn
 }
 
 // Conditioner evaluates Conditions from the cluster and applies remediations
@@ -793,12 +834,22 @@ func deactivateRequest(_ context.Context, rem apiv1.Remediation) *request {
 	return nil
 }
 
+const (
+	shortHandStateOn     = "on"
+	shortHandStateOff    = "off"
+	shortHandStateToggle = "toggle"
+)
+
 var shortHandStates = map[string]iotv1proto.ZoneState{
-	"on":          iotv1proto.ZoneState_ZONE_STATE_ON,
-	"off":         iotv1proto.ZoneState_ZONE_STATE_OFF,
-	"offtimer":    iotv1proto.ZoneState_ZONE_STATE_OFFTIMER,
-	"color":       iotv1proto.ZoneState_ZONE_STATE_COLOR,
-	"randomcolor": iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
+	shortHandStateOn:  iotv1proto.ZoneState_ZONE_STATE_ON,
+	shortHandStateOff: iotv1proto.ZoneState_ZONE_STATE_OFF,
+	"offtimer":        iotv1proto.ZoneState_ZONE_STATE_OFFTIMER,
+	"color":           iotv1proto.ZoneState_ZONE_STATE_COLOR,
+	"randomcolor":     iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
+	// Note: "toggle" is intentionally NOT in this map. It's resolved
+	// to "on" or "off" at the Conditioner level (resolveToggleState)
+	// before reaching zoneState(), so the rest of the stack only sees
+	// concrete states.
 }
 
 // Using the known short-hand strings for zone states, return the appropriate

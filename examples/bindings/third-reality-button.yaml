@@ -1,60 +1,90 @@
-# Example Bindings for the Third Reality Smart Button (3RSB22BZ)
+# Example Bindings + Conditions for the Third Reality Smart Button
+# (3RSB22BZ). This is a single-button remote that exposes the actions
+# single / double / hold. The three Bindings below cover the full
+# default convention documented in README.md:
 #
-# A Binding maps a normalized device event to a Condition. When the event
-# fires from a device matching the selector, the Condition's remediations
-# are applied. This replaces hardcoded action strings in the router.
+#   single → toggle    (predictable, doesn't depend on remembering state)
+#   double → on, full  (decisive "lights up")
+#   hold   → on, dim   (decisive "soft light")
 #
-# This example targets a single device by IEEE address — the most specific
-# selector form. Other forms (DeviceType, Zone, Device-name, LabelSelector)
-# allow fleet defaults and overrides; specificity is summed across selector
-# fields and the highest-scoring Binding wins.
+# Replace the IEEE address and zone name to match your deployment.
+# The Condition resources defined below are reusable across every
+# button targeting the same zone — bind multiple devices to the same
+# Condition rather than duplicating Conditions per device.
 ---
 apiVersion: iot.iot/v1
 kind: Binding
 metadata:
-  name: button-bedside-zach-on
+  name: button-bedside-zach-single
   namespace: iot
 spec:
   event:
     property: action
-    value: "on"
+    value: single
     selector:
       ieee: "0xffffb40e06036411"
-  condition: bedside-zach-on
+  condition: bedside-zach-toggle
 ---
 apiVersion: iot.iot/v1
 kind: Binding
 metadata:
-  name: button-bedside-zach-off
+  name: button-bedside-zach-double
   namespace: iot
 spec:
   event:
     property: action
-    value: "off"
+    value: double
     selector:
       ieee: "0xffffb40e06036411"
-  condition: bedside-zach-off
+  condition: bedside-zach-full
 ---
-# Example Conditions activated by the bindings above.
-# active_scene references a Scene resource; active_state sets zone power state.
+apiVersion: iot.iot/v1
+kind: Binding
+metadata:
+  name: button-bedside-zach-hold
+  namespace: iot
+spec:
+  event:
+    property: action
+    value: hold
+    selector:
+      ieee: "0xffffb40e06036411"
+  condition: bedside-zach-dim
+---
+# The three target Conditions. Reuse these across any button targeting
+# the bedside-zach zone — that's the whole point of decoupling
+# Bindings from Conditions.
 apiVersion: iot.iot/v1
 kind: Condition
 metadata:
-  name: bedside-zach-on
+  name: bedside-zach-toggle
   namespace: iot
 spec:
   enabled: true
   remediations:
     - zone: bedside-zach
-      active_state: ZONE_STATE_ON
+      active_state: toggle      # ← resolves to on/off based on current zone state
 ---
 apiVersion: iot.iot/v1
 kind: Condition
 metadata:
-  name: bedside-zach-off
+  name: bedside-zach-full
   namespace: iot
 spec:
   enabled: true
   remediations:
     - zone: bedside-zach
-      active_state: ZONE_STATE_OFF
+      active_state: on
+      active_scene: full-bright # ← Scene CR; brightness=FULL, colorTemp=DAY
+---
+apiVersion: iot.iot/v1
+kind: Condition
+metadata:
+  name: bedside-zach-dim
+  namespace: iot
+spec:
+  enabled: true
+  remediations:
+    - zone: bedside-zach
+      active_state: on
+      active_scene: dim         # ← Scene CR; brightness=DIM

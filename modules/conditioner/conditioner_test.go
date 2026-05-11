@@ -20,10 +20,14 @@ import (
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// fakeKubeClient is a minimal kubeclient.Client for tests. Only List is
-// implemented; all other methods panic.
+// fakeKubeClient is a minimal kubeclient.Client for tests. List handles
+// ConditionList; Get handles Zone (used by resolveToggleState). Other
+// methods panic.
 type fakeKubeClient struct {
 	conditions []apiv1.Condition
+	// zones[zoneName] = the Zone CR returned by Get for that name. If
+	// the zone isn't in this map, Get returns a NotFound-style error.
+	zones map[string]apiv1.Zone
 }
 
 func (f *fakeKubeClient) List(_ context.Context, list kubeclient.ObjectList, _ ...kubeclient.ListOption) error {
@@ -33,7 +37,15 @@ func (f *fakeKubeClient) List(_ context.Context, list kubeclient.ObjectList, _ .
 	return nil
 }
 
-func (f *fakeKubeClient) Get(_ context.Context, _ kubeclient.ObjectKey, _ kubeclient.Object, _ ...kubeclient.GetOption) error {
+func (f *fakeKubeClient) Get(_ context.Context, key kubeclient.ObjectKey, obj kubeclient.Object, _ ...kubeclient.GetOption) error {
+	if z, ok := obj.(*apiv1.Zone); ok {
+		stored, found := f.zones[key.Name]
+		if !found {
+			return errExpectError
+		}
+		*z = stored
+		return nil
+	}
 	panic("not implemented")
 }
 func (f *fakeKubeClient) Apply(_ context.Context, _ runtime.ApplyConfiguration, _ ...kubeclient.ApplyOption) error {
@@ -992,4 +1004,126 @@ func TestAlert_FiringOutsideWindowDeactivates(t *testing.T) {
 	name, state := rec.firstSetState()
 	require.Equal(t, "office-heater", name)
 	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_OFF, state, "firing-outside-window should deactivate")
+}
+
+// TestApplyDesired_ToggleResolvesByZoneStatus: a Condition with
+// active_state=toggle resolves to ON or OFF at the conditioner before
+// reaching the cache. Status=OFF → ON; Status=ON → OFF.
+func TestApplyDesired_ToggleResolvesByZoneStatus(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{
+		zones: map[string]apiv1.Zone{
+			"office": {
+				Status: apiv1.ZoneStatus{State: iotv1proto.ZoneState_ZONE_STATE_OFF.String()},
+			},
+		},
+	}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office", ActiveState: "toggle"}
+
+	// Status=OFF → toggle resolves to ON.
+	require.NoError(t, c.activateRemediation(ctx, "office-toggle", rem))
+	require.Equal(t, 1, rec.setStateCount())
+	_, state := rec.firstSetState()
+	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_ON, state, "toggle from OFF should resolve to ON")
+
+	// Now flip the fake zone status to ON; next toggle should resolve to OFF.
+	kube.zones["office"] = apiv1.Zone{Status: apiv1.ZoneStatus{State: iotv1proto.ZoneState_ZONE_STATE_ON.String()}}
+	require.NoError(t, c.activateRemediation(ctx, "office-toggle", rem))
+	require.Equal(t, 2, rec.setStateCount())
+	last := rec.setStateCalls[1]
+	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_OFF, last.State, "toggle from ON should resolve to OFF")
+}
+
+// TestApplyDesired_ToggleAlternation: with the fake zone status flipped
+// between presses to simulate the apiStatusUpdate roundtrip, three
+// presses produce three alternating SetState calls (no dedup).
+func TestApplyDesired_ToggleAlternation(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{
+		zones: map[string]apiv1.Zone{
+			"office": {Status: apiv1.ZoneStatus{State: iotv1proto.ZoneState_ZONE_STATE_OFF.String()}},
+		},
+	}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office", ActiveState: "toggle"}
+
+	want := []iotv1proto.ZoneState{
+		iotv1proto.ZoneState_ZONE_STATE_ON,  // status was OFF → ON
+		iotv1proto.ZoneState_ZONE_STATE_OFF, // status flipped to ON → OFF
+		iotv1proto.ZoneState_ZONE_STATE_ON,  // status flipped to OFF → ON
+	}
+	flipMap := map[iotv1proto.ZoneState]string{
+		iotv1proto.ZoneState_ZONE_STATE_ON:  iotv1proto.ZoneState_ZONE_STATE_ON.String(),
+		iotv1proto.ZoneState_ZONE_STATE_OFF: iotv1proto.ZoneState_ZONE_STATE_OFF.String(),
+	}
+	for i, exp := range want {
+		require.NoError(t, c.activateRemediation(ctx, "office-toggle", rem))
+		require.Equal(t, i+1, rec.setStateCount(), "press %d", i+1)
+		require.Equal(t, exp, rec.setStateCalls[i].State, "press %d expected resolved state", i+1)
+		// Simulate apiStatusUpdate reflecting the new state.
+		kube.zones["office"] = apiv1.Zone{Status: apiv1.ZoneStatus{State: flipMap[exp]}}
+	}
+}
+
+// TestApplyDesired_ToggleDoublePressDedup: two rapid toggle presses
+// while the zone status hasn't caught up yet should produce only one
+// effective SetState — applyDesired's cache absorbs the duplicate.
+// This is the deliberate button-bounce debounce.
+func TestApplyDesired_ToggleDoublePressDedup(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{
+		zones: map[string]apiv1.Zone{
+			"office": {Status: apiv1.ZoneStatus{State: iotv1proto.ZoneState_ZONE_STATE_OFF.String()}},
+		},
+	}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "office", ActiveState: "toggle"}
+
+	// Two presses, status NOT updated between them — both resolve to ON.
+	require.NoError(t, c.activateRemediation(ctx, "office-toggle", rem))
+	require.NoError(t, c.activateRemediation(ctx, "office-toggle", rem))
+
+	require.Equal(t, 1, rec.setStateCount(), "rapid double-press without status update should dedup to 1 SetState")
+}
+
+// TestApplyDesired_ToggleReadFailureDefaultsOn: if the kube Get for the
+// zone fails (e.g. zone CR doesn't exist), toggle defaults to "on" so
+// the user isn't left in the dark with no clear recovery path.
+func TestApplyDesired_ToggleReadFailureDefaultsOn(t *testing.T) {
+	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	rec := &recordingZoneKeeper{}
+	kube := &fakeKubeClient{
+		zones: map[string]apiv1.Zone{}, // empty → Get returns errExpectError
+	}
+	testLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, testLogger, rec, kube)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "nonexistent", ActiveState: "toggle"}
+
+	require.NoError(t, c.activateRemediation(ctx, "broken-toggle", rem))
+	require.Equal(t, 1, rec.setStateCount())
+	_, state := rec.firstSetState()
+	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_ON, state, "toggle on read failure defaults to ON")
 }
