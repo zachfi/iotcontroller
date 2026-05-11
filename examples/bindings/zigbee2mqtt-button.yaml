@@ -1,11 +1,14 @@
 # Example Bindings for a button device managed by zigbee2mqtt.
 #
-# MQTT bindings match on topic, a top-level JSON field, and its string value.
-# zigbee2mqtt publishes to "zigbee2mqtt/<friendly_name>" with payloads like:
-#   {"action": "single", "battery": 95, "linkquality": 182}
+# A Binding maps a normalized device event (property + value) to a Condition.
+# Both transports — zigbee2mqtt MQTT and the native Zigbee dongle — produce
+# the same DeviceEvent shape, so a single Binding works regardless of how
+# the device joined the network.
 #
-# This covers any device connected via zigbee2mqtt, Tasmota, ESPHome, or
-# any other source that writes JSON to MQTT topics.
+# zigbee2mqtt publishes per-device JSON payloads like:
+#   {"action": "single", "battery": 95, "linkquality": 182}
+# This decodes to event.property=action, event.value=single. The Binding's
+# selector below restricts the match to one specific device.
 ---
 apiVersion: iot.iot/v1
 kind: Binding
@@ -13,10 +16,11 @@ metadata:
   name: z2m-button-living-area-on
   namespace: iot
 spec:
-  mqtt:
-    topic: "zigbee2mqtt/my-button"
-    field: "action"
-    value: "single"
+  event:
+    property: action
+    value: single
+    selector:
+      device: my-button
   condition: living-area-on
 ---
 apiVersion: iot.iot/v1
@@ -25,8 +29,9 @@ metadata:
   name: z2m-button-living-area-off
   namespace: iot
 spec:
-  mqtt:
-    topic: "zigbee2mqtt/my-button"
-    field: "action"
-    value: "double"
+  event:
+    property: action
+    value: double
+    selector:
+      device: my-button
   condition: living-area-off

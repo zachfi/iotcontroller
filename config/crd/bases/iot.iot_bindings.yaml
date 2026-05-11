@@ -18,8 +18,8 @@ spec:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: Binding maps a device trigger (ZCL command or MQTT message) to
-          a Condition. When the trigger fires, the named Condition's remediations
+        description: Binding maps a normalized device event to a Condition. When the
+          event fires from a device matching the selector, the named Condition's remediations
           are applied to its zones. This replaces hardcoded action strings in the
           router.
         properties:
@@ -36,58 +36,62 @@ spec:
           metadata:
             type: object
           spec:
-            description: BindingSpec defines a trigger → condition mapping. Exactly
-              one of ZCL or MQTT must be set. When the trigger fires, the named Condition
+            description: BindingSpec defines an event → condition mapping. When the
+              trigger event fires from a device matching the selector, the named Condition
               is activated.
             properties:
               condition:
                 description: Condition is the name of the Condition resource to activate
                   when this binding fires. The Condition must exist in the same namespace.
                 type: string
-              mqtt:
-                description: MQTT matches a message on an MQTT topic by extracting
-                  a JSON field and comparing its string value. Covers zigbee2mqtt,
-                  Tasmota, ESPHome, etc.
+              event:
+                description: Event matches a normalized device-emitted event by property
+                  and value. Both zigbee2mqtt and the native zigbee router normalize
+                  their incoming messages into the same Event shape so a single Binding
+                  works regardless of transport.
                 properties:
-                  field:
-                    description: Field is the top-level JSON key to extract from the
-                      payload (e.g. "action").
+                  property:
+                    description: 'Property is the normalized expose name. Examples:
+                      "action", "occupancy", "water_leak", "state", "contact", "tamper".'
                     type: string
-                  topic:
-                    description: Topic is the exact MQTT topic to match (e.g. "zigbee2mqtt/my-button").
-                    type: string
+                  selector:
+                    description: Selector restricts which devices can fire this binding.
+                      All non-empty fields must match the device. An empty selector
+                      matches every device that emitted the property.
+                    properties:
+                      device:
+                        description: Device matches the device's CR name.
+                        type: string
+                      device_type:
+                        description: DeviceType matches Spec.Type (e.g. "DEVICE_TYPE_BUTTON").
+                        type: string
+                      ieee:
+                        description: IEEE matches the device's 64-bit IEEE address
+                          (e.g. "0xffffb40e06036411").
+                        type: string
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: LabelSelector is an exact-match label set. Every
+                          key/value here must be present on the Device for the binding
+                          to fire.
+                        type: object
+                      zone:
+                        description: Zone matches the device's `iot/zone` label.
+                        type: string
+                    type: object
                   value:
-                    description: Value is the expected string value of the field (e.g.
-                      "single").
+                    description: Value is the expected value rendered as a string.
+                      For booleans use "true" / "false". For action enums use the
+                      action name (e.g. "single", "double", "on"). May be empty to
+                      match any value of the property.
                     type: string
                 required:
-                - field
-                - topic
-                - value
-                type: object
-              zcl:
-                description: ZCL matches a native Zigbee command by IEEE address,
-                  cluster, and command ID.
-                properties:
-                  cluster_id:
-                    description: ClusterID is the ZCL cluster identifier (e.g. 6 for
-                      On/Off).
-                    type: integer
-                  command_id:
-                    description: CommandID is the ZCL command identifier within the
-                      cluster (e.g. 1 for On).
-                    type: integer
-                  ieee:
-                    description: IEEE is the 64-bit IEEE address of the device (e.g.
-                      "0xffffb40e06032b2e").
-                    type: string
-                required:
-                - cluster_id
-                - command_id
-                - ieee
+                - property
                 type: object
             required:
             - condition
+            - event
             type: object
           status:
             description: BindingStatus defines the observed state of Binding.

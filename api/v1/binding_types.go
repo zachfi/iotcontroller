@@ -20,43 +20,57 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// BindingSpec defines a trigger → condition mapping. Exactly one of ZCL or
-// MQTT must be set. When the trigger fires, the named Condition is activated.
+// BindingSpec defines an event → condition mapping. When the trigger event
+// fires from a device matching the selector, the named Condition is activated.
 type BindingSpec struct {
-	// ZCL matches a native Zigbee command by IEEE address, cluster, and command ID.
-	ZCL *ZCLTrigger `json:"zcl,omitempty"`
-
-	// MQTT matches a message on an MQTT topic by extracting a JSON field and
-	// comparing its string value. Covers zigbee2mqtt, Tasmota, ESPHome, etc.
-	MQTT *MQTTTrigger `json:"mqtt,omitempty"`
+	// Event matches a normalized device-emitted event by property and value.
+	// Both zigbee2mqtt and the native zigbee router normalize their incoming
+	// messages into the same Event shape so a single Binding works regardless
+	// of transport.
+	Event EventTrigger `json:"event"`
 
 	// Condition is the name of the Condition resource to activate when this
 	// binding fires. The Condition must exist in the same namespace.
 	Condition string `json:"condition"`
 }
 
-// ZCLTrigger matches a ZCL command from a specific device.
-type ZCLTrigger struct {
-	// IEEE is the 64-bit IEEE address of the device (e.g. "0xffffb40e06032b2e").
-	IEEE string `json:"ieee"`
+// EventTrigger matches a normalized device event, optionally scoped to a
+// subset of devices via Selector.
+type EventTrigger struct {
+	// Property is the normalized expose name. Examples: "action",
+	// "occupancy", "water_leak", "state", "contact", "tamper".
+	Property string `json:"property"`
 
-	// ClusterID is the ZCL cluster identifier (e.g. 6 for On/Off).
-	ClusterID uint16 `json:"cluster_id"`
+	// Value is the expected value rendered as a string. For booleans use
+	// "true" / "false". For action enums use the action name (e.g. "single",
+	// "double", "on"). May be empty to match any value of the property.
+	Value string `json:"value,omitempty"`
 
-	// CommandID is the ZCL command identifier within the cluster (e.g. 1 for On).
-	CommandID uint8 `json:"command_id"`
+	// Selector restricts which devices can fire this binding. All non-empty
+	// fields must match the device. An empty selector matches every device
+	// that emitted the property.
+	Selector EventSelector `json:"selector,omitempty"`
 }
 
-// MQTTTrigger matches an MQTT message by topic, JSON field, and value.
-type MQTTTrigger struct {
-	// Topic is the exact MQTT topic to match (e.g. "zigbee2mqtt/my-button").
-	Topic string `json:"topic"`
+// EventSelector restricts a Binding to a subset of devices. Multiple fields
+// AND together. The most specific binding wins (IEEE > Device > LabelSelector
+// per key > DeviceType > Zone > none); ties are broken by sorted Binding name.
+type EventSelector struct {
+	// IEEE matches the device's 64-bit IEEE address (e.g. "0xffffb40e06036411").
+	IEEE string `json:"ieee,omitempty"`
 
-	// Field is the top-level JSON key to extract from the payload (e.g. "action").
-	Field string `json:"field"`
+	// Device matches the device's CR name.
+	Device string `json:"device,omitempty"`
 
-	// Value is the expected string value of the field (e.g. "single").
-	Value string `json:"value"`
+	// DeviceType matches Spec.Type (e.g. "DEVICE_TYPE_BUTTON").
+	DeviceType string `json:"device_type,omitempty"`
+
+	// Zone matches the device's `iot/zone` label.
+	Zone string `json:"zone,omitempty"`
+
+	// LabelSelector is an exact-match label set. Every key/value here must
+	// be present on the Device for the binding to fire.
+	LabelSelector map[string]string `json:"labels,omitempty"`
 }
 
 // BindingStatus defines the observed state of Binding.
@@ -65,9 +79,10 @@ type BindingStatus struct{}
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// Binding maps a device trigger (ZCL command or MQTT message) to a Condition.
-// When the trigger fires, the named Condition's remediations are applied to
-// its zones. This replaces hardcoded action strings in the router.
+// Binding maps a normalized device event to a Condition. When the event
+// fires from a device matching the selector, the named Condition's
+// remediations are applied to its zones. This replaces hardcoded action
+// strings in the router.
 type Binding struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

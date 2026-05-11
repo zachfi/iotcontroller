@@ -14,10 +14,15 @@ import (
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
+	"github.com/zachfi/iotcontroller/pkg/iot/bindings"
+	"github.com/zachfi/iotcontroller/pkg/iot/events"
 	"github.com/zachfi/iotcontroller/pkg/mocks"
 )
 
 // fakeKubeClient returns a fixed BindingList from List; all other methods panic.
+// Kept here (not exported) so the router-level tests can run without spinning
+// up envtest. The matcher itself is exhaustively tested in
+// pkg/iot/bindings/match_test.go using the same fake.
 type fakeKubeClient struct {
 	bindings []apiv1.Binding
 }
@@ -60,70 +65,77 @@ func (f *fakeKubeClient) IsObjectNamespaced(_ runtime.Object) (bool, error) {
 	panic("not implemented")
 }
 
-func newTestRouter(bindings []apiv1.Binding, er *mocks.EventReceiverClientMock) *Zigbee2Mqtt {
+func newTestRouter(b []apiv1.Binding, er *mocks.EventReceiverClientMock) *Zigbee2Mqtt {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	kc := &fakeKubeClient{bindings: b}
 	return &Zigbee2Mqtt{
 		logger:              logger,
 		tracer:              noop.NewTracerProvider().Tracer("test"),
-		kubeclient:          &fakeKubeClient{bindings: bindings},
+		kubeclient:          kc,
 		eventReceiverClient: er,
+		matcher:             bindings.New(kc, "iot", logger),
 	}
 }
 
-func TestFindMQTTBinding(t *testing.T) {
-	ctx := context.Background()
-
+// TestDispatchEvent_Match: when a Binding matches the event, the matcher
+// returns its condition name and dispatchEvent activates that condition.
+func TestDispatchEvent_Match(t *testing.T) {
 	binding := apiv1.Binding{
 		Spec: apiv1.BindingSpec{
-			MQTT: &apiv1.MQTTTrigger{
-				Topic: "zigbee2mqtt/my-button",
-				Field: "action",
-				Value: "single",
+			Event: apiv1.EventTrigger{
+				Property: events.PropertyAction,
+				Value:    "single",
+				Selector: apiv1.EventSelector{Device: "my-button"},
 			},
 			Condition: "living-area-on",
 		},
 	}
+	er := &mocks.EventReceiverClientMock{}
+	r := newTestRouter([]apiv1.Binding{binding}, er)
 
-	t.Run("match returns condition name", func(t *testing.T) {
-		r := newTestRouter([]apiv1.Binding{binding}, &mocks.EventReceiverClientMock{})
-		got := r.findMQTTBinding(ctx, "zigbee2mqtt/my-button", "action", "single")
-		require.Equal(t, "living-area-on", got)
-	})
+	dev := &apiv1.Device{}
+	dev.Name = "my-button"
 
-	t.Run("wrong topic returns empty", func(t *testing.T) {
-		r := newTestRouter([]apiv1.Binding{binding}, &mocks.EventReceiverClientMock{})
-		got := r.findMQTTBinding(ctx, "zigbee2mqtt/other-button", "action", "single")
-		require.Empty(t, got)
+	got := r.dispatchEvent(context.Background(), events.DeviceEvent{
+		Property: events.PropertyAction,
+		Value:    "single",
+		Device:   dev,
 	})
+	require.True(t, got, "binding should have matched")
+	require.Equal(t, []string{"living-area-on"}, er.ActivateConditionCalls())
+}
 
-	t.Run("wrong field returns empty", func(t *testing.T) {
-		r := newTestRouter([]apiv1.Binding{binding}, &mocks.EventReceiverClientMock{})
-		got := r.findMQTTBinding(ctx, "zigbee2mqtt/my-button", "state", "single")
-		require.Empty(t, got)
-	})
+// TestDispatchEvent_NoMatch: when no Binding matches, dispatchEvent
+// returns false and does not invoke the eventReceiverClient. Caller is
+// expected to fall through to the legacy ActionHandler path.
+func TestDispatchEvent_NoMatch(t *testing.T) {
+	er := &mocks.EventReceiverClientMock{}
+	r := newTestRouter(nil, er)
 
-	t.Run("wrong value returns empty", func(t *testing.T) {
-		r := newTestRouter([]apiv1.Binding{binding}, &mocks.EventReceiverClientMock{})
-		got := r.findMQTTBinding(ctx, "zigbee2mqtt/my-button", "action", "double")
-		require.Empty(t, got)
-	})
+	dev := &apiv1.Device{}
+	dev.Name = "my-button"
 
-	t.Run("nil eventReceiverClient returns empty", func(t *testing.T) {
-		r := newTestRouter([]apiv1.Binding{binding}, nil)
-		r.eventReceiverClient = nil
-		got := r.findMQTTBinding(ctx, "zigbee2mqtt/my-button", "action", "single")
-		require.Empty(t, got)
+	got := r.dispatchEvent(context.Background(), events.DeviceEvent{
+		Property: events.PropertyAction,
+		Value:    "single",
+		Device:   dev,
 	})
+	require.False(t, got, "no binding should not dispatch")
+	require.Empty(t, er.ActivateConditionCalls())
+}
 
-	t.Run("zcl binding is skipped", func(t *testing.T) {
-		zclBinding := apiv1.Binding{
-			Spec: apiv1.BindingSpec{
-				ZCL:       &apiv1.ZCLTrigger{IEEE: "0x1234", ClusterID: 6, CommandID: 1},
-				Condition: "some-condition",
-			},
-		}
-		r := newTestRouter([]apiv1.Binding{zclBinding}, &mocks.EventReceiverClientMock{})
-		got := r.findMQTTBinding(ctx, "zigbee2mqtt/my-button", "action", "single")
-		require.Empty(t, got)
+// TestDispatchEvent_NilClient: with no eventReceiverClient configured the
+// router must not panic; it returns false so the legacy fallback runs.
+func TestDispatchEvent_NilClient(t *testing.T) {
+	r := newTestRouter(nil, nil)
+	r.eventReceiverClient = nil
+	dev := &apiv1.Device{}
+	dev.Name = "my-button"
+
+	got := r.dispatchEvent(context.Background(), events.DeviceEvent{
+		Property: events.PropertyAction,
+		Value:    "single",
+		Device:   dev,
 	})
+	require.False(t, got)
 }

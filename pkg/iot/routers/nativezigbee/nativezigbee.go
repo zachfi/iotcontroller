@@ -14,6 +14,8 @@ import (
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/pkg/iot"
+	"github.com/zachfi/iotcontroller/pkg/iot/bindings"
+	"github.com/zachfi/iotcontroller/pkg/iot/events"
 	iotutil "github.com/zachfi/iotcontroller/pkg/iot/util"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 	zclv1proto "github.com/zachfi/iotcontroller/proto/zcl/v1"
@@ -32,6 +34,7 @@ type NativeZigbee struct {
 	kubeclient          kubeclient.Client
 	zonekeeperClient    iotv1proto.ZoneKeeperServiceClient
 	eventReceiverClient iotv1proto.EventReceiverServiceClient
+	matcher             *bindings.Matcher
 
 	// ieeeToNwk caches the mapping from ieee→device name to avoid repeated kube lookups
 	cacheMux  sync.RWMutex
@@ -45,6 +48,7 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		kubeclient:          kubeclient,
 		zonekeeperClient:    zonekeeperClient,
 		eventReceiverClient: eventReceiverClient,
+		matcher:             bindings.New(kubeclient, "iot", logger),
 		ieeeCache:           make(map[string]string),
 	}, nil
 }
@@ -97,25 +101,37 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		n.logger.Debug("failed to update last seen", slog.String("error", updateErr.Error()))
 	}
 
-	// Try binding lookup first: find a Binding for (ieee, cluster, command) and
-	// activate the named Condition. If no binding matches, fall back to the
-	// legacy action string path so existing configurations keep working.
-	clusterID, commandID, hasIDs := zclCommandIDs(zclMsg)
-	if hasIDs {
-		if conditionName := n.findZCLBinding(ctx, ieeeAddr, clusterID, commandID); conditionName != "" {
-			span.SetAttributes(
-				attribute.String("device", device.Name),
-				attribute.String("condition", conditionName),
-			)
-			_, err = n.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
-				Condition: conditionName,
-			})
-			return err
+	// Normalize the ZclMessage into the same DeviceEvent shape used by
+	// zigbee2mqtt; one Binding spec then matches both transports.
+	evs := events.FromZclMessage(zclMsg, device)
+	for _, ev := range evs {
+		if n.eventReceiverClient == nil {
+			break
 		}
+		cond := n.matcher.FindCondition(ctx, ev)
+		if cond == "" {
+			continue
+		}
+		span.SetAttributes(
+			attribute.String("device", device.Name),
+			attribute.String("binding.property", ev.Property),
+			attribute.String("binding.value", ev.Value),
+			attribute.String("binding.condition", cond),
+		)
+		_, err = n.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
+			Condition: cond,
+		})
+		return err
 	}
 
-	// Map ZCL command to action string (legacy path for unbound devices)
-	action := zclCommandToAction(zclMsg)
+	// Legacy fallback path: no Binding matched any normalized event. Map
+	// the ZCL command to the legacy action string vocabulary and dispatch
+	// through ActionHandler. Once the fallback metric is flat at 0 across
+	// devices, this path can be removed.
+	action := ""
+	if len(evs) > 0 && evs[0].Property == events.PropertyAction {
+		action = evs[0].Value
+	}
 	if action == "" {
 		n.logger.Debug("no action for ZCL command",
 			slog.String("cluster", zclMsg.GetClusterName()),
@@ -139,76 +155,13 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		attribute.String("action", action),
 	)
 
+	metricFallbackTotal.WithLabelValues(action, zone).Inc()
 	_, err = n.zonekeeperClient.ActionHandler(ctx, &iotv1proto.ActionHandlerRequest{
 		Event:  action,
 		Device: device.Name,
 		Zone:   zone,
 	})
 	return err
-}
-
-// zclCommandIDs extracts the cluster ID and command ID from a ZclMessage.
-// Returns (clusterID, commandID, true) when a known command is present.
-func zclCommandIDs(msg *zclv1proto.ZclMessage) (clusterID uint16, commandID uint8, ok bool) {
-	if msg.GetFrame() == nil || msg.GetFrame().GetCommand() == nil {
-		return 0, 0, false
-	}
-	clusterID = uint16(msg.GetClusterId())
-	switch msg.GetFrame().GetCommand().GetCommand().(type) {
-	case *zclv1proto.ZclCommand_GenOnoffOff:
-		return clusterID, 0x00, true
-	case *zclv1proto.ZclCommand_GenOnoffOn:
-		return clusterID, 0x01, true
-	case *zclv1proto.ZclCommand_GenOnoffToggle:
-		return clusterID, 0x02, true
-	case *zclv1proto.ZclCommand_GenLevelcontrolMoveToLevel:
-		return clusterID, 0x00, true
-	case *zclv1proto.ZclCommand_GenLevelcontrolMove:
-		return clusterID, 0x01, true
-	case *zclv1proto.ZclCommand_GenLevelcontrolStep:
-		return clusterID, 0x02, true
-	case *zclv1proto.ZclCommand_GenLevelcontrolStop:
-		return clusterID, 0x03, true
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToColorTemp:
-		return clusterID, 0x0A, true
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveColorTemp:
-		return clusterID, 0x4B, true
-	case *zclv1proto.ZclCommand_GenColorcontrolStepColorTemp:
-		return clusterID, 0x4C, true
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToHue:
-		return clusterID, 0x00, true
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToSaturation:
-		return clusterID, 0x03, true
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToHueAndSaturation:
-		return clusterID, 0x06, true
-	}
-	return 0, 0, false
-}
-
-// findZCLBinding lists Binding CRDs and returns the condition name for the
-// first ZCL binding matching (ieee, clusterID, commandID), or "" if none match.
-func (n *NativeZigbee) findZCLBinding(ctx context.Context, ieee string, clusterID uint16, commandID uint8) string {
-	if n.eventReceiverClient == nil {
-		return ""
-	}
-
-	list := &apiv1.BindingList{}
-	if err := n.kubeclient.List(ctx, list, kubeclient.InNamespace("iot")); err != nil {
-		n.logger.Debug("failed to list bindings", slog.String("error", err.Error()))
-		return ""
-	}
-
-	for _, b := range list.Items {
-		if b.Spec.ZCL == nil {
-			continue
-		}
-		if b.Spec.ZCL.IEEE == ieee &&
-			b.Spec.ZCL.ClusterID == clusterID &&
-			b.Spec.ZCL.CommandID == commandID {
-			return b.Spec.Condition
-		}
-	}
-	return ""
 }
 
 // InterviewRoute handles a DeviceInterviewResult proto payload for path "zigbee/{ieee}/interview".
@@ -370,58 +323,6 @@ func (n *NativeZigbee) getDeviceByNWK(ctx context.Context, nwkHex string) (*apiv
 	return nil, nil
 }
 
-// zclCommandToAction maps a ZclMessage command to a named action string.
-// Returns "" for non-action messages (sensor reports, attribute reads, etc.).
-func zclCommandToAction(msg *zclv1proto.ZclMessage) string {
-	if msg.GetFrame() == nil || msg.GetFrame().GetCommand() == nil {
-		return ""
-	}
-
-	switch msg.GetFrame().GetCommand().GetCommand().(type) {
-	// genOnOff (0x0006)
-	case *zclv1proto.ZclCommand_GenOnoffOn:
-		return "on"
-	case *zclv1proto.ZclCommand_GenOnoffOff:
-		return "off"
-	case *zclv1proto.ZclCommand_GenOnoffToggle:
-		return "toggle"
-
-	// genLevelControl (0x0008)
-	case *zclv1proto.ZclCommand_GenLevelcontrolMoveToLevel:
-		return "brightness_move_to_level"
-	case *zclv1proto.ZclCommand_GenLevelcontrolMove:
-		cmd := msg.GetFrame().GetCommand().GetGenLevelcontrolMove()
-		if cmd.GetMoveMode() == zclv1proto.ZclMoveMode_ZCL_MOVE_MODE_DOWN {
-			return "brightness_move_down"
-		}
-		return "brightness_move_up"
-	case *zclv1proto.ZclCommand_GenLevelcontrolStep:
-		cmd := msg.GetFrame().GetCommand().GetGenLevelcontrolStep()
-		if cmd.GetStepMode() == zclv1proto.ZclStepMode_ZCL_STEP_MODE_DOWN {
-			return "brightness_step_down"
-		}
-		return "brightness_step_up"
-	case *zclv1proto.ZclCommand_GenLevelcontrolStop:
-		return "brightness_stop"
-
-	// genColorControl (0x0300)
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToColorTemp:
-		return "color_temperature_move"
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveColorTemp:
-		cmd := msg.GetFrame().GetCommand().GetGenColorcontrolMoveColorTemp()
-		if cmd.GetMoveMode() == zclv1proto.ZclMoveMode_ZCL_MOVE_MODE_DOWN {
-			return "color_temperature_move_down"
-		}
-		return "color_temperature_move_up"
-	case *zclv1proto.ZclCommand_GenColorcontrolStepColorTemp:
-		return "color_temperature_step"
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToHue:
-		return "hue_move"
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToSaturation:
-		return "saturation_move"
-	case *zclv1proto.ZclCommand_GenColorcontrolMoveToHueAndSaturation:
-		return "hue_saturation_move"
-	}
-
-	return ""
-}
+// (zclCommandToAction lives in pkg/iot/events; the router consumes
+// events.FromZclMessage so the canonical ZCL→action vocabulary stays
+// in the events package.)

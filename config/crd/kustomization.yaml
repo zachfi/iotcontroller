@@ -7,6 +7,7 @@ resources:
 - bases/iot.iot_conditions.yaml
 - bases/iot.iot_zones.yaml
 - bases/iot.iot_scenes.yaml
+- bases/iot.iot_bindings.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

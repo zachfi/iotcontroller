@@ -16,6 +16,8 @@ import (
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/pkg/iot"
+	"github.com/zachfi/iotcontroller/pkg/iot/bindings"
+	"github.com/zachfi/iotcontroller/pkg/iot/events"
 	iotutil "github.com/zachfi/iotcontroller/pkg/iot/util"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -39,6 +41,7 @@ type Zigbee2Mqtt struct {
 	kubeclient          kubeclient.Client
 	zonekeeperClient    iotv1proto.ZoneKeeperServiceClient
 	eventReceiverClient iotv1proto.EventReceiverServiceClient
+	matcher             *bindings.Matcher
 
 	deviceTracker *iotutil.DeviceTracker
 }
@@ -50,6 +53,7 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		kubeclient:          kubeclient,
 		zonekeeperClient:    zonekeeperClient,
 		eventReceiverClient: eventReceiverClient,
+		matcher:             bindings.New(kubeclient, "iot", logger),
 
 		deviceTracker: iotutil.NewDeviceTracker(
 			[]iotutil.Metric{
@@ -129,25 +133,46 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 		z.updateZigbeeMessageMetrics(ctx, m, device)
 	})
 
+	// Build normalized events and try to match them against Bindings before
+	// touching any legacy handler. A single inbound message can carry
+	// multiple asserted properties (action + state, occupancy + tamper);
+	// each becomes its own DeviceEvent so a Binding can target each
+	// independently.
+	evs := events.FromZ2M(events.Z2MMessage{
+		Action:    m.Action,
+		Occupancy: m.Occupancy,
+		WaterLeak: m.WaterLeak,
+		Tamper:    m.Tamper,
+		State:     m.State,
+	}, device)
+	dispatched := make(map[string]bool, len(evs))
+	for _, ev := range evs {
+		if z.dispatchEvent(ctx, ev) {
+			dispatched[ev.Property] = true
+		}
+	}
+
 	// If this device has been annotated by a zone, then we pass the action to
-	// the zone handler.
+	// the zone handler. Bindings that already dispatched an event are
+	// skipped here so we don't double-fire.
 	if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
 		span.SetAttributes(
 			attribute.String("zone", zone),
 			attribute.String("device", device.Name),
 		)
 
-		if m.Action != nil {
+		switch {
+		case m.Action != nil && !dispatched[events.PropertyAction]:
 			span.SetAttributes(attribute.String("action", *m.Action))
 			wg.Go(func() {
 				z.action(ctx, *m.Action, device.Name, zone)
 			})
-		} else if m.Occupancy != nil && *m.Occupancy {
-			span.SetAttributes(attribute.Bool(PropertyOccupancy, *m.Occupancy))
+		case m.Occupancy != nil && *m.Occupancy && !dispatched[events.PropertyOccupancy]:
+			span.SetAttributes(attribute.Bool(events.PropertyOccupancy, *m.Occupancy))
 			wg.Go(func() {
 				z.occupied(ctx, device.Name, zone)
 			})
-		} else {
+		case len(dispatched) == 0:
 			wg.Go(func() {
 				z.selfAnnounce(ctx, device.Name, zone)
 			})
@@ -279,6 +304,39 @@ func (z *Zigbee2Mqtt) selfAnnounce(ctx context.Context, device, zone string) {
 	)
 }
 
+// dispatchEvent runs ev through the Binding matcher; on hit, it activates
+// the named Condition. Returns true when a Binding handled the event so
+// the caller can skip its legacy fallback path.
+func (z *Zigbee2Mqtt) dispatchEvent(ctx context.Context, ev events.DeviceEvent) bool {
+	if z.eventReceiverClient == nil {
+		return false
+	}
+	cond := z.matcher.FindCondition(ctx, ev)
+	if cond == "" {
+		return false
+	}
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("binding.property", ev.Property),
+		attribute.String("binding.value", ev.Value),
+		attribute.String("binding.condition", cond),
+	)
+	if _, err := z.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
+		Condition: cond,
+	}); err != nil {
+		z.logger.Debug("activate condition failed",
+			slog.String("condition", cond),
+			slog.String("error", err.Error()),
+		)
+		// Activation error doesn't fall back to ActionHandler — the binding
+		// matched, the Condition exists; surfacing the failure is more useful
+		// than masking it with a legacy fallback that would do something
+		// different.
+		return true
+	}
+	return true
+}
+
 func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
 	var err error
 
@@ -289,17 +347,6 @@ func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
 	))
 	defer func() { _ = tracing.ErrHandler(span, err, "action", z.logger) }()
 
-	// Try binding lookup: find a Binding for (topic, field="action", value=action)
-	// and activate the named Condition. Fall back to ActionHandler for unbound devices.
-	topic := "zigbee2mqtt/" + device
-	if conditionName := z.findMQTTBinding(ctx, topic, "action", action); conditionName != "" {
-		span.SetAttributes(attribute.String("condition", conditionName))
-		_, err = z.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
-			Condition: conditionName,
-		})
-		return
-	}
-
 	_, err = z.zonekeeperClient.ActionHandler(ctx,
 		&iotv1proto.ActionHandlerRequest{
 			Event:  action,
@@ -307,32 +354,7 @@ func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
 			Zone:   zone,
 		},
 	)
-}
-
-// findMQTTBinding lists Binding CRDs and returns the condition name for the
-// first MQTT binding matching (topic, field, value), or "" if none match.
-func (z *Zigbee2Mqtt) findMQTTBinding(ctx context.Context, topic, field, value string) string {
-	if z.eventReceiverClient == nil {
-		return ""
-	}
-
-	list := &apiv1.BindingList{}
-	if err := z.kubeclient.List(ctx, list, kubeclient.InNamespace("iot")); err != nil {
-		z.logger.Debug("failed to list bindings", slog.String("error", err.Error()))
-		return ""
-	}
-
-	for _, b := range list.Items {
-		if b.Spec.MQTT == nil {
-			continue
-		}
-		if b.Spec.MQTT.Topic == topic &&
-			b.Spec.MQTT.Field == field &&
-			b.Spec.MQTT.Value == value {
-			return b.Spec.Condition
-		}
-	}
-	return ""
+	metricFallbackTotal.WithLabelValues(action, zone).Inc()
 }
 
 func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMessage, device *apiv1.Device) {

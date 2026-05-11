@@ -1,16 +1,13 @@
 # Example Bindings for the Third Reality Smart Button (3RSB22BZ)
 #
-# A Binding maps a device trigger to a named Condition. When the trigger
-# fires, the Condition's remediations are applied to its zones. This
-# replaces hardcoded action strings in the router.
+# A Binding maps a normalized device event to a Condition. When the event
+# fires from a device matching the selector, the Condition's remediations
+# are applied. This replaces hardcoded action strings in the router.
 #
-# ZCL cluster 0x0006 = On/Off
-#   command 0x00 = Off
-#   command 0x01 = On
-#   command 0x02 = Toggle
-#
-# Replace the IEEE address and condition names to match your deployment.
-# The Condition resources must exist in the same namespace.
+# This example targets a single device by IEEE address — the most specific
+# selector form. Other forms (DeviceType, Zone, Device-name, LabelSelector)
+# allow fleet defaults and overrides; specificity is summed across selector
+# fields and the highest-scoring Binding wins.
 ---
 apiVersion: iot.iot/v1
 kind: Binding
@@ -18,10 +15,11 @@ metadata:
   name: button-bedside-zach-on
   namespace: iot
 spec:
-  zcl:
-    ieee: "0xffffb40e06036411"
-    cluster_id: 6
-    command_id: 1    # On
+  event:
+    property: action
+    value: "on"
+    selector:
+      ieee: "0xffffb40e06036411"
   condition: bedside-zach-on
 ---
 apiVersion: iot.iot/v1
@@ -30,10 +28,11 @@ metadata:
   name: button-bedside-zach-off
   namespace: iot
 spec:
-  zcl:
-    ieee: "0xffffb40e06036411"
-    cluster_id: 6
-    command_id: 0    # Off
+  event:
+    property: action
+    value: "off"
+    selector:
+      ieee: "0xffffb40e06036411"
   condition: bedside-zach-off
 ---
 # Example Conditions activated by the bindings above.
