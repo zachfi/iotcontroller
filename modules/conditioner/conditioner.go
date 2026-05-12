@@ -35,6 +35,7 @@ import (
 	"github.com/zachfi/zkit/pkg/tracing"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
+	"github.com/zachfi/iotcontroller/modules/conditioner/computer"
 	"github.com/zachfi/iotcontroller/pkg/iot"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
@@ -259,6 +260,22 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		sched:       newSchedule(logger),
 		alertActive: make(map[string]apiv1.Remediation),
 		condState:   make(map[string]conditionState),
+	}
+
+	// The query Computer pulls from an operator-configured Prometheus
+	// endpoint; register it only when an endpoint is configured.
+	// Conditions referencing `active_compute: query` without an
+	// endpoint configured will show up in
+	// iotcontroller_conditioner_evaluation_compute_unknown_total —
+	// the operator's signal to wire the flag.
+	if cfg.Query.Endpoint != "" {
+		computer.Register(computer.QueryName, computer.NewQuery(computer.QueryConfig{
+			Endpoint:        cfg.Query.Endpoint,
+			Tenant:          cfg.Query.Tenant,
+			Timeout:         cfg.Query.Timeout,
+			AuthTokenEnvVar: cfg.Query.AuthTokenEnvVar,
+			Logger:          c.logger,
+		}))
 	}
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)

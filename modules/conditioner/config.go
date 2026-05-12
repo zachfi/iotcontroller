@@ -32,12 +32,35 @@ type Config struct {
 	// is shared across the conditioner. Plumbed from `znet.location` in
 	// deployment_tools.
 	Location LocationConfig `yaml:"location,omitempty"`
+
+	// Query configures the `query` Computer (Prometheus pull). The
+	// computer is registered only when Query.Endpoint is non-empty, so
+	// deployments that don't want PromQL-driven Conditions don't have
+	// to think about this block. One endpoint+tenant per pod by design:
+	// the deployment_tools knob picks the Mimir / Prometheus the
+	// operator scrapes from, and every `active_compute: query`
+	// Condition pulls against it.
+	Query QueryConfig `yaml:"query,omitempty"`
 }
 
 // LocationConfig is the operator-configured (lat, lon).
 type LocationConfig struct {
 	Lat float64 `yaml:"lat,omitempty"`
 	Lon float64 `yaml:"lon,omitempty"`
+}
+
+// QueryConfig is the conditioner-level state the `query` Computer needs
+// to issue PromQL HTTP requests. Endpoint + Tenant come from operator
+// flags; AuthTokenEnvVar names a pod env var (typically populated via
+// secretKeyRef) whose value is read at controller startup and sent as
+// a Bearer token on every request. Empty AuthTokenEnvVar = no Authorization
+// header; suitable for in-cluster Prometheus that lives behind a service
+// account proxy or has no auth at all.
+type QueryConfig struct {
+	Endpoint        string        `yaml:"endpoint,omitempty"`
+	Tenant          string        `yaml:"tenant,omitempty"`
+	Timeout         time.Duration `yaml:"timeout,omitempty"`
+	AuthTokenEnvVar string        `yaml:"auth_token_env_var,omitempty"`
 }
 
 // RegisterFlagsAndApplyDefaults adds conditioner flags to f and sets defaults.
@@ -59,4 +82,9 @@ func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet)
 	f.DurationVar(&cfg.EvaluationInterval, util.PrefixConfig(prefix, "evaluation-interval"), 60*time.Second, "Tick interval for the periodic evaluator (computer-driven Remediations + alert-window closure).")
 	f.Float64Var(&cfg.Location.Lat, util.PrefixConfig(prefix, "location.lat"), 0, "Latitude for solar calculations (sun_color_temperature computer, SunRelative time intervals).")
 	f.Float64Var(&cfg.Location.Lon, util.PrefixConfig(prefix, "location.lon"), 0, "Longitude for solar calculations.")
+
+	f.StringVar(&cfg.Query.Endpoint, util.PrefixConfig(prefix, "query.endpoint"), "", "Prometheus/Mimir endpoint for the `query` Computer. Empty disables `query` registration entirely.")
+	f.StringVar(&cfg.Query.Tenant, util.PrefixConfig(prefix, "query.tenant"), "", "X-Scope-OrgID for Mimir multi-tenancy. Empty omits the header.")
+	f.DurationVar(&cfg.Query.Timeout, util.PrefixConfig(prefix, "query.timeout"), 5*time.Second, "HTTP timeout for `query` Computer PromQL requests.")
+	f.StringVar(&cfg.Query.AuthTokenEnvVar, util.PrefixConfig(prefix, "query.auth-token-env-var"), "", "Name of an env var (typically populated via secretKeyRef) whose value is sent as a Bearer token on `query` requests. Empty = no Authorization header.")
 }
