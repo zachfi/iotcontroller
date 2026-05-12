@@ -106,8 +106,9 @@ func TestDispatchEvent_Match(t *testing.T) {
 }
 
 // TestDispatchEvent_NoMatch: when no Binding matches, dispatchEvent
-// returns false and does not invoke the eventReceiverClient. Caller is
-// expected to fall through to the legacy ActionHandler path.
+// returns false and does not invoke the eventReceiverClient. Caller
+// records the unhandled action via the fallback counter and otherwise
+// no-ops.
 func TestDispatchEvent_NoMatch(t *testing.T) {
 	er := &mocks.EventReceiverClientMock{}
 	r := newTestRouter(nil, er)

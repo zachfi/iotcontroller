@@ -16,10 +16,6 @@ type ZoneKeeperClientMock struct {
 	// }
 }
 
-func (z *ZoneKeeperClientMock) ActionHandler(_ context.Context, _ *iotv1proto.ActionHandlerRequest, _ ...grpc.CallOption) (*iotv1proto.ActionHandlerResponse, error) {
-	return &iotv1proto.ActionHandlerResponse{}, nil
-}
-
 func (z *ZoneKeeperClientMock) SetState(_ context.Context, _ *iotv1proto.SetStateRequest, _ ...grpc.CallOption) (*iotv1proto.SetStateResponse, error) {
 	return &iotv1proto.SetStateResponse{}, nil
 }

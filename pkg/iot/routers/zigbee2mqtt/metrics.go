@@ -33,16 +33,17 @@ var (
 		Help:      "The total number of notice calls that include an unhandled object ID.",
 	}, []string{"device", "component"})
 
-	// metricFallbackTotal counts events that flowed through the legacy
-	// ActionHandler path because no Binding matched. Watch this drop to
-	// zero per device as Bindings are migrated; once flat across all
-	// devices, the legacy switch in zonekeeper.ActionHandler can be
-	// removed. The device label is what makes this a per-button
-	// migration thermometer.
+	// metricFallbackTotal counts action events from zoned devices that no
+	// Binding matched. With the ActionHandler switch retired, these are
+	// observability-only — recorded for visibility but otherwise no-op.
+	// Steady state is dominated by Hue dimmer `*_press_release` events
+	// that pair with already-bound `*_press` events. A sustained non-zero
+	// rate on an unexpected (device, action) pair is the signal that a
+	// new Binding should be authored.
 	metricFallbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name:      "router_action_fallback_total",
 		Namespace: "iotcontroller",
-		Help:      "Number of action events handled via the legacy ActionHandler fallback (no matching Binding).",
+		Help:      "Number of action events from zoned devices that matched no Binding. Observability-only since ActionHandler retirement.",
 	}, []string{"device", "action", "zone"})
 
 	metricIOTReport = promauto.NewCounterVec(prometheus.CounterOpts{

@@ -124,10 +124,12 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		return err
 	}
 
-	// Legacy fallback path: no Binding matched any normalized event. Map
-	// the ZCL command to the legacy action string vocabulary and dispatch
-	// through ActionHandler. Once the fallback metric is flat at 0 across
-	// devices, this path can be removed.
+	// Fallback path: no Binding matched. Pre-Stage-3 we dispatched
+	// through ZoneKeeper.ActionHandler, which switch-cased ~30 action
+	// strings to default zone behaviour. Now the action vocabulary is
+	// expressed entirely by Bindings + Conditions, and this path is
+	// observability-only: record the unhandled action in the fallback
+	// counter (per-device migration thermometer) and log at debug.
 	action := ""
 	if len(evs) > 0 && evs[0].Property == events.PropertyAction {
 		action = evs[0].Value
@@ -154,14 +156,16 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		attribute.String("zone", zone),
 		attribute.String("action", action),
 	)
+	span.AddEvent("unhandled action (no Binding matched)")
 
 	metricFallbackTotal.WithLabelValues(device.Name, action, zone).Inc()
-	_, err = n.zonekeeperClient.ActionHandler(ctx, &iotv1proto.ActionHandlerRequest{
-		Event:  action,
-		Device: device.Name,
-		Zone:   zone,
-	})
-	return err
+
+	n.logger.Debug("unhandled action (no Binding matched)",
+		slog.String("device", device.Name),
+		slog.String("action", action),
+		slog.String("zone", zone),
+	)
+	return nil
 }
 
 // InterviewRoute handles a DeviceInterviewResult proto payload for path "zigbee/{ieee}/interview".

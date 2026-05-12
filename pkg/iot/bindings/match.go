@@ -52,8 +52,10 @@ func New(kc kubeclient.Client, ns string, logger *slog.Logger) *Matcher {
 // matching ev, or "" if no Binding matches. Ties on specificity are broken
 // by Binding name (sorted ascending) for deterministic behavior.
 //
-// Returns "" without erroring on List failure: bindings are an
-// optimization layer over ActionHandler, not a hard requirement.
+// Returns "" without erroring on List failure: a missed match falls
+// through to the router's observability counter, not a behavioural
+// path — so a List blip degrades to "no Condition fires" rather than
+// surfacing a 500 to the caller.
 func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) string {
 	if m == nil || m.kc == nil || ev.Device == nil {
 		return ""

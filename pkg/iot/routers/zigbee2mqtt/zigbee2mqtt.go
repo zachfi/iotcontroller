@@ -337,33 +337,38 @@ func (z *Zigbee2Mqtt) dispatchEvent(ctx context.Context, ev events.DeviceEvent) 
 			slog.String("condition", cond),
 			slog.String("error", err.Error()),
 		)
-		// Activation error doesn't fall back to ActionHandler — the binding
-		// matched, the Condition exists; surfacing the failure is more useful
-		// than masking it with a legacy fallback that would do something
-		// different.
+		// Activation error doesn't fall back to the unhandled-action path —
+		// the binding matched and the Condition exists; surfacing the
+		// failure is more useful than masking it with a no-op fallback.
 		return true
 	}
 	return true
 }
 
+// action is the post-matcher fallback path: a zoned device emitted an
+// action property whose value didn't match any Binding. Records the event
+// for visibility — both via the per-(device, action, zone) counter that
+// drove the Stage 3 migration thermometer, and via a span event so a
+// trace through Zigbee2Mqtt.DeviceRoute makes the unhandled action
+// obvious — and otherwise does nothing. Steady state, this is dominated
+// by Hue dimmer `*_press_release` events that pair with already-bound
+// `*_press` events.
 func (z *Zigbee2Mqtt) action(ctx context.Context, action, device, zone string) {
-	var err error
-
-	ctx, span := z.tracer.Start(ctx, "action", trace.WithAttributes(
+	_, span := z.tracer.Start(ctx, "action", trace.WithAttributes(
 		attribute.String("action", action),
 		attribute.String("device", device),
 		attribute.String("zone", zone),
 	))
-	defer func() { _ = tracing.ErrHandler(span, err, "action", z.logger) }()
+	defer span.End()
+	span.AddEvent("unhandled action (no Binding matched)")
 
-	_, err = z.zonekeeperClient.ActionHandler(ctx,
-		&iotv1proto.ActionHandlerRequest{
-			Event:  action,
-			Device: device,
-			Zone:   zone,
-		},
-	)
 	metricFallbackTotal.WithLabelValues(device, action, zone).Inc()
+
+	z.logger.Debug("unhandled action (no Binding matched)",
+		"device", device,
+		"action", action,
+		"zone", zone,
+	)
 }
 
 func (z *Zigbee2Mqtt) updateZigbeeMessageMetrics(_ context.Context, m ZigbeeMessage, device *apiv1.Device) {

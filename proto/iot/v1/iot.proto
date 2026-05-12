@@ -110,14 +110,6 @@ message GetDeviceZoneResponse {
   string zone = 1;
 }
 
-message ActionHandlerRequest {
-  string event = 1;
-  string device = 2;
-  string zone = 3;
-}
-
-message ActionHandlerResponse {}
-
 message SelfAnnounceRequest {
   string device = 1;
   string zone = 2;
@@ -138,9 +130,8 @@ message OccupancyHandlerResponse {}
 // Clamped at the enum boundaries — pressing "brighter" at FULL stays
 // at FULL.
 //
-// Side effect: if the zone is OFF, the call also sets it ON, matching
-// the legacy ActionHandler.UpPress/DownPress behaviour ("pressing the
-// brightness button on an off room turns it on at the new level").
+// Side effect: if the zone is OFF, the call also sets it ON ("pressing
+// the brightness button on an off room turns it on at the new level").
 message AdjustBrightnessRequest {
   string name = 1; // zone name
   int32 delta = 2; // +1 / -1 / +n / -n
@@ -152,7 +143,6 @@ service ZoneKeeperService {
   rpc SetState(SetStateRequest) returns (SetStateResponse);
   rpc SetScene(SetSceneRequest) returns (SetSceneResponse);
   rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
-  rpc ActionHandler(ActionHandlerRequest) returns (ActionHandlerResponse);
   rpc AdjustBrightness(AdjustBrightnessRequest) returns (AdjustBrightnessResponse);
   rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
   rpc OccupancyHandler(OccupancyHandlerRequest) returns (OccupancyHandlerResponse);

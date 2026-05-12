@@ -129,8 +129,8 @@ func (z *ZoneKeeper) SetState(ctx context.Context, req *iotv1proto.SetStateReque
 // Zone.IncrementBrightness / DecrementBrightness loops.
 //
 // Side effect: if the zone is OFF before the call, it's set to ON so
-// the brightness change is actually visible — matches the legacy
-// ActionHandler.UpPress/DownPress behaviour.
+// the brightness change is actually visible — "press brighter on a dark
+// room turns it on at the new level."
 func (z *ZoneKeeper) AdjustBrightness(ctx context.Context, req *iotv1proto.AdjustBrightnessRequest) (*iotv1proto.AdjustBrightnessResponse, error) {
 	var (
 		err  error
@@ -336,44 +336,6 @@ func (z *ZoneKeeper) OccupancyHandler(ctx context.Context, req *iotv1proto.Occup
 	}()
 
 	return resp, errHandler(span, zone.Flush(ctx, unlimited))
-}
-
-// ActionHandler is retained as a gRPC method for backwards compatibility
-// with the router fallback path, but its body is now a no-op. All button
-// action routing is Binding-driven: the router calls dispatchEvent first,
-// and only invokes this RPC when no Binding matched. Every action that
-// reaches this method is, by definition, an event the operator chose not
-// to bind. The router's `iotcontroller_router_action_fallback_total{
-// device, action, zone}` counter still records each call so the migration
-// thermometer stays visible; this method just logs and returns.
-//
-// Pre-Stage-3 history: this method contained a switch on ~30 action
-// strings (single, double, hold, on_press, button_1_press, …) that
-// duplicated what Bindings + Conditions now express explicitly. Keeping
-// both was a recipe for divergence — operators would tweak a Binding
-// and miss the switch case, or vice versa. The switch is now gone.
-//
-// If a real device starts emitting a useful action that has no Binding,
-// the operator sees it in the fallback counter, adds the Binding in
-// deployment_tools, and the behaviour exists. No code change required.
-func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHandlerRequest) (*iotv1proto.ActionHandlerResponse, error) {
-	_, span := z.tracer.Start(ctx, "ZoneKeeper.ActionHandler", trace.WithSpanKind(trace.SpanKindServer))
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("event", req.Event),
-		attribute.String("device", req.Device),
-		attribute.String("zone", req.Zone),
-	)
-	span.AddEvent("unhandled action (no Binding matched)")
-
-	z.logger.Debug("unhandled action (no Binding matched)",
-		slog.String("device", req.Device),
-		slog.String("event", req.Event),
-		slog.String("zone", req.Zone),
-	)
-
-	return &iotv1proto.ActionHandlerResponse{}, nil
 }
 
 func (z *ZoneKeeper) setZoneScene(ctx context.Context, zone *iot.Zone, scene string) error {
