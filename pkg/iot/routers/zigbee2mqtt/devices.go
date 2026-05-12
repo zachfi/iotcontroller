@@ -154,6 +154,21 @@ func deviceType(z Device) iotv1proto.DeviceType {
 		}
 	}
 
+	// Use the switch exposure to identify relay devices. Checked BEFORE
+	// action / occupancy / water_leak because some relays expose both
+	// a `switch` and ancillary properties — Third Reality smart plugs
+	// (3RSP02028BZ) for example expose an onboard button via `action`
+	// alongside the relay's `switch`. The primary function of such a
+	// device is the relay; the button is a manual override. Without
+	// this ordering the pond-pump's plug gets classified BUTTON, the
+	// zone's relay control path no-ops, and the leak-driven Condition
+	// fires SetState but no Zigbee command goes out.
+	for _, e := range z.Definition.Exposes {
+		if e.Type == FeatureTypeSwitch {
+			return iotv1proto.DeviceType_DEVICE_TYPE_RELAY
+		}
+	}
+
 	// Check for button using action
 	for _, e := range z.Definition.Exposes {
 		if e.Property == PropertyAction {
@@ -178,13 +193,6 @@ func deviceType(z Device) iotv1proto.DeviceType {
 	for _, e := range z.Definition.Exposes {
 		if e.Property == PropertyTransmitPower {
 			return iotv1proto.DeviceType_DEVICE_TYPE_ROUTER
-		}
-	}
-
-	// Use the switch exposure to identify relay devices
-	for _, e := range z.Definition.Exposes {
-		if e.Type == FeatureTypeSwitch {
-			return iotv1proto.DeviceType_DEVICE_TYPE_RELAY
 		}
 	}
 
