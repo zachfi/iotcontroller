@@ -234,6 +234,13 @@ type Conditioner struct {
 	// forces a re-apply after the window expires to absorb drift.
 	condStateMu sync.Mutex
 	condState   map[string]conditionState
+
+	// deprecatedSchedule tracks Conditions for which we've already
+	// emitted the Spec.Schedule deprecation warning. Per-process, so
+	// pod restart re-warns (intentional — operators see the warning
+	// on every controller startup until they migrate).
+	deprecatedScheduleMu sync.Mutex
+	deprecatedSchedule   map[string]bool
 }
 
 // conditionState records the last desired (state, scene) we sent for a

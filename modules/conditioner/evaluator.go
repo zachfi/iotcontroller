@@ -81,11 +81,34 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 		if !cond.Spec.Enabled {
 			continue
 		}
+		// Stage 5 migration thermometer: if any Condition still
+		// carries a Spec.Schedule, surface it via a once-per-process
+		// log so the operator notices what's left to migrate. The
+		// runTimer cron path still runs alongside in v0.5.x; this
+		// is just a signal, not an outage.
+		c.maybeWarnDeprecatedSchedule(cond)
+
 		for _, rem := range cond.Spec.Remediations {
-			if rem.ActiveCompute == "" {
-				continue
-			}
-			if c.evaluateCompute(ctx, cond.Name, rem) {
+			switch {
+			case rem.ActiveCompute != "":
+				if c.evaluateCompute(ctx, cond.Name, rem) {
+					applied++
+				}
+			case len(rem.TimeIntervals) > 0:
+				// Stage 5: TimeInterval-driven state/scene
+				// Remediations are now eval-loop-applied, replacing
+				// the cron path in pkg/conditioner/schedule for the
+				// "always-on within window" pattern.
+				// activateRemediation already handles
+				// withinActiveWindow + applyDesired idempotency, so
+				// the eval loop just delegates.
+				if err := c.activateRemediation(ctx, cond.Name, rem); err != nil {
+					c.logger.Debug("evaluator: timeWindow apply failed",
+						slog.String("condition", cond.Name),
+						slog.String("zone", rem.Zone),
+						"err", err,
+					)
+				}
 				applied++
 			}
 		}
@@ -94,6 +117,33 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 	span.SetAttributes(
 		attribute.Int("conditions", len(list.Items)),
 		attribute.Int("applied", applied),
+	)
+}
+
+// maybeWarnDeprecatedSchedule emits a once-per-Condition warning when
+// Spec.Schedule is set. The cron path keeps working — this is just the
+// operator-visible signal that the Condition should be migrated to
+// TimeIntervals before Stage 6 deletes the field.
+//
+// Tracking the warned set in-process is fine: a pod restart re-warns,
+// which is the right cadence for ongoing visibility without spamming
+// every 60s tick.
+func (c *Conditioner) maybeWarnDeprecatedSchedule(cond *apiv1.Condition) {
+	if cond.Spec.Schedule == "" {
+		return
+	}
+	c.deprecatedScheduleMu.Lock()
+	defer c.deprecatedScheduleMu.Unlock()
+	if c.deprecatedSchedule == nil {
+		c.deprecatedSchedule = make(map[string]bool)
+	}
+	if c.deprecatedSchedule[cond.Name] {
+		return
+	}
+	c.deprecatedSchedule[cond.Name] = true
+	c.logger.Warn("Condition.Spec.Schedule is deprecated; migrate to time_intervals on each Remediation. Will be removed in a future release.",
+		slog.String("condition", cond.Name),
+		slog.String("schedule", cond.Spec.Schedule),
 	)
 }
 
