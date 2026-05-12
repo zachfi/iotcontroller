@@ -23,15 +23,20 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/time/rate"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/zachfi/zkit/pkg/boundedwaitgroup"
 	"github.com/zachfi/zkit/pkg/tracing"
@@ -98,9 +103,31 @@ func (r *ZoneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 }
 
 // SetupWithManager sets up the controller with the Manager.
+//
+// We override the default workqueue rate limiter to smooth the cold-start
+// dispatch burst. controller-runtime's default is a token bucket of
+// 10 qps / burst 100 over an exponential per-item retry — at restart the
+// burst 100 means every existing Zone reconciles in the first ~tick, and
+// each reconcile fans out to per-device Updates. Combined with the
+// kube-apiserver TLS-handshake-pile-up that happens when many pods
+// restart together, this used to produce 30+ seconds of "apiserver not
+// ready" and "TLS handshake timeout" errors in the receiver-pod logs
+// before the cache could even sync.
+//
+// New values: 5 qps / burst 5. That drains the initial 26-zone backlog
+// over ~5 s instead of all-at-once, giving the apiserver headroom while
+// other operators are also starting. Per-item exponential backoff is
+// preserved (5ms → 1000s) so individual failures still retry the same
+// way as before. Combined with the syncLabels idempotency fix above,
+// most of the post-burst reconciles are now read-only.
 func (r *ZoneReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	limiter := workqueue.NewTypedMaxOfRateLimiter(
+		workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](5*time.Millisecond, 1000*time.Second),
+		&workqueue.TypedBucketRateLimiter[reconcile.Request]{Limiter: rate.NewLimiter(rate.Limit(5), 5)},
+	)
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&iotv1.Zone{}).
+		WithOptions(controller.Options{RateLimiter: limiter}).
 		Complete(r)
 }
 
@@ -171,9 +198,19 @@ func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error
 		errs = append(errs, err)
 	}
 
-	// Remove the non-included
+	// Remove the non-included. Idempotent: if the label is already absent
+	// we don't issue an apiserver Update — most cold-start reconciles fall
+	// into this branch because labels match what the previous run wrote,
+	// and the previous "unconditional Update" generated an apiserver write
+	// per device per zone every restart. That storm (combined with the
+	// TLS-handshake-pile-up at apiserver startup) is what made restarts
+	// look like a 30s outage in the receiver-pod logs.
 	for _, d := range deviceList.Items {
 		if hasName(d.Name, zone.Spec.Devices) {
+			continue
+		}
+
+		if _, present := d.Labels[iot.DeviceZoneLabel]; !present {
 			continue
 		}
 
@@ -184,7 +221,10 @@ func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error
 		}
 	}
 
-	// Add the included
+	// Add the included. Idempotent: skip Update when the device already
+	// carries the correct zone label. Same rationale as the remove path —
+	// every restart used to PUT every device in every zone even though
+	// nothing had changed.
 	for _, d := range zone.Spec.Devices {
 		bg.Add(1)
 		go func(name string) {
@@ -201,10 +241,13 @@ func (r *ZoneReconciler) syncLabels(ctx context.Context, zone *iotv1.Zone) error
 				return
 			}
 
+			if device.Labels[iot.DeviceZoneLabel] == zone.Name {
+				return
+			}
+
 			if device.Labels == nil {
 				device.Labels = make(map[string]string)
 			}
-
 			device.Labels[iot.DeviceZoneLabel] = zone.Name
 
 			if err = r.Update(ctx, device); err != nil {
