@@ -39,3 +39,7 @@ func (z *ZoneKeeperClientMock) OccupancyHandler(_ context.Context, _ *iotv1proto
 func (z *ZoneKeeperClientMock) AdjustBrightness(_ context.Context, _ *iotv1proto.AdjustBrightnessRequest, _ ...grpc.CallOption) (*iotv1proto.AdjustBrightnessResponse, error) {
 	return &iotv1proto.AdjustBrightnessResponse{}, nil
 }
+
+func (z *ZoneKeeperClientMock) ApplyValues(_ context.Context, _ *iotv1proto.ApplyValuesRequest, _ ...grpc.CallOption) (*iotv1proto.ApplyValuesResponse, error) {
+	return &iotv1proto.ApplyValuesResponse{}, nil
+}

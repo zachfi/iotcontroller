@@ -182,6 +182,77 @@ func (z *ZoneKeeper) AdjustBrightness(ctx context.Context, req *iotv1proto.Adjus
 	return resp, err
 }
 
+// ApplyValues sets one or more zone values in a single call. Fields left at
+// their zero value (UNSPECIFIED enums / empty color string) are not applied,
+// so a computer producing only ColorTemperature can leave the other fields
+// unset and the zone keeps its current state/brightness/color.
+//
+// This is the in-memory equivalent of SetScene without the named-bundle
+// indirection — used by the eval-loop's `active_compute` path.
+func (z *ZoneKeeper) ApplyValues(ctx context.Context, req *iotv1proto.ApplyValuesRequest) (*iotv1proto.ApplyValuesResponse, error) {
+	var (
+		err  error
+		zone *iot.Zone
+		resp = &iotv1proto.ApplyValuesResponse{}
+	)
+
+	ctx, span := z.tracer.Start(ctx, "ZoneKeeper.ApplyValues",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("name", req.Name),
+			attribute.String("state", req.State.String()),
+			attribute.String("brightness", req.Brightness.String()),
+			attribute.String("color_temperature", req.ColorTemperature.String()),
+			attribute.String("color", req.Color),
+		),
+	)
+	defer func() { _ = tracing.ErrHandler(span, err, "apply values", z.logger) }()
+
+	if req.Name == "" {
+		err = fmt.Errorf("apply values: zone name required")
+		return resp, err
+	}
+
+	zone, err = z.GetZone(ctx, req.Name)
+	if err != nil {
+		return resp, err
+	}
+
+	applied := false
+	if req.State != iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		zone.SetState(ctx, req.State)
+		applied = true
+	}
+	if req.Brightness != iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED {
+		zone.SetBrightness(ctx, req.Brightness)
+		applied = true
+	}
+	if req.ColorTemperature != iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED {
+		zone.SetColorTemperature(ctx, req.ColorTemperature)
+		applied = true
+	}
+	if req.Color != "" {
+		zone.SetColor(ctx, req.Color)
+		applied = true
+	}
+
+	if !applied {
+		// All fields zero — nothing to do. Skip the flush to avoid the
+		// apiserver write a no-op apiStatusUpdate would generate.
+		span.AddEvent("no fields set; skipping flush")
+		return resp, nil
+	}
+
+	err = zone.Flush(ctx, unlimited)
+	if err != nil {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Name, "error").Inc()
+	} else {
+		metricZonekeeperFlushTotal.WithLabelValues(req.Name, "success").Inc()
+	}
+	z.apiStatusUpdate(ctx, zone)
+	return resp, err
+}
+
 func (z *ZoneKeeper) SetScene(ctx context.Context, req *iotv1proto.SetSceneRequest) (*iotv1proto.SetSceneResponse, error) {
 	if req.Scene == "" {
 		return nil, fmt.Errorf("unable to operate on empty scene name")

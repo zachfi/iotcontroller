@@ -403,6 +403,7 @@ const (
 	ZoneKeeperService_SetScene_FullMethodName         = "/iot.v1.ZoneKeeperService/SetScene"
 	ZoneKeeperService_GetDeviceZone_FullMethodName    = "/iot.v1.ZoneKeeperService/GetDeviceZone"
 	ZoneKeeperService_AdjustBrightness_FullMethodName = "/iot.v1.ZoneKeeperService/AdjustBrightness"
+	ZoneKeeperService_ApplyValues_FullMethodName      = "/iot.v1.ZoneKeeperService/ApplyValues"
 	ZoneKeeperService_SelfAnnounce_FullMethodName     = "/iot.v1.ZoneKeeperService/SelfAnnounce"
 	ZoneKeeperService_OccupancyHandler_FullMethodName = "/iot.v1.ZoneKeeperService/OccupancyHandler"
 )
@@ -415,6 +416,7 @@ type ZoneKeeperServiceClient interface {
 	SetScene(ctx context.Context, in *SetSceneRequest, opts ...grpc.CallOption) (*SetSceneResponse, error)
 	GetDeviceZone(ctx context.Context, in *GetDeviceZoneRequest, opts ...grpc.CallOption) (*GetDeviceZoneResponse, error)
 	AdjustBrightness(ctx context.Context, in *AdjustBrightnessRequest, opts ...grpc.CallOption) (*AdjustBrightnessResponse, error)
+	ApplyValues(ctx context.Context, in *ApplyValuesRequest, opts ...grpc.CallOption) (*ApplyValuesResponse, error)
 	SelfAnnounce(ctx context.Context, in *SelfAnnounceRequest, opts ...grpc.CallOption) (*SelfAnnounceResponse, error)
 	OccupancyHandler(ctx context.Context, in *OccupancyHandlerRequest, opts ...grpc.CallOption) (*OccupancyHandlerResponse, error)
 }
@@ -467,6 +469,16 @@ func (c *zoneKeeperServiceClient) AdjustBrightness(ctx context.Context, in *Adju
 	return out, nil
 }
 
+func (c *zoneKeeperServiceClient) ApplyValues(ctx context.Context, in *ApplyValuesRequest, opts ...grpc.CallOption) (*ApplyValuesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyValuesResponse)
+	err := c.cc.Invoke(ctx, ZoneKeeperService_ApplyValues_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *zoneKeeperServiceClient) SelfAnnounce(ctx context.Context, in *SelfAnnounceRequest, opts ...grpc.CallOption) (*SelfAnnounceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SelfAnnounceResponse)
@@ -495,6 +507,7 @@ type ZoneKeeperServiceServer interface {
 	SetScene(context.Context, *SetSceneRequest) (*SetSceneResponse, error)
 	GetDeviceZone(context.Context, *GetDeviceZoneRequest) (*GetDeviceZoneResponse, error)
 	AdjustBrightness(context.Context, *AdjustBrightnessRequest) (*AdjustBrightnessResponse, error)
+	ApplyValues(context.Context, *ApplyValuesRequest) (*ApplyValuesResponse, error)
 	SelfAnnounce(context.Context, *SelfAnnounceRequest) (*SelfAnnounceResponse, error)
 	OccupancyHandler(context.Context, *OccupancyHandlerRequest) (*OccupancyHandlerResponse, error)
 }
@@ -517,6 +530,9 @@ func (UnimplementedZoneKeeperServiceServer) GetDeviceZone(context.Context, *GetD
 }
 func (UnimplementedZoneKeeperServiceServer) AdjustBrightness(context.Context, *AdjustBrightnessRequest) (*AdjustBrightnessResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AdjustBrightness not implemented")
+}
+func (UnimplementedZoneKeeperServiceServer) ApplyValues(context.Context, *ApplyValuesRequest) (*ApplyValuesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplyValues not implemented")
 }
 func (UnimplementedZoneKeeperServiceServer) SelfAnnounce(context.Context, *SelfAnnounceRequest) (*SelfAnnounceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SelfAnnounce not implemented")
@@ -616,6 +632,24 @@ func _ZoneKeeperService_AdjustBrightness_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ZoneKeeperService_ApplyValues_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyValuesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZoneKeeperServiceServer).ApplyValues(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ZoneKeeperService_ApplyValues_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZoneKeeperServiceServer).ApplyValues(ctx, req.(*ApplyValuesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ZoneKeeperService_SelfAnnounce_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SelfAnnounceRequest)
 	if err := dec(in); err != nil {
@@ -674,6 +708,10 @@ var ZoneKeeperService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdjustBrightness",
 			Handler:    _ZoneKeeperService_AdjustBrightness_Handler,
+		},
+		{
+			MethodName: "ApplyValues",
+			Handler:    _ZoneKeeperService_ApplyValues_Handler,
 		},
 		{
 			MethodName: "SelfAnnounce",

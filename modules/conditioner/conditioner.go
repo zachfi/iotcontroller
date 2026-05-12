@@ -741,22 +741,60 @@ func (c *Conditioner) withinActiveWindow(ctx context.Context, rem apiv1.Remediat
 		return
 	}
 
-	// If any window is active, then set the remdiation as active.
+	loc := Location{Lat: c.cfg.Location.Lat, Lon: c.cfg.Location.Lon}
+
+	// If any window is active, then set the remediation as active. Each
+	// TimeIntervalSpec entry can carry the standard Prometheus
+	// time-interval shape (Times/Weekdays/etc.) AND a SunRelative list;
+	// either path activating is enough for that entry. Across entries,
+	// activation is the union (any matching entry wins).
 	for _, ti := range rem.TimeIntervals {
-		tip, err := ti.AsPrometheus()
-		if err != nil {
-			c.logger.Error("invalid time interval configuration", "err", err, "interval", fmt.Sprintf("%+v", ti))
-			continue
+		// Standard time-interval check (Times/Weekdays/DaysOfMonth/Months/Years).
+		// Only consult Prometheus if any of those are set — an entry with
+		// only SunRelative would otherwise round-trip through an empty
+		// Prometheus check that returns "always active" and short-circuit
+		// the SunRelative gate.
+		if hasPrometheusFields(ti) {
+			tip, perr := ti.AsPrometheus()
+			if perr != nil {
+				c.logger.Error("invalid time interval configuration", "err", perr, "interval", fmt.Sprintf("%+v", ti))
+			} else if tip.ContainsTime(now) {
+				active = true
+				return
+			}
 		}
 
-		if tip.ContainsTime(now) {
-			active = true
-			return
+		for _, sw := range ti.SunRelative {
+			in, serr := inSunWindow(sw, now, loc)
+			if serr != nil {
+				c.logger.Error("invalid sun-relative window",
+					"err", serr,
+					"event", sw.Event,
+					"before", sw.Before.Duration,
+					"after", sw.After.Duration,
+				)
+				continue
+			}
+			if in {
+				active = true
+				return
+			}
 		}
 	}
 
 	active = false
 	return
+}
+
+// hasPrometheusFields reports whether the TimeIntervalSpec has any of
+// the upstream-Prometheus-shape fields set. Used by withinActiveWindow
+// to skip the Prometheus round-trip for entries that only carry
+// SunRelative — without this check, an "only SunRelative" entry would
+// pass through Prometheus as "no constraints" → always matches → the
+// SunRelative gate would never get a chance to deny.
+func hasPrometheusFields(ti apiv1.TimeIntervalSpec) bool {
+	return len(ti.Times) > 0 || len(ti.Weekdays) > 0 || len(ti.DaysOfMonth) > 0 ||
+		len(ti.Months) > 0 || len(ti.Years) > 0
 }
 
 // runTimerLoop runs the timer ticker: on each tick it processes cron-based
@@ -809,6 +847,7 @@ func (c *Conditioner) starting(ctx context.Context) error {
 
 func (c *Conditioner) running(ctx context.Context) error {
 	go c.runTimerLoop(ctx)
+	go c.runEvaluator(ctx)
 	<-ctx.Done()
 	return nil
 }

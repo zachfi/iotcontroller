@@ -139,11 +139,31 @@ message AdjustBrightnessRequest {
 
 message AdjustBrightnessResponse {}
 
+// ApplyValues sets one or more zone-level values in a single call. Fields
+// left at their zero value (UNSPECIFIED enums, empty string for color) are
+// not applied — so a computer producing only a ColorTemperature can leave
+// state/brightness/color unset and the zone keeps its current values for
+// those.
+//
+// The in-memory analog of a Scene CR. Used by the conditioner's eval loop
+// to apply computer-produced values without the lookup-by-name indirection
+// that Scenes require; SetScene stays for explicit named-bundle apply.
+message ApplyValuesRequest {
+  string name = 1; // zone name
+  ZoneState state = 2;
+  Brightness brightness = 3;
+  ColorTemperature color_temperature = 4;
+  string color = 5; // hex (e.g. "#FF0000"), empty = no change
+}
+
+message ApplyValuesResponse {}
+
 service ZoneKeeperService {
   rpc SetState(SetStateRequest) returns (SetStateResponse);
   rpc SetScene(SetSceneRequest) returns (SetSceneResponse);
   rpc GetDeviceZone(GetDeviceZoneRequest) returns (GetDeviceZoneResponse);
   rpc AdjustBrightness(AdjustBrightnessRequest) returns (AdjustBrightnessResponse);
+  rpc ApplyValues(ApplyValuesRequest) returns (ApplyValuesResponse);
   rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
   rpc OccupancyHandler(OccupancyHandlerRequest) returns (OccupancyHandlerResponse);
 }

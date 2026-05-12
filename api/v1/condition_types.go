@@ -103,10 +103,37 @@ type Remediation struct {
 	// repeated presses must each bump one step.
 	//
 	// When set alongside ActiveState=on or unset state, the side effect
-	// of the underlying RPC also sets the zone to ON if it was OFF,
-	// matching the legacy ActionHandler.UpPress/DownPress behaviour
+	// of the underlying RPC also sets the zone to ON if it was OFF
 	// ("press brighter on a dark room → turn on at the new level").
 	ActiveBrightnessDelta int `json:"active_brightness_delta,omitempty"`
+
+	// ActiveCompute is the name of a registered Computer whose result is
+	// used to drive the zone at evaluation time. On each evaluator tick
+	// (cfg.EvaluationInterval) the Conditioner invokes the named computer
+	// with `(now, location, lastApplied, args)` and applies the returned
+	// ApplyValues tuple via the ZoneKeeper.ApplyValues RPC.
+	//
+	// Computers are Go code registered at startup — there is no user-
+	// authored expression language here. Built-in computers ship with
+	// the controller; adding a new one is a code change.
+	//
+	// Initial set:
+	//   "sun_color_temperature" — Brightness/ColorTemperature based on
+	//                              the current solar position for the
+	//                              configured (lat, lon).
+	//
+	// When set, the Remediation is evaluated every tick regardless of
+	// external triggers (it's "always-on"). ActiveCompute is independent
+	// of ActiveState/ActiveScene — set them too if you want the eval
+	// loop to apply a Scene first and then layer the computer's output
+	// on top (most computers will be partial: e.g. sun_color_temperature
+	// only sets ColorTemperature, leaving brightness and state untouched).
+	ActiveCompute string `json:"active_compute,omitempty"`
+
+	// ActiveComputeArgs are passed verbatim to the named Computer. The
+	// schema is computer-defined; consult the Computer's documentation
+	// for the supported keys.
+	ActiveComputeArgs map[string]string `json:"active_compute_args,omitempty"`
 }
 
 // When defines an activation window relative to an epoch event time.

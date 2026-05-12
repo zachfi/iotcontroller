@@ -65,10 +65,35 @@ spec:
                         value. This is the right semantic for \"press to brighten\":
                         repeated presses must each bump one step. \n When set alongside
                         ActiveState=on or unset state, the side effect of the underlying
-                        RPC also sets the zone to ON if it was OFF, matching the legacy
-                        ActionHandler.UpPress/DownPress behaviour (\"press brighter
+                        RPC also sets the zone to ON if it was OFF (\"press brighter
                         on a dark room → turn on at the new level\")."
                       type: integer
+                    active_compute:
+                      description: "ActiveCompute is the name of a registered Computer
+                        whose result is used to drive the zone at evaluation time.
+                        On each evaluator tick (cfg.EvaluationInterval) the Conditioner
+                        invokes the named computer with `(now, location, lastApplied,
+                        args)` and applies the returned ApplyValues tuple via the
+                        ZoneKeeper.ApplyValues RPC. \n Computers are Go code registered
+                        at startup — there is no user- authored expression language
+                        here. Built-in computers ship with the controller; adding
+                        a new one is a code change. \n Initial set: \"sun_color_temperature\"
+                        — Brightness/ColorTemperature based on the current solar position
+                        for the configured (lat, lon). \n When set, the Remediation
+                        is evaluated every tick regardless of external triggers (it's
+                        \"always-on\"). ActiveCompute is independent of ActiveState/ActiveScene
+                        — set them too if you want the eval loop to apply a Scene
+                        first and then layer the computer's output on top (most computers
+                        will be partial: e.g. sun_color_temperature only sets ColorTemperature,
+                        leaving brightness and state untouched)."
+                      type: string
+                    active_compute_args:
+                      additionalProperties:
+                        type: string
+                      description: ActiveComputeArgs are passed verbatim to the named
+                        Computer. The schema is computer-defined; consult the Computer's
+                        documentation for the supported keys.
+                      type: object
                     active_scene:
                       type: string
                     active_state:
@@ -100,6 +125,44 @@ spec:
                             description: Months accepts strings like "january", "march:may".
                             items:
                               type: string
+                            type: array
+                          sun_relative:
+                            description: "SunRelative defines time windows relative
+                              to the current day's solar events at the conditioner's
+                              configured (lat, lon). Multiple SunWindow entries OR
+                              together with each other and with Times. \n A SunWindow
+                              with Event=sunset, Before=30m, After=12h opens 30m before
+                              sunset and stays open for 12.5 h — typically spanning
+                              midnight into the next morning. The window is treated
+                              as a single continuous [start, end] span (no wrap-around
+                              split), so callers observing \"is now in the window?\"
+                              semantics get the intuitive answer for evening-into-morning
+                              patterns."
+                            items:
+                              description: SunWindow defines a time span anchored
+                                to a daily solar event.
+                              properties:
+                                after:
+                                  description: After is how long after the event the
+                                    window stays open. Zero (or unset) means the window
+                                    closes at the event itself (i.e. an instantaneous
+                                    window — generally not useful; set at least one
+                                    of Before/After to a non-zero value).
+                                  type: string
+                                before:
+                                  description: Before is how long before the event
+                                    the window opens. Zero (or unset) means the window
+                                    opens at the event itself.
+                                  type: string
+                                event:
+                                  description: 'Event is the anchor: "sunrise", "sunset",
+                                    "noon", or "midnight". Names match the go-sunrise
+                                    library convention; "midnight" is solar midnight,
+                                    not 00:00 local time.'
+                                  type: string
+                              required:
+                              - event
+                              type: object
                             type: array
                           times:
                             description: Times is a list of start/end times. We use

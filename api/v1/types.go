@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/prometheus/alertmanager/timeinterval"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TimeIntervalSpec mirrors the JSON/YAML *input* format expected by Prometheus.
@@ -27,6 +28,37 @@ type TimeIntervalSpec struct {
 
 	// Location is the IANA Timezone string (e.g. "America/New_York").
 	Location string `json:"location,omitempty"`
+
+	// SunRelative defines time windows relative to the current day's
+	// solar events at the conditioner's configured (lat, lon). Multiple
+	// SunWindow entries OR together with each other and with Times.
+	//
+	// A SunWindow with Event=sunset, Before=30m, After=12h opens 30m
+	// before sunset and stays open for 12.5 h — typically spanning
+	// midnight into the next morning. The window is treated as a single
+	// continuous [start, end] span (no wrap-around split), so callers
+	// observing "is now in the window?" semantics get the intuitive
+	// answer for evening-into-morning patterns.
+	SunRelative []SunWindow `json:"sun_relative,omitempty"`
+}
+
+// SunWindow defines a time span anchored to a daily solar event.
+// +kubebuilder:object:generate=true
+type SunWindow struct {
+	// Event is the anchor: "sunrise", "sunset", "noon", or "midnight".
+	// Names match the go-sunrise library convention; "midnight" is solar
+	// midnight, not 00:00 local time.
+	Event string `json:"event"`
+
+	// Before is how long before the event the window opens. Zero (or
+	// unset) means the window opens at the event itself.
+	Before metav1.Duration `json:"before,omitempty"`
+
+	// After is how long after the event the window stays open. Zero (or
+	// unset) means the window closes at the event itself (i.e. an
+	// instantaneous window — generally not useful; set at least one of
+	// Before/After to a non-zero value).
+	After metav1.Duration `json:"after,omitempty"`
 }
 
 // TimePeriod defines a time range within a day. StartTime and EndTime use
