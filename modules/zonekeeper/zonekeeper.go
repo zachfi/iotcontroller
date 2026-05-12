@@ -338,145 +338,43 @@ func (z *ZoneKeeper) OccupancyHandler(ctx context.Context, req *iotv1proto.Occup
 	return resp, errHandler(span, zone.Flush(ctx, unlimited))
 }
 
-// ActionHandler is called when an action is requested against a zone. The
-// action is the event, like a button press.
+// ActionHandler is retained as a gRPC method for backwards compatibility
+// with the router fallback path, but its body is now a no-op. All button
+// action routing is Binding-driven: the router calls dispatchEvent first,
+// and only invokes this RPC when no Binding matched. Every action that
+// reaches this method is, by definition, an event the operator chose not
+// to bind. The router's `iotcontroller_router_action_fallback_total{
+// device, action, zone}` counter still records each call so the migration
+// thermometer stays visible; this method just logs and returns.
+//
+// Pre-Stage-3 history: this method contained a switch on ~30 action
+// strings (single, double, hold, on_press, button_1_press, …) that
+// duplicated what Bindings + Conditions now express explicitly. Keeping
+// both was a recipe for divergence — operators would tweak a Binding
+// and miss the switch case, or vice versa. The switch is now gone.
+//
+// If a real device starts emitting a useful action that has no Binding,
+// the operator sees it in the fallback counter, adds the Binding in
+// deployment_tools, and the behaviour exists. No code change required.
 func (z *ZoneKeeper) ActionHandler(ctx context.Context, req *iotv1proto.ActionHandlerRequest) (*iotv1proto.ActionHandlerResponse, error) {
-	var (
-		err  error
-		resp = &iotv1proto.ActionHandlerResponse{}
-	)
-
 	_, span := z.tracer.Start(ctx, "ZoneKeeper.ActionHandler", trace.WithSpanKind(trace.SpanKindServer))
-	defer func() { _ = errHandler(span, err) }()
+	defer span.End()
 
 	span.SetAttributes(
 		attribute.String("event", req.Event),
 		attribute.String("device", req.Device),
 		attribute.String("zone", req.Zone),
 	)
+	span.AddEvent("unhandled action (no Binding matched)")
 
-	if req.Event == "" {
-		return resp, nil
-	}
+	z.logger.Debug("unhandled action (no Binding matched)",
+		slog.String("device", req.Device),
+		slog.String("event", req.Event),
+		slog.String("zone", req.Zone),
+	)
 
-	zone, err := z.GetZone(ctx, req.Zone)
-	if err != nil {
-		return resp, fmt.Errorf("failed to get zone %q for action %q: %w", req.Zone, req.Event, err)
-	}
-
-	switch req.Event {
-	case ActionSingle, ActionButton1Press:
-		// Toggle from current state
-		currentState := zone.State()
-		switch currentState {
-		case iotv1proto.ZoneState_ZONE_STATE_ON:
-			zone.Off(ctx)
-		// case iotv1proto.ZoneState_ZONE_STATE_OFF:
-		default:
-			zone.SetColorTemperature(ctx, iotv1proto.ColorTemperature_COLOR_TEMPERATURE_DAY)
-			zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_FULL)
-			zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
-			zone.On(ctx)
-		}
-	case ActionOn, ActionDouble, ActionTap, ActionSlide, ActionOnPress:
-		zone.SetColorTemperature(ctx, iotv1proto.ColorTemperature_COLOR_TEMPERATURE_DAY)
-		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_FULL)
-		zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_ON)
-		zone.On(ctx)
-	case ActionOff, ActionTriple, ActionOffPress:
-		zone.Off(ctx)
-	case ActionQuadruple, ActionFlip90, ActionFlip180, ActionFall, ActionButton3Press:
-		zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR)
-	case ActionHold, ActionButton2Press:
-		zone.SetBrightness(ctx, iotv1proto.Brightness_BRIGHTNESS_DIM)
-		zone.On(ctx)
-	case UpPress, RotateRight, DialRotateRightSlow, DialRotateRightFast, DialRotateRightStep, BrightnessStepUp:
-		zone.IncrementBrightness(ctx)
-		zone.On(ctx)
-	case DownPress, RotateLeft, DialRotateLeftSlow, DialRotateLeftFast, DialRotateLeftStep, BrightnessStepDown:
-		zone.DecrementBrightness(ctx)
-		zone.On(ctx)
-	case
-		ActionWakeup,
-		ActionPress,
-		ActionRelease,
-		ActionOffHold,
-		ActionOffHoldRelease,
-		ActionOnPressRelease,
-		ActionOffPressRelease,
-		ActionUpPressRelease,
-		ActionDownPressRelease,
-		ActionButton1PressRelease: // do nothing
-		return resp, nil
-	default:
-		return resp, errHandler(span, fmt.Errorf("unknown action %q for device %q in zone %q", req.Event, req.Device, req.Zone))
-	}
-
-	flushErr := zone.Flush(ctx, unlimited)
-	if flushErr != nil {
-		metricZonekeeperFlushTotal.WithLabelValues(req.Zone, "error").Inc()
-	} else {
-		metricZonekeeperFlushTotal.WithLabelValues(req.Zone, "success").Inc()
-	}
-	return resp, errHandler(span, flushErr)
+	return &iotv1proto.ActionHandlerResponse{}, nil
 }
-
-const (
-	// Toggle / single press
-	ActionSingle       = "single"
-	ActionButton1Press = "button_1_press"
-
-	// On actions
-	ActionOn      = "on"
-	ActionDouble  = "double"
-	ActionTap     = "tap"
-	ActionSlide   = "slide"
-	ActionOnPress = "on_press"
-
-	// Off actions
-	ActionOff      = "off"
-	ActionTriple   = "triple"
-	ActionOffPress = "off_press"
-
-	// Color / scene actions
-	ActionQuadruple    = "quadruple"
-	ActionFlip90       = "flip90"
-	ActionFlip180      = "flip180"
-	ActionFall         = "fall"
-	ActionButton3Press = "button_3_press"
-
-	// Dim actions
-	ActionHold         = "hold"
-	ActionButton2Press = "button_2_press"
-
-	// No-op actions
-	ActionWakeup              = "wakeup"
-	ActionPress               = "press"
-	ActionRelease             = "release"
-	ActionOffHold             = "off_hold"
-	ActionOffHoldRelease      = "off_hold_release"
-	ActionOnPressRelease      = "on_press_release"
-	ActionOffPressRelease     = "off_press_release"
-	ActionUpPressRelease      = "up_press_release"
-	ActionDownPressRelease    = "down_press_release"
-	ActionButton1PressRelease = "button_1_press_release"
-
-	// Increment Brightness
-	UpPress             = "up_press"
-	RotateRight         = "rotate_right"
-	DialRotateRightSlow = "dial_rotate_right_slow"
-	DialRotateRightFast = "dial_rotate_right_fast"
-	DialRotateRightStep = "dial_rotate_right_step"
-	BrightnessStepUp    = "brightness_step_up"
-
-	// Decrement Brightness
-	DownPress          = "down_press"
-	RotateLeft         = "rotate_left"
-	DialRotateLeftSlow = "dial_rotate_left_slow"
-	DialRotateLeftFast = "dial_rotate_left_fast"
-	DialRotateLeftStep = "dial_rotate_left_step"
-	BrightnessStepDown = "brightness_step_down"
-)
 
 func (z *ZoneKeeper) setZoneScene(ctx context.Context, zone *iot.Zone, scene string) error {
 	var (
