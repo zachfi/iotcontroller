@@ -1,174 +1,146 @@
 # iotcontroller
 
-IOTController is a Kubernetes controller for IOT devices.
+A Kubernetes operator for IoT devices. Manages `Device`, `Zone`, `Scene`,
+`Condition`, and `Binding` CRDs, normalizes events from one or more
+device transports, and enforces desired zone state by driving the
+underlying hardware. Primary use case: Zigbee-based home automation
+where lighting, climate, leak sensors, and relays are managed as
+declarative Kubernetes resources.
 
-## Description
+## What it does
 
-### Harvester
+- Receives device events from MQTT (zigbee2mqtt), a direct Zigbee dongle,
+  or any future transport that normalizes into the shared `DeviceEvent`
+  shape.
+- Resolves each event against `Binding` resources to decide which
+  `Condition` to activate.
+- Activates Conditions, which apply `Remediation` entries to one or more
+  zones — setting absolute values via Scenes, relative brightness
+  adjustments, or computed values from a registry of `Computer`
+  implementations (sun-tracking, ramps, color rotation, PromQL-driven).
+- Enforces zone state by emitting Zigbee commands through the
+  appropriate transport.
 
-The harvester reads messages from an MQTT topic and forwards them to the router over gRPC.
+The operator is intentionally transport-agnostic at the matcher and
+Conditioner layers; adding a new transport (Matter, Home Assistant,
+ESPHome) means writing one event-normalization adapter, not rewiring
+the control plane.
 
-### Router
+## Architecture
 
-The router reads the topic to determine which route is capable of parsing the
-message and calls the route with the corresponding payload.
-
-Two message routes are supported currently, though new routes may be added
-quite easily to extend support additional platforms and messages in the future.
-
-A couple future ideas that come to mind are perhaps a Home Assistant route to
-allow compatibility with anything in that ecosystem. Similarly, an ESPHome
-format could be included so that devices flashed with their firmware could be
-read into this project. I also plan to re-integrate the messages that Anavi
-devices send, which may be one of the above accidentally.
-
-As new devices appear on the bus, they are written as `Device` resources in
-Kubernetes to include information like their Type and some status information
-about when the last time the device was seen. These `Device` resources are
-grouped by the user with `Zone` resources, which inform the Conditioner and
-other components how to operate these devices.
-
-#### Zigbee2Mqtt
-
-[Zigbee2Mqtt](https://www.zigbee2mqtt.io/) is a great open source source
-project for bridging a Zigbee network with MQTT. This means that instead of
-interfacing directly with a Zigbee network, all interactions can be done
-through an MQTT topic, which this project leverages. Currently, this is the
-primary use of this tool to controll zigbee lights, switches and metric sensor
-data.
-
-#### iSpindel
-
-These messages are sent over WiFi directly to an MQTT topic. The router reads
-these messages and exports metrics based on their data. The data format here
-is pretty simple and is used to track the progress of home brew cider
-fermentations.
-
-### Conditioner
-
-The Conditioner's responsibility is to allow users to express `Condition` type
-resources to express the desired handling when certain events are received.
-These events come from both the HookReceiver and Weather modules. The events
-have a name and a set of labels. Thees labels are used to match against the
-`Condition` resources to determine what the appropriate action for the zone is.
-The Conditioner then calls the ZoneKeeper to apply the change.
-
-### Controller
-
-This project was built using `kubebuilder`. The Controller here is the main
-Kubernetes controller, but moved into the module structure this project uses.
-Primarily it is used to create the caching client used to interface with
-Kubernets for the various components. This Client is a dependency of several
-other modules. Bother Zone and Device reconcilers exist for syncing labels and
-linking of resource types for zone ownership over devices.
-
-### Hook Receiver
-
-The HookReceiver exposes an HTTP endpoint compatible with the Alertmanager web hook payload. This allows the configuration of alerts in alert manager and forward to the controller to determine if action on a zone is required. For example, if a low temperature alert is fired, a `Condition` resource can match the associated labels and turn on a Zigbee switch to turn on a heater. The event labels are read from the alert. This allows for some programming; using events to apply states to zones for remediation. Additionally, an inactive state cane be added to these `Condition` resources so that when the alert sends a "resolved" status, the condition can be set back to its original state.
-
-### Weather
-
-This module reads data from Open Weather Map based on coordinates. Metrics for the various weather events are exported on a Prometheus endpoint, for alerting and graphing purposes. Additionally "epoch" events are sent to the conditioner directly for "sunset" and "sunrise" events so that conditions can express a desire to handle for these events.
-
-### Zone Keeper
-
-ZoneKeeper is the actual enforcement of state on a zone. It keeps state of all
-desires on all zones, and which devices of which type and how to handle those
-actions. This module has no opinions of its own, and only enforces what the
-Conditioner tells it to enforce.
-
-## Getting Started
-
-You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
-**Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
-
-### Running on the cluster
-
-1. Install Instances of Custom Resources:
-
-```sh
-kubectl apply -f config/samples/
+```
+device → transport router → matcher → ActivateCondition → Conditioner
+                ↓                                              ↓
+            metrics + tracing                          ZoneKeeper → device
 ```
 
-2. Build and push your image to the location specified by `IMG`:
+### Modules
 
-```sh
-make docker-build docker-push IMG=<some-registry>/iotcontroller:tag
+All modules implement `grafana/dskit/services.Service` (BasicService
+lifecycle: `starting` → `running` → `stopping`).
+
+| Module               | Role |
+|----------------------|------|
+| `harvester`          | Reads MQTT, forwards messages to the router. Fan-out worker pool keeps the consumer responsive when downstream calls slow. |
+| `router`             | Routes inbound messages by topic. Dispatches device events through the binding matcher; falls back to an observability counter when no binding matches. |
+| `zigbeecoordinator`  | Optional native Zigbee dongle stack (ZNP / Ember). Replaces zigbee2mqtt for direct serial control of the network. |
+| `mqttclient`         | Shared MQTT connection with auto-reconnect. |
+| `conditioner`        | Owns Conditions, applies Remediations, runs the periodic evaluator. Idempotency cache prevents amplification. |
+| `zonekeeper`         | Per-zone state machine. Translates `SetState` / `SetScene` / `ApplyValues` / `AdjustBrightness` RPCs into Zigbee commands. |
+| `hookreceiver`       | Alertmanager-webhook endpoint. Routes alerts to `Conditioner.Alert`. |
+| `weather`            | OpenWeatherMap polling, exports metrics. |
+| `controller`         | Kubernetes controller-runtime reconciler for the iot CRDs. |
+
+### Resources
+
+| Kind        | Purpose |
+|-------------|---------|
+| `Device`    | A physical thing (light, sensor, relay, button). Carries IEEE address, type, model, vendor. |
+| `Zone`      | A grouping of Devices that share a control intent (`office`, `bedside-zach`, `pond-pump`). State is enforced at the zone level. |
+| `Scene`     | Named bundle of absolute values: brightness, color temperature, color, state. Reusable across zones. |
+| `Condition` | An activation intent with one or more `Remediations`. Triggered by alerts, bindings, or the periodic evaluator. |
+| `Binding`   | Maps `(property, value, selector)` → `Condition`. Optional `MinDuration` debounces flapping sensors. |
+
+See [docs/](docs/) for a detailed walkthrough of each piece.
+
+## Event flow
+
+A button press, leak detection, or motion event flows the same way
+regardless of transport:
+
+```
+1. device publishes event (MQTT or Zigbee)
+2. transport router normalizes to DeviceEvent{Property, Value, Device}
+3. matcher selects the most-specific Binding for the event
+   (specificity: IEEE > Device > Label > DeviceType > Zone)
+4. if MinDuration is set: wait for the dwell threshold
+5. matcher dispatches ActivateCondition(name)
+6. Conditioner walks the Condition's Remediations
+7. each Remediation routes through applyDesired (idempotency cache)
+8. ZoneKeeper translates to Zigbee commands and emits
 ```
 
-3. Deploy the controller to the cluster with the image specified by `IMG`:
+End-to-end latency for a button press: ~1–2 ms inside the controller.
+Window-driven Remediations (`time_intervals`) fire from the periodic
+evaluator at `cfg.EvaluationInterval` (default 60s). See
+[docs/conditioner.md](docs/conditioner.md) for the evaluator design.
+
+## Conventions
+
+- Logging: `log/slog` with `module=<name>` attribute on every logger.
+- Tracing: OpenTelemetry via `go.opentelemetry.io/otel`; export configured
+  by `-tracing.otel.endpoint`.
+- Protobuf: defined in `proto/`, generated via `buf`. Run `make generate`
+  after changing `.proto` files.
+- CRD types: defined in `api/v1`. Run `make generate manifests` after
+  schema changes.
+- Vendor: dependencies are vendored under `vendor/`. Run `go mod vendor`
+  after adding deps.
+
+## Building
 
 ```sh
-make deploy IMG=<some-registry>/iotcontroller:tag
+# Build the binary
+make build
+
+# Build a Docker image
+make docker-build IMG=<registry>/iotcontroller:tag
+
+# Regenerate CRDs + deepcopy after API changes
+make generate manifests
+
+# Regenerate proto after .proto changes
+buf generate
+
+# Run unit tests
+go test ./...
 ```
 
-### Uninstall CRDs
+## Deploying
 
-To delete the CRDs from the cluster:
+The intended deployment path is via [Tanka](https://tanka.dev/) using the
+operator's deployment_tools jsonnet wrapper. The CRDs live as a separate
+[jsonnet-libs](https://github.com/zachfi/jsonnet-libs) module, regenerated
+when the API schema changes. The controller runs as three pods:
 
-```sh
-make uninstall
-```
+- `controller-core` — Conditioner + Router + ZoneKeeper. The decision/apply tier.
+- `controller-receiver` — Controller (reconciler) + Harvester + HookReceiver + Weather. MQTT ingress and alert webhook.
+- `controller-zigbee-coordinator` — Optional: ZigbeeCoordinator module bound to a USB Zigbee dongle.
 
-### Undeploy controller
+The standalone `make deploy` path is intentionally minimal — most of the
+day-to-day deployment surface (Conditions, Scenes, Bindings) is declared
+in the operator's jsonnet, not in `config/`.
 
-UnDeploy the controller to the cluster:
+## Status
 
-```sh
-make undeploy
-```
-
-## Contributing
-
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-### How it works
-
-This project aims to follow the Kubernetes [Operator pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/)
-
-It uses [Controllers](https://kubernetes.io/docs/concepts/architecture/controller/)
-which provides a reconcile function responsible for synchronizing resources untile the desired state is reached on the cluster
-
-### Test It Out
-
-1. Install the CRDs into the cluster:
-
-```sh
-make install
-```
-
-2. Run your controller (this will run in the foreground, so switch to a new terminal if you want to leave it running):
-
-```sh
-make run
-```
-
-**NOTE:** You can also run this in one step by running: `make install run`
-
-### Modifying the API definitions
-
-If you are editing the API definitions, generate the manifests such as CRs or CRDs using:
-
-```sh
-make manifests
-```
-
-**NOTE:** Run `make --help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+The Binding system, periodic Conditioner evaluator, and the four
+built-in computers (`sun_color_temperature`, `ramp`, `rotate_colors`,
+`query`) are shipped and in production. The native Zigbee coordinator
+(ZNP working; Ember partially) is being trialled alongside zigbee2mqtt
+on the `zigbeeCoordinator` branch. The legacy `Spec.Schedule` cron field
+and `Epoch` RPC are deprecated and scheduled for deletion in an upcoming
+release.
 
 ## License
 
-Copyright 2022.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Apache 2.0. See [LICENSE](LICENSE).

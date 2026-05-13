@@ -40,10 +40,10 @@ func TestQuery_VectorAboveZero_PicksOnTrue(t *testing.T) {
 
 	q := newTestQuery(t, srv.URL)
 	args := map[string]string{
-		"query":             "up",
-		"on_true.state":     "ZONE_STATE_ON",
+		"query":              "up",
+		"on_true.state":      "ZONE_STATE_ON",
 		"on_true.brightness": "BRIGHTNESS_FULL",
-		"on_false.state":    "ZONE_STATE_OFF",
+		"on_false.state":     "ZONE_STATE_OFF",
 	}
 	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
 	if err != nil {

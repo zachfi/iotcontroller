@@ -30,7 +30,6 @@ cover.cov
 
 # Local reference/scratch directories (not part of the module)
 old/
-docs/
 COMPARISON.md
 CHANGELOG.md
 breadcrumbs.spec.yaml
@@ -38,3 +37,7 @@ network.yaml
 zigbee2mqtt-data/
 tools/zigbee2mqtt-docker-run.sh
 tmp/
+
+# docs/scratch/ holds in-progress design notes that aren't published.
+# The committed architecture docs live directly under docs/.
+docs/scratch/
