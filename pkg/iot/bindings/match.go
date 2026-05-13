@@ -12,6 +12,8 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"sync"
+	"time"
 
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -32,10 +34,21 @@ const (
 )
 
 // Matcher resolves device events to Condition names via Binding CRs.
+//
+// When a matching Binding carries MinDuration, the Matcher holds per-
+// (Binding, Device) state — the first matching event starts a timer,
+// subsequent matching events of the same value advance it, and an event
+// with a different value resets it. The Condition fires only when the
+// matching event has been continuously observed for at least MinDuration.
+// State is in-process and resets on pod restart.
 type Matcher struct {
 	kc        kubeclient.Client
 	namespace string
 	logger    *slog.Logger
+
+	debounceMu sync.Mutex
+	debounce   map[debounceKey]debounceEntry
+	now        func() time.Time // overridable for tests
 }
 
 // New returns a Matcher that lists Bindings from namespace ns through kc.
@@ -45,7 +58,40 @@ func New(kc kubeclient.Client, ns string, logger *slog.Logger) *Matcher {
 		kc:        kc,
 		namespace: ns,
 		logger:    logger.With("component", "bindings.Matcher"),
+		debounce:  make(map[debounceKey]debounceEntry),
+		now:       time.Now,
 	}
+}
+
+// debounceKey identifies the observed-value state for one (property,
+// device) pair. Per-property-per-device — sharing across Bindings is
+// intentional: a value transition (water_leak=true → false → true)
+// observed by ANY Binding's property must reset the debounce timers
+// of every Binding watching that property on that device, even if
+// some of those Bindings' target values don't match the intermediate
+// transition.
+//
+// Per-Binding state still exists, in the entry's fired map.
+type debounceKey struct {
+	property string
+	device   string
+}
+
+// debounceEntry tracks the current observed value for one (property,
+// device) pair. firstSeen is the timestamp at which the current value
+// was first observed. fired records, per Binding name, whether that
+// Binding has already dispatched its Condition during this
+// stable-value-window — set true on dispatch and cleared by the value
+// transition that opens the next window.
+//
+// Two Bindings with different MinDuration values can both watch the
+// same (property, device); they share firstSeen but each tracks its
+// own fired flag here, so a 30s-Binding fires at t+30 while a
+// 60s-Binding waits until t+60 and then fires from the same entry.
+type debounceEntry struct {
+	value     string
+	firstSeen time.Time
+	fired     map[string]bool // keyed by Binding name
 }
 
 // FindCondition returns the Condition name for the most-specific Binding
@@ -67,6 +113,16 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 		return ""
 	}
 
+	// Track the observed value on every event, BEFORE the per-Binding
+	// match loop. A value transition observed for a (property, device)
+	// must reset the debounce state of every Binding watching that
+	// property — even Bindings whose target value the new event
+	// doesn't match. Without this update happening unconditionally, a
+	// true→false→true sequence for water_leak (where the "false"
+	// matches no Binding) would never clear the "true" Binding's
+	// fired flag, suppressing the next true forever.
+	m.observeValue(ev)
+
 	var candidates []candidate
 
 	for i := range list.Items {
@@ -78,9 +134,10 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 			continue
 		}
 		candidates = append(candidates, candidate{
-			name:      b.Name,
-			condition: b.Spec.Condition,
-			score:     specificity(b.Spec.Event.Selector),
+			name:        b.Name,
+			condition:   b.Spec.Condition,
+			score:       specificity(b.Spec.Event.Selector),
+			minDuration: b.Spec.Event.MinDuration.Duration,
 		})
 	}
 
@@ -106,7 +163,99 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 		)
 	}
 
-	return candidates[0].condition
+	winner := candidates[0]
+
+	// Fast path: no debounce configured. Historical behaviour — fire
+	// every match.
+	if winner.minDuration <= 0 {
+		return winner.condition
+	}
+
+	return m.debounceDispatch(winner, ev)
+}
+
+// observeValue records the current observed value for one (property,
+// device) pair. Called unconditionally per event, before any Binding
+// match decision — this is what lets a value transition reset every
+// Binding's fired flag, including Bindings whose target value the new
+// event doesn't match.
+//
+// On a same-value re-observation: keep firstSeen as-is (the dwell
+// timer keeps running). On a value transition: reset the entry with a
+// fresh firstSeen and an empty fired map.
+func (m *Matcher) observeValue(ev events.DeviceEvent) {
+	key := debounceKey{property: ev.Property, device: ev.Device.Name}
+	now := m.now()
+
+	m.debounceMu.Lock()
+	defer m.debounceMu.Unlock()
+
+	entry, exists := m.debounce[key]
+	if exists && entry.value == ev.Value {
+		return
+	}
+	m.debounce[key] = debounceEntry{
+		value:     ev.Value,
+		firstSeen: now,
+		fired:     map[string]bool{},
+	}
+	if exists {
+		m.logger.Debug("binding debounce window reset (value transition)",
+			slog.String("property", ev.Property),
+			slog.String("device", ev.Device.Name),
+			slog.String("from", entry.value),
+			slog.String("to", ev.Value),
+		)
+	} else {
+		m.logger.Debug("binding debounce window opened",
+			slog.String("property", ev.Property),
+			slog.String("device", ev.Device.Name),
+			slog.String("value", ev.Value),
+		)
+	}
+}
+
+// debounceDispatch returns winner.condition once the dwell threshold
+// has been satisfied for this (property, device) by the currently
+// observed value, and only one fire per Binding per stable-value-window.
+//
+// Assumes observeValue has already run for `ev`; reads the entry the
+// observeValue created/updated and consults the per-Binding fired
+// flag.
+func (m *Matcher) debounceDispatch(winner candidate, ev events.DeviceEvent) string {
+	key := debounceKey{property: ev.Property, device: ev.Device.Name}
+	now := m.now()
+
+	m.debounceMu.Lock()
+	defer m.debounceMu.Unlock()
+
+	entry, exists := m.debounce[key]
+	if !exists {
+		// Defensive: observeValue should have created the entry above.
+		return ""
+	}
+
+	if entry.fired[winner.name] {
+		metricBindingDebounced.WithLabelValues(winner.name, "suppressed").Inc()
+		return ""
+	}
+
+	if now.Sub(entry.firstSeen) >= winner.minDuration {
+		entry.fired[winner.name] = true
+		m.debounce[key] = entry
+		m.logger.Debug("binding debounce fired",
+			slog.String("binding", winner.name),
+			slog.String("property", ev.Property),
+			slog.String("device", ev.Device.Name),
+			slog.String("value", ev.Value),
+			slog.Duration("elapsed", now.Sub(entry.firstSeen)),
+		)
+		metricBindingDebounced.WithLabelValues(winner.name, "fired").Inc()
+		return winner.condition
+	}
+
+	metricBindingDebounced.WithLabelValues(winner.name, "pending").Inc()
+	return ""
 }
 
 // propertyMatches returns true when the binding's property/value
@@ -186,9 +335,10 @@ func specificity(sel apiv1.EventSelector) int {
 // candidate is a Binding that matched the event, used for sorting and
 // tie-break diagnostics.
 type candidate struct {
-	name      string
-	condition string
-	score     int
+	name        string
+	condition   string
+	score       int
+	minDuration time.Duration
 }
 
 func countTies(cands []candidate) int {

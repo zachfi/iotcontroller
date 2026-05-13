@@ -50,6 +50,20 @@ spec:
                   their incoming messages into the same Event shape so a single Binding
                   works regardless of transport.
                 properties:
+                  min_duration:
+                    description: "MinDuration debounces activation: the matcher only
+                      dispatches the ActivateCondition once the matching (Binding,
+                      Device, value) tuple has been continuously observed for at least
+                      this long. The first event arrives and starts a timer; subsequent
+                      events for the same value advance/maintain it; an event with
+                      a different value resets. \n Use for sensors that flap (leak
+                      sensors, transient signal loss, brief presence pulses) or for
+                      any case where a sustained signal matters more than a single
+                      sample. Without this set, the matcher fires on every matching
+                      event (the historical behaviour). \n Debounce state lives in-process
+                      on the matcher and resets on pod restart — first event post-restart
+                      starts a fresh timer."
+                    type: string
                   property:
                     description: 'Property is the normalized expose name. Examples:
                       "action", "occupancy", "water_leak", "state", "contact", "tamper".'

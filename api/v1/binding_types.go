@@ -61,6 +61,21 @@ type EventTrigger struct {
 	// fields must match the device. An empty selector matches every device
 	// that emitted the property.
 	Selector EventSelector `json:"selector,omitempty"`
+
+	// MinDuration debounces activation: the matcher only dispatches the
+	// ActivateCondition once the matching (Binding, Device, value) tuple
+	// has been continuously observed for at least this long. The first
+	// event arrives and starts a timer; subsequent events for the same
+	// value advance/maintain it; an event with a different value resets.
+	//
+	// Use for sensors that flap (leak sensors, transient signal loss,
+	// brief presence pulses) or for any case where a sustained signal
+	// matters more than a single sample. Without this set, the matcher
+	// fires on every matching event (the historical behaviour).
+	//
+	// Debounce state lives in-process on the matcher and resets on pod
+	// restart — first event post-restart starts a fresh timer.
+	MinDuration metav1.Duration `json:"min_duration,omitempty"`
 }
 
 // EventSelector restricts a Binding to a subset of devices. Multiple fields
