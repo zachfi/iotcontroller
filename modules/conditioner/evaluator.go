@@ -88,13 +88,23 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 		// is just a signal, not an outage.
 		c.maybeWarnDeprecatedSchedule(cond)
 
+		// Alert-driven Conditions live on the Alert RPC path; time_intervals
+		// on them are *gates* for the alert path ("only act when the alert
+		// fires AND we're in this window"), not standalone triggers. If the
+		// eval loop also fires them, two heater-style Conditions on the same
+		// zone with opposite active_state (low-temp=on / high-temp=off) end
+		// up activating sequentially each tick — ON then OFF, the rapid
+		// relay-click pattern. Skip alert-matched Conditions; the Alert RPC
+		// path handles them.
+		alertDriven := len(cond.Spec.Matches) > 0
+
 		for _, rem := range cond.Spec.Remediations {
 			switch {
 			case rem.ActiveCompute != "":
 				if c.evaluateCompute(ctx, cond.Name, rem) {
 					applied++
 				}
-			case len(rem.TimeIntervals) > 0:
+			case len(rem.TimeIntervals) > 0 && !alertDriven:
 				// Stage 5: TimeInterval-driven state/scene
 				// Remediations are now eval-loop-applied, replacing
 				// the cron path in pkg/conditioner/schedule for the

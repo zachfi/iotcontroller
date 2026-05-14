@@ -143,6 +143,62 @@ func TestEvaluate_TimeWindowOutOfWindowSkips(t *testing.T) {
 	require.Equal(t, 0, zk.setSceneCount(), "out-of-window Remediation must not SetScene")
 }
 
+func TestEvaluate_AlertDrivenConditionsSkipped(t *testing.T) {
+	// Regression test for the heater double-trigger bug. An alert-driven
+	// Condition (Spec.Matches set) with time_intervals as a gate should
+	// NOT be fired by the eval loop — that's the Alert RPC path's
+	// responsibility. Otherwise low-temp (state=on) and high-temp
+	// (state=off) Conditions sharing the same zone alternate every tick
+	// and click the relay.
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	allDay := apiv1.TimeIntervalSpec{
+		Times: []apiv1.TimePeriod{{StartTime: "00:00", EndTime: "24:00"}},
+	}
+
+	zk := &recordingZoneKeeper{}
+	conds := []apiv1.Condition{
+		{
+			ObjectMeta: metav1Meta("zone-mainsuite-low-temp"),
+			Spec: apiv1.ConditionSpec{
+				Enabled: true,
+				Matches: []apiv1.Match{{Labels: map[string]string{
+					"alertname": "zoneTempLow:mainsuite",
+					"zone":      "mainsuite",
+				}}},
+				Remediations: []apiv1.Remediation{{
+					Zone:          "mainsuite-heater",
+					ActiveState:   "on",
+					TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+				}},
+			},
+		},
+		{
+			ObjectMeta: metav1Meta("zone-mainsuite-high-temp"),
+			Spec: apiv1.ConditionSpec{
+				Enabled: true,
+				Matches: []apiv1.Match{{Labels: map[string]string{
+					"alertname": "zoneTempHigh:mainsuite",
+					"zone":      "mainsuite",
+				}}},
+				Remediations: []apiv1.Remediation{{
+					Zone:          "mainsuite-heater",
+					ActiveState:   "off",
+					TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+				}},
+			},
+		},
+	}
+
+	c, err := New(Config{}, logger, zk, &listKubeClient{items: conds})
+	require.NoError(t, err)
+
+	c.evaluate(ctx)
+
+	require.Equal(t, 0, zk.setStateCount(), "alert-driven Conditions must not be eval-loop applied; their time_intervals are gates, not triggers")
+}
+
 func TestEvaluate_NoTimeIntervalsSkipped(t *testing.T) {
 	// A Remediation without time_intervals AND without active_compute
 	// is only triggered by RPC paths (Alert, ActivateCondition). The
