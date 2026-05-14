@@ -135,6 +135,13 @@ func (q *query) Compute(ctx context.Context, now time.Time, _ Location, args map
 
 	cacheKey := hashArgs(args)
 
+	// Read the operator-visible labels the eval loop injects so the
+	// metric labels read as "condition X, zone Y" rather than an
+	// args-hash. Empty labels are harmless; they just produce a less
+	// informative time series.
+	condLabel := args["_condition"]
+	zoneLabel := args["_zone"]
+
 	value, err := q.fetch(ctx, promql, now)
 	if err != nil {
 		// Transient failure path: return cached last-known-good if
@@ -156,12 +163,19 @@ func (q *query) Compute(ctx context.Context, now time.Time, _ Location, args map
 		return ApplyValues{}, fmt.Errorf("query: %w", err)
 	}
 
+	metricQueryValue.WithLabelValues(condLabel, zoneLabel).Set(value)
+
 	var prefix string
+	var outcome float64
 	if value > 0 {
 		prefix = "on_true"
+		outcome = 1
 	} else {
 		prefix = "on_false"
+		outcome = 0
 	}
+	metricQueryOutcome.WithLabelValues(condLabel, zoneLabel).Set(outcome)
+
 	vals, perr := parseApplyValues(args, prefix)
 	if perr != nil {
 		return ApplyValues{}, fmt.Errorf("query: %w", perr)

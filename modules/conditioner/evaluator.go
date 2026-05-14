@@ -186,7 +186,20 @@ func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem 
 	)
 	defer span.End()
 
-	vals, err := comp.Compute(ctx, time.Now(), loc, rem.ActiveComputeArgs)
+	// Inject the parent Condition + Zone so Computers that emit
+	// metrics or logs can label them by the operator-visible name
+	// rather than args-hash. Reserved keys (`_condition`, `_zone`)
+	// are underscored to stay out of operator-authored arg space;
+	// any args.* the operator sets that collide will be overwritten
+	// here on purpose.
+	augmentedArgs := make(map[string]string, len(rem.ActiveComputeArgs)+2)
+	for k, v := range rem.ActiveComputeArgs {
+		augmentedArgs[k] = v
+	}
+	augmentedArgs["_condition"] = condName
+	augmentedArgs["_zone"] = rem.Zone
+
+	vals, err := comp.Compute(ctx, time.Now(), loc, augmentedArgs)
 	if err != nil {
 		c.logger.Error("evaluator: compute failed",
 			slog.String("condition", condName),
