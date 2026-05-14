@@ -174,6 +174,57 @@ func (c *Conditioner) deactivateRemediation(ctx context.Context, condName string
 	return c.applyDesired(ctx, condName, rem.Zone, deactivateRequest(ctx, rem), "deactivate")
 }
 
+// forceDeactivate is the window-close variant of deactivateRemediation.
+// It honors an explicit InactiveState/InactiveScene when present (same
+// as deactivateRemediation), but when both are empty it infers the
+// "safe" reversion state from ActiveState: any active state that drives
+// the zone to "doing something" (on, color, randomcolor, offtimer)
+// reverts to OFF. ActiveState=off or empty is a no-op since the zone
+// is already in the safe state.
+//
+// Callers — paths where leaving the zone stuck in its active state is a
+// correctness bug because the window has closed:
+//   - runAlertWindowCheckAt (the alert was firing, then the window closed)
+//   - Alert RPC "firing + outside window" branch (alert fired but
+//     activate would have been time-gate-suppressed)
+//
+// The "resolved" alert branch and cron-driven deactivate keep calling
+// deactivateRemediation so that helpers that intentionally omit
+// InactiveState to preserve in-window hysteresis (e.g. the
+// withHeater(zoneName=..., low, high) pattern) keep working: low-temp
+// resolving when temp briefly overshoots must NOT turn the heater off,
+// or short-cycling returns.
+func (c *Conditioner) forceDeactivate(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	if req := deactivateRequest(ctx, rem); req != nil {
+		return c.applyDesired(ctx, condName, rem.Zone, req, "deactivate")
+	}
+
+	state := inferDefaultInactive(rem)
+	if state == iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		// ActiveState is off/empty — zone is already in the safe state.
+		return nil
+	}
+
+	req := &request{stateReq: &iotv1proto.SetStateRequest{Name: rem.Zone, State: state}}
+	return c.applyDesired(ctx, condName, rem.Zone, req, "deactivate")
+}
+
+// inferDefaultInactive returns the safe state to apply when a
+// Remediation's active window closes and no explicit InactiveState was
+// provided. Any "doing something" ActiveState reverts to OFF; an
+// ActiveState that is already OFF or empty returns UNSPECIFIED (caller
+// treats that as a no-op).
+func inferDefaultInactive(rem apiv1.Remediation) iotv1proto.ZoneState {
+	switch zoneState(rem.ActiveState) {
+	case iotv1proto.ZoneState_ZONE_STATE_ON,
+		iotv1proto.ZoneState_ZONE_STATE_COLOR,
+		iotv1proto.ZoneState_ZONE_STATE_RANDOMCOLOR,
+		iotv1proto.ZoneState_ZONE_STATE_OFFTIMER:
+		return iotv1proto.ZoneState_ZONE_STATE_OFF
+	}
+	return iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED
+}
+
 // resolveToggleState reads the named Zone's CRD status.state and
 // returns "off" if the zone looks lights-on right now (ON, OFFTIMER,
 // COLOR, RANDOMCOLOR) or "on" otherwise. On any read error the safer
@@ -346,35 +397,46 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 			// The dedup in applyDesired further collapses repeat-firing
 			// webhooks for the same alert into a single SetState per
 			// transition.
-			var active bool
 			status := req.Status
 			if status == "" {
 				continue
 			}
 			span.SetAttributes(attribute.String(iot.StatusLabel, status))
+
 			switch status {
 			case alertStatusFiring:
-				active = len(rem.TimeIntervals) == 0 || c.withinActiveWindow(ctx, rem, time.Now())
-			case alertStatusResolved:
-				active = false
-			default:
-				continue
-			}
-
-			if active {
-				err = c.activateRemediation(ctx, cond.Name, rem)
-				if err != nil {
-					c.logger.Error("failed to activate condition alert", "err", err)
-				} else if len(rem.TimeIntervals) > 0 {
-					// Track so the background window check can deactivate when the window closes.
-					c.trackAlertActive(cond.Name, rem)
+				if len(rem.TimeIntervals) == 0 || c.withinActiveWindow(ctx, rem, time.Now()) {
+					if err = c.activateRemediation(ctx, cond.Name, rem); err != nil {
+						c.logger.Error("failed to activate condition alert", "err", err)
+					} else if len(rem.TimeIntervals) > 0 {
+						// Track so the background window check can deactivate when the window closes.
+						c.trackAlertActive(cond.Name, rem)
+					}
+				} else {
+					// Firing-outside-window: suppress the activation AND
+					// force the zone back to its safe state. Without the
+					// force step, an alert that started firing while the
+					// window was open (heater ON) could be left stuck if
+					// the window closes between activate and the next
+					// runAlertWindowCheck tick — or if the active
+					// Remediation has no InactiveState. forceDeactivate
+					// infers OFF from non-OFF ActiveState; that's the
+					// "window closed → safe state" contract.
+					c.untrackAlertActive(cond.Name, rem)
+					if err = c.forceDeactivate(ctx, cond.Name, rem); err != nil {
+						c.logger.Error("failed to deactivate condition alert (firing outside window)", "err", err)
+					}
 				}
-			} else {
+			case alertStatusResolved:
+				// Resolve preserves in-window hysteresis: an empty
+				// InactiveState means "do nothing on resolve" so paired
+				// low/high alerts (heater pattern) don't short-cycle.
 				c.untrackAlertActive(cond.Name, rem)
-				err = c.deactivateRemediation(ctx, cond.Name, rem)
-				if err != nil {
+				if err = c.deactivateRemediation(ctx, cond.Name, rem); err != nil {
 					c.logger.Error("failed to deactivate condition alert", "err", err)
 				}
+			default:
+				continue
 			}
 
 		}
@@ -738,7 +800,7 @@ func (c *Conditioner) runAlertWindowCheckAt(ctx context.Context, now time.Time) 
 				slog.String("key", key),
 				slog.String("zone", rem.Zone),
 			)
-			if err := c.deactivateRemediation(ctx, condName, rem); err != nil {
+			if err := c.forceDeactivate(ctx, condName, rem); err != nil {
 				c.logger.Error("failed to deactivate remediation after window close", "err", err, "zone", rem.Zone)
 			}
 			c.alertActiveMu.Lock()

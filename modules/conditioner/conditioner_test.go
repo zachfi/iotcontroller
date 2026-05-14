@@ -523,6 +523,113 @@ func Test_runAlertWindowCheckAt(t *testing.T) {
 	require.False(t, stillActive, "remediation should be removed from alertActive")
 }
 
+// Test_runAlertWindowCheckAt_HeaterShape pins the regression that motivated
+// the forceDeactivate split: when a low-temp heater Condition (active='on',
+// no InactiveState, to preserve in-window hysteresis with a paired
+// high-temp Condition) is alert-active and its window closes, the heater
+// MUST be turned off. Otherwise the heater is stuck on until the next
+// in-window high-temp firing, which may never happen if temp coasts in
+// the hysteresis band overnight.
+func Test_runAlertWindowCheckAt_HeaterShape_LowTempForcesOff(t *testing.T) {
+	rec := &recordingZoneKeeper{}
+	cfg := Config{EpochTimeWindow: time.Hour}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, logger, rec, nil)
+	require.NoError(t, err)
+
+	// Mirrors the deployed `zone-office-low-temp` Condition shape:
+	// active='on', NO InactiveState (the helper's
+	// `// inactive='off', // Only turn on the heater, let the high temp
+	// alert turn it off.` line), and a TimeIntervals window.
+	rem := apiv1.Remediation{
+		Zone:        "office-heater",
+		ActiveState: "on",
+		TimeIntervals: []apiv1.TimeIntervalSpec{
+			{Times: []apiv1.TimePeriod{{StartTime: "14:30", EndTime: "21:00"}}},
+		},
+	}
+	c.trackAlertActive("zone-office-low-temp", rem)
+
+	// 21:30 — 30 min past the window close while heater is still alert-active.
+	now, err := time.Parse(time.RFC3339, "2026-05-14T21:30:00Z")
+	require.NoError(t, err)
+	c.runAlertWindowCheckAt(ctx, now)
+
+	require.Equal(t, 1, rec.setStateCount(), "window close on heater-low shape MUST force the zone off")
+	name, state := rec.firstSetState()
+	require.Equal(t, "office-heater", name)
+	require.Equal(t, iotv1proto.ZoneState_ZONE_STATE_OFF, state, "inferred OFF from non-OFF ActiveState")
+
+	c.alertActiveMu.Lock()
+	_, stillActive := c.alertActive[alertActiveKey("zone-office-low-temp", "office-heater")]
+	c.alertActiveMu.Unlock()
+	require.False(t, stillActive)
+}
+
+// Test_runAlertWindowCheckAt_HeaterShape_HighTempIsNoop pins the
+// other half of the heater contract: the paired high-temp Condition
+// (active='off', no InactiveState) is already in the safe state when
+// firing — its window closing should produce zero SetState calls.
+// Inverting "off" would be wrong: the heater is supposed to STAY off.
+func Test_runAlertWindowCheckAt_HeaterShape_HighTempIsNoop(t *testing.T) {
+	rec := &recordingZoneKeeper{}
+	cfg := Config{EpochTimeWindow: time.Hour}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	ctx := context.Background()
+
+	c, err := New(cfg, logger, rec, nil)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{
+		Zone:        "office-heater",
+		ActiveState: "off",
+		TimeIntervals: []apiv1.TimeIntervalSpec{
+			{Times: []apiv1.TimePeriod{{StartTime: "14:30", EndTime: "21:00"}}},
+		},
+	}
+	c.trackAlertActive("zone-office-high-temp", rem)
+
+	now, err := time.Parse(time.RFC3339, "2026-05-14T21:30:00Z")
+	require.NoError(t, err)
+	c.runAlertWindowCheckAt(ctx, now)
+
+	require.Equal(t, 0, rec.setStateCount(), "active='off' window close must be a no-op (zone already safe)")
+	require.Equal(t, 0, rec.setSceneCount())
+
+	c.alertActiveMu.Lock()
+	_, stillActive := c.alertActive[alertActiveKey("zone-office-high-temp", "office-heater")]
+	c.alertActiveMu.Unlock()
+	require.False(t, stillActive, "remediation should still be removed from alertActive even on no-op")
+}
+
+// Test_inferDefaultInactive covers each ActiveState value the operator
+// might supply to make sure window-close inference picks a safe state
+// in every case.
+func Test_inferDefaultInactive(t *testing.T) {
+	cases := []struct {
+		active string
+		want   iotv1proto.ZoneState
+	}{
+		{active: "on", want: iotv1proto.ZoneState_ZONE_STATE_OFF},
+		{active: "color", want: iotv1proto.ZoneState_ZONE_STATE_OFF},
+		{active: "randomcolor", want: iotv1proto.ZoneState_ZONE_STATE_OFF},
+		{active: "offtimer", want: iotv1proto.ZoneState_ZONE_STATE_OFF},
+		// "off" and empty are already-safe states — no-op (UNSPECIFIED).
+		{active: "off", want: iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED},
+		{active: "", want: iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED},
+		// Unknown strings → UNSPECIFIED so we don't guess wrong.
+		{active: "garbage", want: iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED},
+	}
+	for _, tc := range cases {
+		t.Run(tc.active, func(t *testing.T) {
+			got := inferDefaultInactive(apiv1.Remediation{ActiveState: tc.active})
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func Test_timeContains(t *testing.T) {
 	cases := []struct {
 		name           string
