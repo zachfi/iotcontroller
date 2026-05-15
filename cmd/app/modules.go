@@ -83,7 +83,7 @@ func (a *App) setupModuleManager() error {
 		MQTTClient: {Server},
 		Controller: {Server}, // K8s client
 
-		ZigbeeCoordinator: {Server},
+		ZigbeeCoordinator: {Server, KubeClient},
 
 		Conditioner:  {Server, KubeClient},
 		Harvester:    {Server, MQTTClient},
