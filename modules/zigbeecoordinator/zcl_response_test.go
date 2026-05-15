@@ -68,6 +68,36 @@ func (d *sendCapturingDongle) Send(ctx context.Context, msg types.OutgoingMessag
 	return nil
 }
 
+// dynamicResponseDongle is a richer test stub: instead of returning a
+// pre-canned response, it lets the test compute the response from the
+// outgoing frame's actual bytes. Necessary for tests that exercise the
+// real txnSeq-matching contract (sendZclAndAwait picks the seq via
+// nextZclTxnSequence, so the test can't know it in advance).
+//
+// `respond` receives the OutgoingMessage.Data bytes and returns the
+// ZclMessage to publish on the tap. Returning nil skips the publish.
+type dynamicResponseDongle struct {
+	stubDongle
+	coordinator *ZigbeeCoordinator
+	inner       interface{ Send(context.Context, types.OutgoingMessage) error }
+	respond     func(outFrame []byte) *zclv1proto.ZclMessage
+}
+
+func (d *dynamicResponseDongle) Send(ctx context.Context, msg types.OutgoingMessage) error {
+	if d.inner != nil {
+		if err := d.inner.Send(ctx, msg); err != nil {
+			return err
+		}
+	}
+	if d.respond != nil {
+		resp := d.respond(msg.Data)
+		if resp != nil {
+			go d.coordinator.notifyResponseWaiter(resp)
+		}
+	}
+	return nil
+}
+
 // Test_registerResponseWaiter_BasicLifecycle: register, receive, unregister.
 // The "is the slot free again after cleanup" property matters because if
 // it isn't, every subsequent request with the same txn seq would fail.

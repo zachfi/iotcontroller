@@ -650,7 +650,45 @@ func (z *ZigbeeCoordinator) interviewAndDispatch(ctx context.Context, ieee uint6
 		return
 	}
 
-	useful := interviewInfo != nil && (interviewInfo.ManufacturerID != 0 || len(interviewInfo.Endpoints) > 0)
+	// ZCL Basic cluster enrichment (manufacturer name, model id, power
+	// source). Runs regardless of whether ZDO succeeded — it's the only
+	// path that populates human-readable Manufacturer/Model strings, and
+	// some firmware that refuses ZDO node descriptor will still answer
+	// Basic cluster reads. We target endpoint 1 (conventional ZCL
+	// client endpoint); the timeout is generous because battery-powered
+	// end devices poll their parent on a slow schedule.
+	//
+	// Failures here are logged but never abort the dispatch — the ZDO
+	// information (if any) still lands in the Device CR, just without
+	// the Basic-cluster overlay. Re-interview annotation can retry.
+	if interviewInfo == nil {
+		interviewInfo = &types.DeviceInterviewInfo{NetworkAddress: nwk}
+	}
+	endpoint := uint8(1)
+	if len(interviewInfo.Endpoints) > 0 && interviewInfo.Endpoints[0].ID != 0 {
+		// If we know the device's actual endpoints from ZDO, prefer the
+		// first one for the Basic cluster read — most devices have it
+		// on endpoint 1 but a few (some Green Power devices, some
+		// proprietary sensors) use other IDs.
+		endpoint = uint8(interviewInfo.Endpoints[0].ID)
+	}
+	if basic, berr := z.readBasicClusterAttributes(ctx, nwk, endpoint, 10*time.Second); berr != nil {
+		z.logger.Warn("Basic cluster read failed; interview will lack manufacturer/model strings",
+			slog.String("network_address", fmt.Sprintf("0x%04x", nwk)),
+			slog.String("ieee_address", fmt.Sprintf("0x%016x", ieee)),
+			slog.Uint64("endpoint", uint64(endpoint)),
+			slog.String("error", berr.Error()),
+		)
+	} else if basic != nil {
+		interviewInfo.Manufacturer = basic.Manufacturer
+		interviewInfo.Model = basic.Model
+		interviewInfo.PowerSource = basic.PowerSource
+	}
+
+	useful := interviewInfo.ManufacturerID != 0 ||
+		len(interviewInfo.Endpoints) > 0 ||
+		interviewInfo.Manufacturer != "" ||
+		interviewInfo.Model != ""
 	if !useful {
 		z.logger.Warn("device interview returned no useful information; marking failed",
 			slog.String("network_address", fmt.Sprintf("0x%04x", nwk)),
@@ -699,6 +737,16 @@ func (z *ZigbeeCoordinator) sendInterviewResult(ctx context.Context, ieeeAddr ui
 	} else if info != nil {
 		result.InterviewState = zigbeev1proto.InterviewState_INTERVIEW_STATE_SUCCESSFUL
 		result.ManufacturerId = info.ManufacturerID
+
+		// Basic cluster overlay — populated by interviewAndDispatch
+		// when readBasicClusterAttributes succeeded. The router uses
+		// these to set Device.Spec.Vendor/Model/PowerSource; empty
+		// strings here mean the router leaves the existing CR field
+		// unchanged (which is how re-interview can refine partial info
+		// without clobbering correct data from a prior pass).
+		result.ManufacturerName = info.Manufacturer
+		result.ModelId = info.Model
+		result.PowerSource = mapZclPowerSourceToProto(info.PowerSource)
 
 		switch info.DeviceType {
 		case "Coordinator":

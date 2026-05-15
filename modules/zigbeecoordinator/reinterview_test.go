@@ -2,6 +2,7 @@ package zigbeecoordinator
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -21,8 +22,13 @@ import (
 )
 
 // stubDongle satisfies enough of the zigbeedongle.Dongle interface for
-// the reinterview unit tests — only InterviewDevice is exercised, the
-// rest panic so an accidental call surfaces immediately.
+// the reinterview unit tests — InterviewDevice + Send. Send returns a
+// sentinel error so that interviewAndDispatch's ZCL Basic cluster
+// enrichment step (which calls Send via sendZclAndAwait) fails fast
+// and is logged-and-skipped rather than blocking on a 10-second tap
+// timeout. Tests that DO want to exercise Send override this method
+// via embedding (see sendCapturingDongle / dynamicResponseDongle in
+// zcl_response_test.go).
 type stubDongle struct {
 	zigbeedongle.Dongle
 
@@ -36,6 +42,16 @@ func (s *stubDongle) InterviewDevice(ctx context.Context, nwk uint16) (*types.De
 		return s.interviewFunc(ctx, nwk)
 	}
 	return &types.DeviceInterviewInfo{NetworkAddress: nwk}, nil
+}
+
+// Send is a no-op that returns a sentinel error. interviewAndDispatch's
+// readBasicClusterAttributes call will see this, log a warning, and
+// proceed without the Basic-cluster overlay — exactly the behavior we
+// want for tests focused on the reinterview-tick / annotation flow.
+var errStubDongleSendNotImplemented = errors.New("stubDongle.Send: not implemented for this test")
+
+func (s *stubDongle) Send(_ context.Context, _ types.OutgoingMessage) error {
+	return errStubDongleSendNotImplemented
 }
 
 func newScheme(t *testing.T) *runtime.Scheme {
@@ -84,10 +100,10 @@ func newTestCoordinator(t *testing.T, devices ...*apiv1.Device) (*ZigbeeCoordina
 // failure cases the reinterview tick must keep its hands off.
 func Test_deviceAddressesFromSpec(t *testing.T) {
 	cases := []struct {
-		name        string
-		spec        apiv1.DeviceSpec
-		wantIEEE    uint64
-		wantNWK     uint16
+		name          string
+		spec          apiv1.DeviceSpec
+		wantIEEE      uint64
+		wantNWK       uint16
 		wantErrSubstr string
 	}{
 		{

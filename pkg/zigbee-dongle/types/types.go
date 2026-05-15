@@ -173,13 +173,30 @@ type PersistedNetworkState struct {
 	NetworkKey    [16]byte
 }
 
-// DeviceInterviewInfo contains the results of a ZDO device interview.
+// DeviceInterviewInfo contains the results of a device interview —
+// both the ZDO portion (Type/ManufacturerID/Capabilities/Endpoints,
+// populated by the dongle's InterviewDevice) and the ZCL Basic
+// cluster portion (Manufacturer/Model/PowerSource, populated by the
+// coordinator's readBasicClusterAttributes when the dongle layer
+// returns).
+//
+// All fields are optional on output. The dongle layer fills the ZDO
+// fields; the coordinator may overlay the Basic cluster fields after
+// the dongle returns. The caller (sendInterviewResult) is responsible
+// for propagating whatever's set onto the DeviceInterviewResult proto.
 type DeviceInterviewInfo struct {
 	NetworkAddress uint16
 	DeviceType     string // "Coordinator", "Router", "EndDevice", "Unknown"
 	ManufacturerID uint32
 	Capabilities   *DeviceCapabilities
 	Endpoints      []EndpointInfo
+
+	// ZCL Basic cluster (0x0000) attributes. Empty / zero when the
+	// Basic-cluster read was not attempted or the device returned
+	// UNSUPPORTED_ATTRIBUTE for the corresponding attribute.
+	Manufacturer string // attr 0x0004 (CharacterString)
+	Model        string // attr 0x0005 (CharacterString)
+	PowerSource  uint8  // attr 0x0007 (Enum8): 0x01 mains, 0x03 battery, …
 }
 
 // DeviceCapabilities describes device capabilities from the node descriptor.
