@@ -7,6 +7,37 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// Annotation keys recognized by the operator. Annotations are how
+// operators ask the controller to do a one-shot action on a CR
+// without restructuring its Spec — the controller consumes the
+// annotation and clears it on success.
+const (
+	// AnnotationReinterviewRequested asks the zigbee coordinator to
+	// re-run the device interview (node descriptor + active endpoints
+	// + simple descriptors) against an already-paired Device. Set its
+	// value to anything non-empty (e.g. "true" or a request ID) on the
+	// Device CR and the coordinator's reinterview poll will pick it up
+	// within the next tick (default 30s).
+	//
+	// Use case: when a device joined with a partial interview (Tuya
+	// firmware that rejects ZDO node descriptor on first ask, devices
+	// that flapped during join, etc.) the operator can request a fresh
+	// pass without un-pairing and re-pairing.
+	//
+	// Required for the reinterview to actually fire:
+	//   * Device.Spec.NetworkAddress must be set (we don't query the
+	//     coordinator's nwk↔ieee map by IEEE address yet — that lookup
+	//     would also be valid, but starts costing extra plumbing for
+	//     the common case).
+	//   * The device must be alive on the mesh; an unreachable device
+	//     will simply timeout each interview step and the annotation
+	//     stays set so the operator can retry later or remove it.
+	//
+	// On a successful interview the coordinator clears this annotation
+	// via a JSON-merge patch so subsequent reconciler ticks no-op.
+	AnnotationReinterviewRequested = "iot.iot/reinterview-requested"
+)
+
 // TimeIntervalSpec mirrors the JSON/YAML *input* format expected by Prometheus.
 // +kubebuilder:object:generate=true
 type TimeIntervalSpec struct {

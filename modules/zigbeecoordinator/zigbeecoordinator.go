@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
+	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	zclpkg "github.com/zachfi/iotcontroller/pkg/zcl"
 	zigbeedongle "github.com/zachfi/iotcontroller/pkg/zigbee-dongle"
@@ -35,6 +36,7 @@ type ZigbeeCoordinator struct {
 
 	dongle      zigbeedongle.Dongle
 	routeClient iotv1proto.RouteServiceClient // gRPC client for sending messages to router
+	kubeClient  kubeclient.Client              // For watching Device CRs (re-interview annotations); nil-safe.
 	zclParser   *zclpkg.Parser
 
 	// Permit join state
@@ -55,12 +57,13 @@ type ZigbeeCoordinator struct {
 	cmdSequence uint32
 }
 
-func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceClient) (*ZigbeeCoordinator, error) {
+func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceClient, kubeClient kubeclient.Client) (*ZigbeeCoordinator, error) {
 	z := &ZigbeeCoordinator{
 		cfg:          &cfg,
 		logger:       logger.With("module", module),
 		tracer:       otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
 		routeClient:  routeClient,
+		kubeClient:   kubeClient,
 		zclParser:    zclpkg.NewParser(logger),
 		interviewing: make(map[uint16]bool),
 		nwkToIEEE:    make(map[uint16]uint64),
@@ -315,6 +318,11 @@ func (z *ZigbeeCoordinator) running(ctx context.Context) error {
 	// Subscribe to device join events for interview triggering.
 	joinEvents := z.dongle.DeviceJoinEvents()
 	z.logger.Info("device join monitoring enabled")
+
+	// Background poll for operator-triggered re-interviews via the
+	// iot.iot/reinterview-requested annotation on Device CRs. Exits
+	// when ctx is cancelled (same lifetime as the message loop).
+	go z.runReinterviewPoll(ctx)
 
 	messageCount := 0
 	for {
@@ -597,20 +605,49 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent type
 	case <-time.After(2 * time.Second):
 	}
 
-	interviewInfo, err := z.dongle.InterviewDevice(ctx, joinEvent.NetworkAddress)
+	z.interviewAndDispatch(ctx, joinEvent.IEEEAddress, joinEvent.NetworkAddress)
+}
+
+// interviewAndDispatch runs the device interview and forwards the result
+// to the router. Shared by handleDeviceJoin (post-pair) and the
+// reinterview reconciler (annotation-triggered). Pre-interview waits
+// (e.g. key-auth backoff) are the caller's responsibility — by the
+// time we get here we just talk to the dongle.
+//
+// Result semantics, in order of precedence:
+//   - dongle returns (nil, err): hard failure, dispatch INTERVIEW_STATE_FAILED.
+//   - dongle returns (info, nil) but info is empty (no manufacturer AND no
+//     endpoints): also INTERVIEW_STATE_FAILED. This is the Tuya case where
+//     every ZDO sub-query was rejected and we genuinely learned nothing.
+//   - any useful info: INTERVIEW_STATE_SUCCESSFUL. Partial results land
+//     in the Device CR; an operator can request a re-interview later via
+//     the annotation if more info becomes available.
+func (z *ZigbeeCoordinator) interviewAndDispatch(ctx context.Context, ieee uint64, nwk uint16) {
+	interviewInfo, err := z.dongle.InterviewDevice(ctx, nwk)
 	if err != nil {
 		z.logger.Error("device interview failed",
-			slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
-			slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
+			slog.String("network_address", fmt.Sprintf("0x%04x", nwk)),
+			slog.String("ieee_address", fmt.Sprintf("0x%016x", ieee)),
 			slog.String("error", err.Error()),
 		)
-		z.sendInterviewResult(ctx, joinEvent.IEEEAddress, joinEvent.NetworkAddress, nil, err)
+		z.sendInterviewResult(ctx, ieee, nwk, nil, err)
 		return
 	}
 
-	z.logger.Info("device interview completed successfully",
-		slog.String("network_address", fmt.Sprintf("0x%04x", joinEvent.NetworkAddress)),
-		slog.String("ieee_address", fmt.Sprintf("0x%016x", joinEvent.IEEEAddress)),
+	useful := interviewInfo != nil && (interviewInfo.ManufacturerID != 0 || len(interviewInfo.Endpoints) > 0)
+	if !useful {
+		z.logger.Warn("device interview returned no useful information; marking failed",
+			slog.String("network_address", fmt.Sprintf("0x%04x", nwk)),
+			slog.String("ieee_address", fmt.Sprintf("0x%016x", ieee)),
+		)
+		z.sendInterviewResult(ctx, ieee, nwk, nil,
+			fmt.Errorf("interview produced no useful information"))
+		return
+	}
+
+	z.logger.Info("device interview completed",
+		slog.String("network_address", fmt.Sprintf("0x%04x", nwk)),
+		slog.String("ieee_address", fmt.Sprintf("0x%016x", ieee)),
 		slog.String("device_type", interviewInfo.DeviceType),
 		slog.Uint64("manufacturer_id", uint64(interviewInfo.ManufacturerID)),
 		slog.Int("endpoint_count", len(interviewInfo.Endpoints)),
@@ -624,7 +661,7 @@ func (z *ZigbeeCoordinator) handleDeviceJoin(ctx context.Context, joinEvent type
 			slog.Any("output_clusters", ep.OutputClusters),
 		)
 	}
-	z.sendInterviewResult(ctx, joinEvent.IEEEAddress, joinEvent.NetworkAddress, interviewInfo, nil)
+	z.sendInterviewResult(ctx, ieee, nwk, interviewInfo, nil)
 }
 
 // sendInterviewResult sends interview results to the router as a DeviceInterviewResult proto.

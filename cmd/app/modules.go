@@ -326,7 +326,7 @@ func (a *App) initZigbeeCoordinator() (services.Service, error) {
 		a.logger.Info("Zigbee coordinator running standalone (no router client configured)")
 	}
 
-	z, err := zigbeecoordinator.New(a.cfg.ZigbeeCoordinator, a.logger, routeClient)
+	z, err := zigbeecoordinator.New(a.cfg.ZigbeeCoordinator, a.logger, routeClient, a.kubeclient)
 	if err != nil {
 		return nil, err
 	}

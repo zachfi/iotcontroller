@@ -10,79 +10,86 @@ import (
 )
 
 // InterviewDevice performs a device interview to discover device capabilities.
-// This follows the zigbee-herdsman interview process:
-// 1. Get Node Descriptor (device type, manufacturer, capabilities)
-// 2. Get Active Endpoints
-// 3. For each endpoint: Get Simple Descriptor (clusters)
+// Follows the zigbee-herdsman interview process:
+//
+//  1. Get Node Descriptor (device type, manufacturer, capabilities)
+//  2. Get Active Endpoints
+//  3. For each endpoint: Get Simple Descriptor (clusters)
+//
+// Each step is best-effort: a failure in one step does NOT abort the
+// remaining steps, because non-compliant firmware (most notoriously Tuya
+// and some Sonoff devices) commonly rejects ZDO node-descriptor with
+// status 0x80 (INVALID_REQTYPE) but still answers active-endpoints and
+// simple-descriptor queries. The 2026-05-15 closet SNZB-02 pairing is
+// the canonical case: node descriptor failed all 6 retries, yet the
+// device immediately broadcast attribute reports on the same channel.
+// Under the previous always-error behavior the entire interview was
+// scrapped, the Device CR landed empty, and the operator had to
+// hand-patch ieee_address / network_address / type. With best-effort
+// the same join now collects whatever it can in one pass; what remains
+// missing can be filled by a re-interview annotation (see Bug 3) or by
+// future ZCL Basic cluster fallback (cluster 0x0000 attribute reads).
+//
+// Returns (info, nil) on partial or full success. Returns (nil, err)
+// only when every step failed in a way the caller would prefer not to
+// see a half-empty struct for. info.Endpoints == nil && ManufacturerID
+// == 0 is the conventional "we learned nothing" signal — the caller
+// can promote that to INTERVIEW_STATE_FAILED.
 func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16) (*types.DeviceInterviewInfo, error) {
 	info := &types.DeviceInterviewInfo{
 		NetworkAddress: networkAddress,
 	}
 
-	// Step 1: Get Node Descriptor (with retries - some devices need multiple attempts)
+	// Step 1: Get Node Descriptor (with retries — best effort).
+	// Failure modes captured in zigbeeLog at warn level so the operator
+	// can correlate the partial result with the failed step.
 	var nodeDescResp ZdoNodeDescriptor
 	gotNodeDesc := false
 	for attempt := 0; attempt < 6; attempt++ {
-		// Note: Retry delay is handled inside the loop after checking status
-		// This allows us to use different delays based on error type
-
-		// Register handler for async response BEFORE sending request
 		handler := c.port.RegisterOneOffHandler(ZdoNodeDescriptor{})
 		defer handler.fail() // Clean up if we exit early
 
-		// Send Node Descriptor Request
 		_, err := c.port.WriteCommandTimeout(ZdoNodeDescriptorRequest{
 			DstAddr: networkAddress,
 		}, 5*time.Second)
-
 		if err != nil {
-			if attempt < 5 {
-				if c.settings.LogErrors {
-					c.zigbeeLog.Warn("node descriptor request failed", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("error", err))
-				}
-				continue
+			if c.settings.LogErrors {
+				c.zigbeeLog.Warn("node descriptor request failed", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("error", err))
 			}
-			return nil, fmt.Errorf("node descriptor request failed after 6 attempts: %w", err)
+			continue
 		}
 
-		// Wait for async response
 		response, err := handler.Receive()
 		if err != nil {
-			if attempt < 5 {
-				if c.settings.LogErrors {
-					c.zigbeeLog.Warn("node descriptor response timeout", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("error", err))
-				}
-				continue
+			if c.settings.LogErrors {
+				c.zigbeeLog.Warn("node descriptor response timeout", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("error", err))
 			}
-			return nil, fmt.Errorf("node descriptor response timeout after 6 attempts: %w", err)
+			continue
 		}
 
 		resp := response.(ZdoNodeDescriptor)
 		if resp.Status != 0 {
-			// Status 0x80 (INVALID_REQTYPE) often means device isn't ready yet
-			// Increase delay between retries for this specific error
+			// 0x80 INVALID_REQTYPE is the common "device isn't ready
+			// yet OR doesn't support this query" code from Tuya
+			// firmware — wait longer between retries.
 			retryDelay := 500 * time.Millisecond
-			if resp.Status == 0x80 && attempt < 5 {
+			if resp.Status == 0x80 {
 				retryDelay = 2 * time.Second
 				if c.settings.LogErrors {
 					c.zigbeeLog.Warn("node descriptor status error (INVALID_REQTYPE, waiting longer)", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("status", resp.Status))
 				}
-			} else if attempt < 5 {
-				if c.settings.LogErrors {
-					c.zigbeeLog.Warn("node descriptor status error", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("status", resp.Status))
-				}
+			} else if c.settings.LogErrors {
+				c.zigbeeLog.Warn("node descriptor status error", slog.Int("attempt", attempt+1), slog.Int("max", 6), slog.Any("status", resp.Status))
 			}
 			if attempt < 5 {
 				time.Sleep(retryDelay)
-				continue
 			}
-			return nil, fmt.Errorf("node descriptor status error: 0x%02x", resp.Status)
+			continue
 		}
 
 		nodeDescResp = resp
 		gotNodeDesc = true
 
-		// Extract information from flattened node descriptor
 		info.ManufacturerID = uint32(nodeDescResp.ManufacturerCode)
 		info.Capabilities = &types.DeviceCapabilities{
 			AlternatePanCoordinator: (nodeDescResp.MACCapabilityFlags & (1 << 0)) != 0,
@@ -90,7 +97,6 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 			SecurityCapability:      (nodeDescResp.MACCapabilityFlags & (1 << 6)) != 0,
 		}
 
-		// Determine device type from logical type
 		switch nodeDescResp.LogicalType {
 		case 0x00:
 			info.DeviceType = "Coordinator"
@@ -102,14 +108,17 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 			info.DeviceType = "Unknown"
 		}
 
-		break // Success
+		break
 	}
 
-	if !gotNodeDesc {
-		return nil, fmt.Errorf("failed to get node descriptor after 6 attempts")
+	if !gotNodeDesc && c.settings.LogErrors {
+		// Don't bail — keep going for active endpoints. Some devices
+		// answer EP queries even when they refuse node descriptor.
+		c.zigbeeLog.Warn("node descriptor unavailable; continuing with active-endpoints query",
+			slog.String("network_address", fmt.Sprintf("0x%04x", networkAddress)))
 	}
 
-	// Step 2: Get Active Endpoints (with retries)
+	// Step 2: Get Active Endpoints (with retries — best effort).
 	var activeEndpoints []uint8
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
@@ -123,45 +132,42 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 			DstAddr:           networkAddress,
 			NWKAddrOfInterest: networkAddress,
 		}, 5*time.Second)
-
 		if err != nil {
-			if attempt < 1 {
-				if c.settings.LogErrors {
-					c.zigbeeLog.Warn("active endpoints request failed", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("error", err))
-				}
-				continue
+			if c.settings.LogErrors {
+				c.zigbeeLog.Warn("active endpoints request failed", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("error", err))
 			}
-			return nil, fmt.Errorf("active endpoints request failed: %w", err)
+			continue
 		}
 
 		response, err := handler.Receive()
 		if err != nil {
-			if attempt < 1 {
-				if c.settings.LogErrors {
-					c.zigbeeLog.Warn("active endpoints response timeout", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("error", err))
-				}
-				continue
+			if c.settings.LogErrors {
+				c.zigbeeLog.Warn("active endpoints response timeout", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("error", err))
 			}
-			return nil, fmt.Errorf("active endpoints response timeout: %w", err)
+			continue
 		}
 
 		activeEPResp := response.(ZdoActiveEP)
 		if activeEPResp.Status != 0 {
-			if attempt < 1 {
-				if c.settings.LogErrors {
-					c.zigbeeLog.Warn("active endpoints status error", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("status", activeEPResp.Status))
-				}
-				continue
+			if c.settings.LogErrors {
+				c.zigbeeLog.Warn("active endpoints status error", slog.Int("attempt", attempt+1), slog.Int("max", 2), slog.Any("status", activeEPResp.Status))
 			}
-			return nil, fmt.Errorf("active endpoints status error: 0x%02x", activeEPResp.Status)
+			continue
 		}
 
 		activeEndpoints = activeEPResp.ActiveEPs
-		break // Success
+		break
 	}
 
 	if len(activeEndpoints) == 0 {
-		return nil, fmt.Errorf("no active endpoints found")
+		// Nothing more we can do; return whatever was collected so far
+		// (possibly only ManufacturerID from a successful node desc).
+		if c.settings.LogErrors {
+			c.zigbeeLog.Warn("no active endpoints discovered; returning partial interview",
+				slog.String("network_address", fmt.Sprintf("0x%04x", networkAddress)),
+				slog.Bool("got_node_desc", gotNodeDesc))
+		}
+		return info, nil
 	}
 
 	// Step 3: Get Simple Descriptor for each endpoint
