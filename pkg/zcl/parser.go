@@ -375,6 +375,26 @@ func (p *Parser) convertReadAttributesResponse(cmd *global.ReadAttributesRespons
 }
 
 // convertAttributeValue converts shimmeringbee AttributeDataTypeValue to proto AttributeValue.
+//
+// Type assertion notes: shimmeringbee unmarshals every signed integer
+// (TypeSignedInt8..TypeSignedInt64) into a Go `int64` and every unsigned
+// integer / enum / bitmap into a Go `uint64` — see
+// vendor/github.com/shimmeringbee/zcl/zcl_types_unmarshal.go where
+// unmarshalInt/unmarshalUint return the bitbuffer's int64/uint64 boxed
+// into interface{}. Asserting `dtv.Value.(uint)` (the earlier shape of
+// this code) is therefore a type-identity bug: it always fails on
+// amd64 even though `uint` and `uint64` are the same width, because
+// type assertions check dynamic type, not size. The closet SNZB-02
+// pairing on 2026-05-15 was the first native-zigbee device to emit
+// attribute reports we'd actually try to parse — the bug had been
+// dormant because z2m-routed devices never reach this code.
+//
+// Type coverage: all primitive ZCL attribute types from the 0x10–0x4F
+// range. We map smaller types (8/16/24/32-bit) to the matching
+// fixed-size proto slot and widen to 64-bit slots for 40/48/56/64-bit
+// values. ZCL semantically-distinct families that share width with
+// integers (enum, bitmap) reuse the unsigned-int proto slots; their
+// semantic type is preserved in AttributeValue.DataType.
 func (p *Parser) convertAttributeValue(dtv *zcl.AttributeDataTypeValue) (*zclv1proto.AttributeValue, error) {
 	if dtv == nil {
 		return nil, fmt.Errorf("nil AttributeDataTypeValue")
@@ -384,39 +404,96 @@ func (p *Parser) convertAttributeValue(dtv *zcl.AttributeDataTypeValue) (*zclv1p
 		DataType: p.convertDataType(dtv.DataType),
 	}
 
-	// Convert value based on data type
 	switch dtv.DataType {
 	case zcl.TypeBoolean:
 		if v, ok := dtv.Value.(bool); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_BoolValue{BoolValue: v}
+			return attrValue, nil
 		}
-	case zcl.TypeUnsignedInt8:
-		if v, ok := dtv.Value.(uint); ok {
+
+	// Unsigned ints + bitmaps + enums all unmarshal as uint64; bucket
+	// by width into the right proto slot.
+	case zcl.TypeUnsignedInt8, zcl.TypeBitmap8, zcl.TypeEnum8:
+		if v, ok := dtv.Value.(uint64); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_Uint8Value{Uint8Value: uint32(v)}
+			return attrValue, nil
 		}
-	case zcl.TypeUnsignedInt16:
-		if v, ok := dtv.Value.(uint); ok {
+	case zcl.TypeUnsignedInt16, zcl.TypeBitmap16, zcl.TypeEnum16:
+		if v, ok := dtv.Value.(uint64); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_Uint16Value{Uint16Value: uint32(v)}
+			return attrValue, nil
 		}
-	case zcl.TypeUnsignedInt32:
-		if v, ok := dtv.Value.(uint); ok {
+	case zcl.TypeUnsignedInt24, zcl.TypeBitmap24,
+		zcl.TypeUnsignedInt32, zcl.TypeBitmap32:
+		if v, ok := dtv.Value.(uint64); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_Uint32Value{Uint32Value: uint32(v)}
+			return attrValue, nil
 		}
+	case zcl.TypeUnsignedInt40, zcl.TypeBitmap40,
+		zcl.TypeUnsignedInt48, zcl.TypeBitmap48,
+		zcl.TypeUnsignedInt56, zcl.TypeBitmap56,
+		zcl.TypeUnsignedInt64, zcl.TypeBitmap64:
+		if v, ok := dtv.Value.(uint64); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Uint64Value{Uint64Value: v}
+			return attrValue, nil
+		}
+
+	// Signed ints unmarshal as int64 — needed for temperature (0x29).
+	case zcl.TypeSignedInt8:
+		if v, ok := dtv.Value.(int64); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Int8Value{Int8Value: int32(v)}
+			return attrValue, nil
+		}
+	case zcl.TypeSignedInt16:
+		if v, ok := dtv.Value.(int64); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Int16Value{Int16Value: int32(v)}
+			return attrValue, nil
+		}
+	case zcl.TypeSignedInt24, zcl.TypeSignedInt32:
+		if v, ok := dtv.Value.(int64); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Int32Value{Int32Value: int32(v)}
+			return attrValue, nil
+		}
+	case zcl.TypeSignedInt40, zcl.TypeSignedInt48,
+		zcl.TypeSignedInt56, zcl.TypeSignedInt64:
+		if v, ok := dtv.Value.(int64); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Int64Value{Int64Value: v}
+			return attrValue, nil
+		}
+
+	case zcl.TypeFloatSingle:
+		if v, ok := dtv.Value.(float32); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Float32Value{Float32Value: v}
+			return attrValue, nil
+		}
+	case zcl.TypeFloatDouble:
+		if v, ok := dtv.Value.(float64); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Float64Value{Float64Value: v}
+			return attrValue, nil
+		}
+
 	case zcl.TypeStringCharacter8:
 		if v, ok := dtv.Value.(string); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_StringValue{StringValue: v}
+			return attrValue, nil
 		}
-	default:
-		// For unknown types, try to serialize as bytes
-		bb := bitbuffer.NewBitBuffer()
-		if err := bytecodec.MarshalToBitBuffer(bb, dtv.Value); err == nil {
-			attrValue.Value = &zclv1proto.AttributeValue_DataValue{DataValue: bb.Bytes()}
-		} else {
-			return nil, fmt.Errorf("unsupported data type: %v", dtv.DataType)
+	case zcl.TypeStringOctet8:
+		if v, ok := dtv.Value.([]byte); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_OctetStringValue{OctetStringValue: v}
+			return attrValue, nil
 		}
 	}
 
-	return attrValue, nil
+	// Either an unknown type or a recognized type whose Go value didn't
+	// have the shape we expected. Fall through to a raw-bytes
+	// serialization so the caller at least gets opaque value-as-data;
+	// upstream can decide whether to honor it or drop the report.
+	bb := bitbuffer.NewBitBuffer()
+	if err := bytecodec.MarshalToBitBuffer(bb, dtv.Value); err == nil {
+		attrValue.Value = &zclv1proto.AttributeValue_DataValue{DataValue: bb.Bytes()}
+		return attrValue, nil
+	}
+	return nil, fmt.Errorf("unsupported data type: 0x%02x (Go value type %T)", uint8(dtv.DataType), dtv.Value)
 }
 
 // convertMoveMode converts a ZCL move mode byte (0x00=up, 0x01=down) to proto ZclMoveMode.
@@ -443,20 +520,72 @@ func (p *Parser) convertStepMode(mode uint8) zclv1proto.ZclStepMode {
 	}
 }
 
-// convertDataType converts shimmeringbee AttributeDataType to proto ZclDataType.
+// convertDataType converts shimmeringbee AttributeDataType to proto
+// ZclDataType. Kept aligned with convertAttributeValue's type coverage;
+// any type returnable by the value converter must round-trip through
+// the data-type enum so downstream code can interpret the oneof slot
+// correctly.
 func (p *Parser) convertDataType(dt zcl.AttributeDataType) zclv1proto.ZclDataType {
-	// Map shimmeringbee types to proto types
 	switch dt {
 	case zcl.TypeBoolean:
 		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_BOOLEAN
+
 	case zcl.TypeUnsignedInt8:
 		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT8
 	case zcl.TypeUnsignedInt16:
 		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT16
+	case zcl.TypeUnsignedInt24:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT24
 	case zcl.TypeUnsignedInt32:
 		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT32
+	case zcl.TypeUnsignedInt40:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT40
+	case zcl.TypeUnsignedInt48:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT48
+	case zcl.TypeUnsignedInt56:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT56
+	case zcl.TypeUnsignedInt64:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UINT64
+
+	case zcl.TypeSignedInt8:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT8
+	case zcl.TypeSignedInt16:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT16
+	case zcl.TypeSignedInt24:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT24
+	case zcl.TypeSignedInt32:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT32
+	case zcl.TypeSignedInt40:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT40
+	case zcl.TypeSignedInt48:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT48
+	case zcl.TypeSignedInt56:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT56
+	case zcl.TypeSignedInt64:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT64
+
+	case zcl.TypeEnum8:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_ENUM8
+	case zcl.TypeEnum16:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_ENUM16
+
+	case zcl.TypeBitmap8:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_BITMAP8
+	case zcl.TypeBitmap16:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_BITMAP16
+	case zcl.TypeBitmap24:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_BITMAP24
+	case zcl.TypeBitmap32:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_BITMAP32
+
+	case zcl.TypeFloatSingle:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_FLOAT_SINGLE
+	case zcl.TypeFloatDouble:
+		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_FLOAT_DOUBLE
+
 	case zcl.TypeStringCharacter8:
 		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_STRING_CHARACTER8
+
 	default:
 		return zclv1proto.ZclDataType_ZCL_DATA_TYPE_UNKNOWN
 	}
