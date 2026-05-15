@@ -101,6 +101,16 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		n.logger.Debug("failed to update last seen", slog.String("error", updateErr.Error()))
 	}
 
+	// Emit sensor metrics for any attribute reports in this message
+	// (temperature, humidity, battery, link quality, …). This runs
+	// regardless of whether a Binding matches downstream — the metric
+	// stream is independent of the action/control pipeline. A device
+	// with no iot/zone label still gets a gauge written with zone="",
+	// which is useful for newly-paired devices before they're zoned
+	// (the closet SNZB-02 worked this way on 2026-05-15).
+	zone := device.Labels[iot.DeviceZoneLabel]
+	emitAttributeMetrics(n.logger, zclMsg, device.Name, zone)
+
 	// Normalize the ZclMessage into the same DeviceEvent shape used by
 	// zigbee2mqtt; one Binding spec then matches both transports.
 	evs := events.FromZclMessage(zclMsg, device)
