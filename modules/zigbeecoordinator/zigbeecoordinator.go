@@ -20,6 +20,7 @@ import (
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/types"
 	"github.com/zachfi/iotcontroller/pkg/zigbee-dongle/znp"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
+	zclv1proto "github.com/zachfi/iotcontroller/proto/zcl/v1"
 	zigbeev1proto "github.com/zachfi/iotcontroller/proto/zigbee/v1"
 )
 
@@ -36,7 +37,7 @@ type ZigbeeCoordinator struct {
 
 	dongle      zigbeedongle.Dongle
 	routeClient iotv1proto.RouteServiceClient // gRPC client for sending messages to router
-	kubeClient  kubeclient.Client              // For watching Device CRs (re-interview annotations); nil-safe.
+	kubeClient  kubeclient.Client             // For watching Device CRs (re-interview annotations); nil-safe.
 	zclParser   *zclpkg.Parser
 
 	// Permit join state
@@ -55,19 +56,28 @@ type ZigbeeCoordinator struct {
 
 	// Command sequence counter for ZCL transaction sequence numbers
 	cmdSequence uint32
+
+	// In-process ZCL response filter for awaiting specific responses to
+	// requests we sent from the coordinator pod (e.g. Basic cluster
+	// reads during interview). Populated lazily by registerResponseWaiter
+	// and consumed by notifyResponseWaiter from the parse path. See
+	// zcl_response.go for the full design.
+	responseWaitersMu sync.RWMutex
+	responseWaiters   map[zclResponseKey]chan<- *zclv1proto.ZclMessage
 }
 
 func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceClient, kubeClient kubeclient.Client) (*ZigbeeCoordinator, error) {
 	z := &ZigbeeCoordinator{
-		cfg:          &cfg,
-		logger:       logger.With("module", module),
-		tracer:       otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
-		routeClient:  routeClient,
-		kubeClient:   kubeClient,
-		zclParser:    zclpkg.NewParser(logger),
-		interviewing: make(map[uint16]bool),
-		nwkToIEEE:    make(map[uint16]uint64),
-		ieeeToNWK:    make(map[string]uint16),
+		cfg:             &cfg,
+		logger:          logger.With("module", module),
+		tracer:          otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
+		routeClient:     routeClient,
+		kubeClient:      kubeClient,
+		zclParser:       zclpkg.NewParser(logger),
+		interviewing:    make(map[uint16]bool),
+		nwkToIEEE:       make(map[uint16]uint64),
+		ieeeToNWK:       make(map[string]uint16),
+		responseWaiters: make(map[zclResponseKey]chan<- *zclv1proto.ZclMessage),
 	}
 
 	dongleCfg := cfg.ToDongleConfig(z.logger)
@@ -528,6 +538,12 @@ func (z *ZigbeeCoordinator) forwardMessageToRouter(ctx context.Context, msg type
 		)
 		return nil
 	}
+
+	// Tap: notify any in-process awaiter registered for this exact
+	// (srcNwk, clusterID, txnSeq) tuple before forwarding to the router.
+	// Non-consuming and non-blocking — the message still flows to the
+	// router on every call. See zcl_response.go for design rationale.
+	z.notifyResponseWaiter(zclMsg)
 
 	msgBytes, err := proto.Marshal(zclMsg)
 	if err != nil {
