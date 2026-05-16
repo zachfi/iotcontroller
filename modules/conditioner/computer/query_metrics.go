@@ -15,8 +15,9 @@ import (
 // the aggregate value.
 //
 // Labels:
-//   condition  — the Condition CR name the Remediation belongs to
-//   zone       — the Remediation's target zone
+//
+//	condition  — the Condition CR name the Remediation belongs to
+//	zone       — the Remediation's target zone
 //
 // Set only on successful HTTP+parse; transient failures don't update
 // the gauge so a stale value is visible during outages (paired with

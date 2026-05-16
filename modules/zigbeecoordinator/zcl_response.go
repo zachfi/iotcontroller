@@ -212,4 +212,3 @@ func (z *ZigbeeCoordinator) sendZclAndAwait(
 		return nil, ctx.Err()
 	}
 }
-

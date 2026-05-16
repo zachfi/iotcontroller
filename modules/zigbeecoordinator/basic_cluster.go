@@ -162,8 +162,8 @@ func (z *ZigbeeCoordinator) readBasicClusterAttributes(
 // AttributeIDs are little-endian (Zigbee on-wire byte order).
 func encodeReadAttributesFrame(txnSeq uint8, attrIDs []uint16) []byte {
 	buf := make([]byte, 0, 3+2*len(attrIDs))
-	buf = append(buf, 0x00)                    // FCF
-	buf = append(buf, txnSeq)                  // Transaction sequence
+	buf = append(buf, 0x00)                     // FCF
+	buf = append(buf, txnSeq)                   // Transaction sequence
 	buf = append(buf, zclCommandReadAttributes) // Command id
 
 	for _, id := range attrIDs {

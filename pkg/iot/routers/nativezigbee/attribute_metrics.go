@@ -84,15 +84,15 @@ var (
 // attribute would balloon cardinality without giving anyone information
 // they can act on.
 const (
-	clusterPowerConfiguration   = 0x0001
+	clusterPowerConfiguration     = 0x0001
 	clusterIlluminanceMeasurement = 0x0400
 	clusterTemperatureMeasurement = 0x0402
-	clusterPressureMeasurement  = 0x0403
-	clusterRelativeHumidity     = 0x0405
+	clusterPressureMeasurement    = 0x0403
+	clusterRelativeHumidity       = 0x0405
 
-	attrBatteryVoltage              = 0x0020
-	attrBatteryPercentageRemaining  = 0x0021
-	attrMeasuredValue               = 0x0000
+	attrBatteryVoltage             = 0x0020
+	attrBatteryPercentageRemaining = 0x0021
+	attrMeasuredValue              = 0x0000
 )
 
 // emitAttributeMetrics walks a parsed ZclMessage's attribute records
@@ -200,4 +200,3 @@ func emitAttributeMetric(logger *slog.Logger, clusterID, attrID uint32, value *z
 		}
 	}
 }
-

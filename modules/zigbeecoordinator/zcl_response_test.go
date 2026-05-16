@@ -36,13 +36,13 @@ func newResponseFilterCoordinator(t *testing.T) *ZigbeeCoordinator {
 type sendCapturingDongle struct {
 	stubDongle // embed for unused-method panics
 
-	z              *ZigbeeCoordinator
-	sentMu         sync.Mutex
-	sent           []types.OutgoingMessage
-	sendErr        error
-	respondWith    *zclv1proto.ZclMessage
-	respondAfter   time.Duration
-	respondCalls   atomic.Int32
+	z            *ZigbeeCoordinator
+	sentMu       sync.Mutex
+	sent         []types.OutgoingMessage
+	sendErr      error
+	respondWith  *zclv1proto.ZclMessage
+	respondAfter time.Duration
+	respondCalls atomic.Int32
 }
 
 func (d *sendCapturingDongle) Send(ctx context.Context, msg types.OutgoingMessage) error {
@@ -79,8 +79,10 @@ func (d *sendCapturingDongle) Send(ctx context.Context, msg types.OutgoingMessag
 type dynamicResponseDongle struct {
 	stubDongle
 	coordinator *ZigbeeCoordinator
-	inner       interface{ Send(context.Context, types.OutgoingMessage) error }
-	respond     func(outFrame []byte) *zclv1proto.ZclMessage
+	inner       interface {
+		Send(context.Context, types.OutgoingMessage) error
+	}
+	respond func(outFrame []byte) *zclv1proto.ZclMessage
 }
 
 func (d *dynamicResponseDongle) Send(ctx context.Context, msg types.OutgoingMessage) error {

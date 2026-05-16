@@ -20,9 +20,9 @@ func Test_encodeReadAttributesFrame(t *testing.T) {
 		0x0004, 0x0005, 0x0007,
 	})
 	want := []byte{
-		0x00, // FCF: global / client-to-server / no DDR / not manuf-specific
-		0x42, // txn seq
-		0x00, // command id: ReadAttributes
+		0x00,       // FCF: global / client-to-server / no DDR / not manuf-specific
+		0x42,       // txn seq
+		0x00,       // command id: ReadAttributes
 		0x04, 0x00, // attr 0x0004 (manufacturerName), little-endian
 		0x05, 0x00, // attr 0x0005 (modelIdentifier)
 		0x07, 0x00, // attr 0x0007 (powerSource)
