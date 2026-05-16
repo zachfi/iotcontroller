@@ -43,10 +43,18 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 	// Step 1: Get Node Descriptor (with retries — best effort).
 	// Failure modes captured in zigbeeLog at warn level so the operator
 	// can correlate the partial result with the failed step.
+	//
+	// Per-attempt budget capped at 5s (not the 40s state-change default):
+	// 6 silent attempts at 40s would burn ~4 minutes before the
+	// best-effort code reached the active-endpoints / Basic-cluster
+	// steps. At 5s × 6 the worst-case is ~30s, which fits comfortably
+	// inside the typical sleepy-device awake window and leaves budget
+	// for the Basic-cluster read on join.
+	const nodeDescAttemptTimeout = 5 * time.Second
 	var nodeDescResp ZdoNodeDescriptor
 	gotNodeDesc := false
 	for attempt := 0; attempt < 6; attempt++ {
-		handler := c.port.RegisterOneOffHandler(ZdoNodeDescriptor{})
+		handler := c.port.RegisterOneOffHandlerWithTimeout(ZdoNodeDescriptor{}, nodeDescAttemptTimeout)
 		defer handler.fail() // Clean up if we exit early
 
 		_, err := c.port.WriteCommandTimeout(ZdoNodeDescriptorRequest{
@@ -119,13 +127,15 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 	}
 
 	// Step 2: Get Active Endpoints (with retries — best effort).
+	// Same 5s per-attempt cap rationale as Step 1.
+	const activeEPAttemptTimeout = 5 * time.Second
 	var activeEndpoints []uint8
 	for attempt := 0; attempt < 2; attempt++ {
 		if attempt > 0 {
 			time.Sleep(500 * time.Millisecond)
 		}
 
-		handler := c.port.RegisterOneOffHandler(ZdoActiveEP{})
+		handler := c.port.RegisterOneOffHandlerWithTimeout(ZdoActiveEP{}, activeEPAttemptTimeout)
 		defer handler.fail()
 
 		_, err := c.port.WriteCommandTimeout(ZdoActiveEPRequest{
@@ -170,10 +180,15 @@ func (c *Controller) InterviewDevice(ctx context.Context, networkAddress uint16)
 		return info, nil
 	}
 
-	// Step 3: Get Simple Descriptor for each endpoint
+	// Step 3: Get Simple Descriptor for each endpoint.
+	// Single attempt per endpoint at the same 5s receive budget as the
+	// earlier steps; an endpoint that misses its slot is logged and the
+	// next endpoint still gets a fair shot, which is the best-effort
+	// contract this function documents.
+	const simpleDescAttemptTimeout = 5 * time.Second
 	info.Endpoints = make([]types.EndpointInfo, 0, len(activeEndpoints))
 	for _, endpointID := range activeEndpoints {
-		handler := c.port.RegisterOneOffHandler(ZdoSimpleDescriptor{})
+		handler := c.port.RegisterOneOffHandlerWithTimeout(ZdoSimpleDescriptor{}, simpleDescAttemptTimeout)
 		defer handler.fail()
 
 		_, err := c.port.WriteCommandTimeout(ZdoSimpleDescriptorRequest{

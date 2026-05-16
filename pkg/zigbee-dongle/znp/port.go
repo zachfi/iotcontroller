@@ -191,6 +191,20 @@ func (p *Port) RegisterOneOffHandler(commandPrototype interface{}) *Handler {
 	return p.registerHandler(header, 40*time.Second)
 }
 
+// RegisterOneOffHandlerWithTimeout is like RegisterOneOffHandler but lets
+// the caller specify how long the handler waits for a response before
+// auto-failing. Use this for interactions where the 40s state-change
+// budget would dominate the caller's own retry/attempt schedule — most
+// notably per-attempt ZDO interview steps, where 40s of silence × 6
+// attempts produced a ~4-minute join-time stall on devices that refused
+// the node-descriptor query (see modules/zigbeecoordinator/reinterview.go
+// for the recovery path that compensated). A 0 timeout disables the
+// auto-fail timer entirely (matching RegisterPermanentHandler semantics).
+func (p *Port) RegisterOneOffHandlerWithTimeout(commandPrototype interface{}, timeout time.Duration) *Handler {
+	header := getHeaderForCommand(commandPrototype)
+	return p.registerHandler(header, timeout)
+}
+
 func (p *Port) RegisterPermanentHandler(commandPrototype interface{}) *Handler {
 	header := getHeaderForCommand(commandPrototype)
 	return p.registerHandler(header, 0)
