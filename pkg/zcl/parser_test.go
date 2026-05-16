@@ -43,22 +43,22 @@ func Test_convertAttributeValue(t *testing.T) {
 		wantString     string
 	}{
 		{
-			name:         "boolean true",
-			dt:           zcl.TypeBoolean,
-			value:        true,
-			wantSlot:     "bool",
-			wantDataType: zclv1proto.ZclDataType_ZCL_DATA_TYPE_BOOLEAN,
+			name:          "boolean true",
+			dt:            zcl.TypeBoolean,
+			value:         true,
+			wantSlot:      "bool",
+			wantDataType:  zclv1proto.ZclDataType_ZCL_DATA_TYPE_BOOLEAN,
 			wantBoolValue: true,
 		},
 		// Regression: temperature report. Data bytes 0x280a (little-endian
 		// int16 = 2600) → 26.00°C. unmarshalInt returns int64.
 		{
-			name:          "SignedInt16 (temperature) — 2600",
-			dt:            zcl.TypeSignedInt16,
-			value:         int64(2600),
-			wantSlot:      "int16",
-			wantDataType:  zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT16,
-			wantIntValue:  2600,
+			name:         "SignedInt16 (temperature) — 2600",
+			dt:           zcl.TypeSignedInt16,
+			value:        int64(2600),
+			wantSlot:     "int16",
+			wantDataType: zclv1proto.ZclDataType_ZCL_DATA_TYPE_INT16,
+			wantIntValue: 2600,
 		},
 		{
 			name:         "SignedInt16 negative",
@@ -127,15 +127,30 @@ func Test_convertAttributeValue(t *testing.T) {
 			wantUintValue: 18_000_000_000_000_000_000,
 		},
 		// Enum8 (power source on Basic cluster attr 0x0007) shares the
-		// uint8 oneof slot but reports ENUM8 as its semantic type so
-		// downstream knows it's not arithmetic.
+		// uint8 proto slot but reports ENUM8 as its semantic type.
+		// Note: shimmeringbee's unmarshal layer down-converts Enum8 to
+		// Go uint8 (not uint64), unlike UnsignedInt8 / Bitmap8 which
+		// stay as uint64. The parser asserts against the right type
+		// for each — pin that here so a refactor that merges the
+		// Enum8 case back into the unsigned-int case (because they
+		// "look the same") breaks loudly. The 2026-05-15 SNZB-02
+		// power-source = 0 bug was exactly this assertion failure
+		// silently dropping into the data-bytes fallback.
 		{
-			name:          "Enum8 (power source: mains = 0x01)",
+			name:          "Enum8 (power source: battery = 0x03)",
 			dt:            zcl.TypeEnum8,
-			value:         uint64(0x01),
+			value:         uint8(0x03),
 			wantSlot:      "uint8",
 			wantDataType:  zclv1proto.ZclDataType_ZCL_DATA_TYPE_ENUM8,
-			wantUintValue: 1,
+			wantUintValue: 3,
+		},
+		{
+			name:          "Enum16",
+			dt:            zcl.TypeEnum16,
+			value:         uint16(0x1234),
+			wantSlot:      "uint16",
+			wantDataType:  zclv1proto.ZclDataType_ZCL_DATA_TYPE_ENUM16,
+			wantUintValue: 0x1234,
 		},
 		{
 			name:          "Bitmap16",

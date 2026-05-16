@@ -411,14 +411,14 @@ func (p *Parser) convertAttributeValue(dtv *zcl.AttributeDataTypeValue) (*zclv1p
 			return attrValue, nil
 		}
 
-	// Unsigned ints + bitmaps + enums all unmarshal as uint64; bucket
-	// by width into the right proto slot.
-	case zcl.TypeUnsignedInt8, zcl.TypeBitmap8, zcl.TypeEnum8:
+	// Unsigned ints and bitmaps unmarshal as uint64 (bb.ReadUint's
+	// native type). Bucket by width into the right proto slot.
+	case zcl.TypeUnsignedInt8, zcl.TypeBitmap8:
 		if v, ok := dtv.Value.(uint64); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_Uint8Value{Uint8Value: uint32(v)}
 			return attrValue, nil
 		}
-	case zcl.TypeUnsignedInt16, zcl.TypeBitmap16, zcl.TypeEnum16:
+	case zcl.TypeUnsignedInt16, zcl.TypeBitmap16:
 		if v, ok := dtv.Value.(uint64); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_Uint16Value{Uint16Value: uint32(v)}
 			return attrValue, nil
@@ -435,6 +435,24 @@ func (p *Parser) convertAttributeValue(dtv *zcl.AttributeDataTypeValue) (*zclv1p
 		zcl.TypeUnsignedInt64, zcl.TypeBitmap64:
 		if v, ok := dtv.Value.(uint64); ok {
 			attrValue.Value = &zclv1proto.AttributeValue_Uint64Value{Uint64Value: v}
+			return attrValue, nil
+		}
+
+	// Enum8 / Enum16 are special: shimmeringbee's unmarshal layer
+	// down-converts them to uint8 / uint16 respectively before
+	// returning (zcl_types_unmarshal.go: `val = uint8(val.(uint64))`).
+	// Asserting against uint64 here would fall through to the
+	// data-bytes fallback, which lands the value in DataValue instead
+	// of Uint8Value and presents as 0 to downstream readers (Sonoff
+	// SNZB-02WD power-source 2026-05-15 bug). Use the native types.
+	case zcl.TypeEnum8:
+		if v, ok := dtv.Value.(uint8); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Uint8Value{Uint8Value: uint32(v)}
+			return attrValue, nil
+		}
+	case zcl.TypeEnum16:
+		if v, ok := dtv.Value.(uint16); ok {
+			attrValue.Value = &zclv1proto.AttributeValue_Uint16Value{Uint16Value: uint32(v)}
 			return attrValue, nil
 		}
 

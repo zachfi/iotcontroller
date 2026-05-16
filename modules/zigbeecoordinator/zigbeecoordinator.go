@@ -64,20 +64,31 @@ type ZigbeeCoordinator struct {
 	// zcl_response.go for the full design.
 	responseWaitersMu sync.RWMutex
 	responseWaiters   map[zclResponseKey]chan<- *zclv1proto.ZclMessage
+
+	// pendingReinterview holds devices whose annotation requested a
+	// re-interview but whose Basic cluster read is waiting for the
+	// device to next become reachable. The parse path consumes this
+	// map when it observes an inbound message from a registered NWK —
+	// sleepy end devices spend most time asleep, so we have to wait
+	// for them to chirp at us. Populated by the annotation poll
+	// (reinterview.go); consumed by triggerPendingEnrichmentIfAny.
+	pendingReinterviewMu sync.Mutex
+	pendingReinterview   map[uint16]pendingReinterview
 }
 
 func New(cfg Config, logger *slog.Logger, routeClient iotv1proto.RouteServiceClient, kubeClient kubeclient.Client) (*ZigbeeCoordinator, error) {
 	z := &ZigbeeCoordinator{
-		cfg:             &cfg,
-		logger:          logger.With("module", module),
-		tracer:          otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
-		routeClient:     routeClient,
-		kubeClient:      kubeClient,
-		zclParser:       zclpkg.NewParser(logger),
-		interviewing:    make(map[uint16]bool),
-		nwkToIEEE:       make(map[uint16]uint64),
-		ieeeToNWK:       make(map[string]uint16),
-		responseWaiters: make(map[zclResponseKey]chan<- *zclv1proto.ZclMessage),
+		cfg:                &cfg,
+		logger:             logger.With("module", module),
+		tracer:             otel.Tracer(module, trace.WithInstrumentationAttributes(attribute.String("module", module))),
+		routeClient:        routeClient,
+		kubeClient:         kubeClient,
+		zclParser:          zclpkg.NewParser(logger),
+		interviewing:       make(map[uint16]bool),
+		nwkToIEEE:          make(map[uint16]uint64),
+		ieeeToNWK:          make(map[string]uint16),
+		responseWaiters:    make(map[zclResponseKey]chan<- *zclv1proto.ZclMessage),
+		pendingReinterview: make(map[uint16]pendingReinterview),
 	}
 
 	dongleCfg := cfg.ToDongleConfig(z.logger)
@@ -544,6 +555,15 @@ func (z *ZigbeeCoordinator) forwardMessageToRouter(ctx context.Context, msg type
 	// Non-consuming and non-blocking — the message still flows to the
 	// router on every call. See zcl_response.go for design rationale.
 	z.notifyResponseWaiter(zclMsg)
+
+	// Opportunistic re-interview trigger: if the operator annotated
+	// this device for re-interview, the device is briefly awake right
+	// now (it just sent us a message). Kick off the Basic cluster read
+	// in a goroutine — it'll arrive at the parent's indirect-tx queue
+	// during the device's poll-response window, which is the only
+	// time a sleepy end device will reliably answer. The trigger
+	// itself is non-blocking on the parse path.
+	z.triggerPendingEnrichmentIfAny(msg.Source.Short)
 
 	msgBytes, err := proto.Marshal(zclMsg)
 	if err != nil {

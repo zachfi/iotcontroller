@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -177,85 +178,91 @@ func Test_deviceAddressesFromSpec(t *testing.T) {
 	}
 }
 
+// pendingNwks snapshots the keys of z.pendingReinterview for assertions.
+func pendingNwks(z *ZigbeeCoordinator) []uint16 {
+	z.pendingReinterviewMu.Lock()
+	defer z.pendingReinterviewMu.Unlock()
+	out := make([]uint16, 0, len(z.pendingReinterview))
+	for nwk := range z.pendingReinterview {
+		out = append(out, nwk)
+	}
+	return out
+}
+
 // Test_reinterviewTick_NoAnnotation: a Device without the reinterview
-// annotation is left alone — no dongle calls, no CR mutations.
+// annotation is left alone — no pending registration, no CR mutations.
 func Test_reinterviewTick_NoAnnotation(t *testing.T) {
 	d := &apiv1.Device{}
 	d.Name = "0xa4c138025b31ffff"
 	d.Spec.IEEEAddress = "0xa4c138025b31ffff"
 	d.Spec.NetworkAddress = "0xf88e"
 
-	z, stub, _ := newTestCoordinator(t, d)
+	z, _, _ := newTestCoordinator(t, d)
 	z.reinterviewTick(context.Background())
 
-	require.Equal(t, int32(0), stub.interviewCalls.Load(), "no annotation → no interview call")
+	require.Empty(t, pendingNwks(z), "no annotation → no pending registration")
 }
 
-// Test_reinterviewTick_HappyPath: a Device with the annotation set AND
-// valid IEEE/NWK addresses triggers an interview and has the annotation
-// cleared after dispatch. The fake dongle returns a useful interview
-// result so the dispatch reaches the success branch in
-// interviewAndDispatch.
-func Test_reinterviewTick_HappyPath(t *testing.T) {
+// Test_reinterviewTick_RegistersPending: with the opportunistic design
+// (2026-05-15 SNZB-02 finding: sleepy devices poll every ~10min and
+// don't answer requests in between), the tick now REGISTERS a
+// pendingReinterview entry rather than dispatching immediately. The
+// actual enrichment fires later from the parse path when a message
+// from the target NWK is observed.
+func Test_reinterviewTick_RegistersPending(t *testing.T) {
 	d := &apiv1.Device{}
 	d.Name = "0xa4c138025b31ffff"
-	d.Annotations = map[string]string{apiv1.AnnotationReinterviewRequested: "true"}
+	d.Annotations = map[string]string{apiv1.AnnotationReinterviewRequested: "v0.7.1-test"}
 	d.Spec.IEEEAddress = "0xa4c138025b31ffff"
 	d.Spec.NetworkAddress = "0xf88e"
 
-	z, stub, kc := newTestCoordinator(t, d)
-	stub.interviewFunc = func(_ context.Context, nwk uint16) (*types.DeviceInterviewInfo, error) {
-		require.Equal(t, uint16(0xf88e), nwk, "interview must use parsed NWK from Spec")
-		return &types.DeviceInterviewInfo{
-			NetworkAddress: nwk,
-			ManufacturerID: 0x1037, // arbitrary non-zero so dispatch treats it as useful
-		}, nil
-	}
-
+	z, _, kc := newTestCoordinator(t, d)
 	z.reinterviewTick(context.Background())
 
-	require.Equal(t, int32(1), stub.interviewCalls.Load(), "exactly one interview call")
+	pending := pendingNwks(z)
+	require.Equal(t, []uint16{0xf88e}, pending, "expected one pending nwk")
 
+	z.pendingReinterviewMu.Lock()
+	entry := z.pendingReinterview[0xf88e]
+	z.pendingReinterviewMu.Unlock()
+	require.Equal(t, uint64(0xa4c138025b31ffff), entry.ieee)
+	require.Equal(t, "0xa4c138025b31ffff", entry.deviceCRName)
+	require.Equal(t, "v0.7.1-test", entry.requestedBy)
+
+	// Annotation MUST still be set — the enrichment hasn't run yet, so
+	// clearing it now would lose the operator's intent if the
+	// coordinator restarts before the device next chirps.
 	var got apiv1.Device
 	require.NoError(t, kc.Get(context.Background(), client.ObjectKeyFromObject(d), &got))
-	_, present := got.Annotations[apiv1.AnnotationReinterviewRequested]
-	require.False(t, present, "annotation must be cleared after successful dispatch")
+	require.Equal(t, "v0.7.1-test", got.Annotations[apiv1.AnnotationReinterviewRequested])
 }
 
-// Test_reinterviewTick_AnnotationClearedEvenOnFailedInterview: a partial-
-// or no-info interview result still clears the annotation. Rationale is
-// documented in reinterview.go — we don't want to loop on a permanently-
-// quirky device. The operator re-sets the annotation when they want to
-// retry.
-func Test_reinterviewTick_AnnotationClearedEvenOnFailedInterview(t *testing.T) {
+// Test_reinterviewTick_Idempotent: re-running the tick over a device
+// with the annotation still set just refreshes the pending entry's
+// registeredAt — doesn't duplicate the entry or break invariants.
+func Test_reinterviewTick_Idempotent(t *testing.T) {
 	d := &apiv1.Device{}
 	d.Name = "0xa4c138025b31ffff"
-	d.Annotations = map[string]string{apiv1.AnnotationReinterviewRequested: "true"}
+	d.Annotations = map[string]string{apiv1.AnnotationReinterviewRequested: "first"}
 	d.Spec.IEEEAddress = "0xa4c138025b31ffff"
 	d.Spec.NetworkAddress = "0xf88e"
 
-	z, stub, kc := newTestCoordinator(t, d)
-	stub.interviewFunc = func(_ context.Context, nwk uint16) (*types.DeviceInterviewInfo, error) {
-		// "We learned nothing" — matches the failure-mode the
-		// SNZB-02 produced in production on 2026-05-15.
-		return &types.DeviceInterviewInfo{NetworkAddress: nwk}, nil
-	}
-
+	z, _, _ := newTestCoordinator(t, d)
 	z.reinterviewTick(context.Background())
+	firstAt := timeRegistered(z, 0xf88e)
 
-	require.Equal(t, int32(1), stub.interviewCalls.Load())
+	time.Sleep(10 * time.Millisecond)
+	z.reinterviewTick(context.Background())
+	secondAt := timeRegistered(z, 0xf88e)
 
-	var got apiv1.Device
-	require.NoError(t, kc.Get(context.Background(), client.ObjectKeyFromObject(d), &got))
-	_, present := got.Annotations[apiv1.AnnotationReinterviewRequested]
-	require.False(t, present, "even a useless interview clears the annotation; operator re-sets to retry")
+	require.True(t, secondAt.After(firstAt), "re-registration refreshes the timestamp")
+	require.Len(t, pendingNwks(z), 1, "still exactly one pending entry")
 }
 
 // Test_reinterviewTick_MissingNWKLeavesAnnotation: a device whose Spec
 // has the annotation but no NetworkAddress cannot be re-interviewed.
-// The annotation must stay so an operator notices the failure mode and
-// fills in the NWK (or it lands organically on the next coordinator
-// restart when we'll patch in NetworkAddress).
+// The annotation must stay so an operator notices the failure mode.
+// Nothing gets registered as pending either.
 func Test_reinterviewTick_MissingNWKLeavesAnnotation(t *testing.T) {
 	d := &apiv1.Device{}
 	d.Name = "0xa4c138025b31ffff"
@@ -263,10 +270,10 @@ func Test_reinterviewTick_MissingNWKLeavesAnnotation(t *testing.T) {
 	d.Spec.IEEEAddress = "0xa4c138025b31ffff"
 	// Spec.NetworkAddress deliberately empty
 
-	z, stub, kc := newTestCoordinator(t, d)
+	z, _, kc := newTestCoordinator(t, d)
 	z.reinterviewTick(context.Background())
 
-	require.Equal(t, int32(0), stub.interviewCalls.Load(), "no NWK → no interview attempt")
+	require.Empty(t, pendingNwks(z), "no NWK → not registered as pending")
 
 	var got apiv1.Device
 	require.NoError(t, kc.Get(context.Background(), client.ObjectKeyFromObject(d), &got))
@@ -274,9 +281,9 @@ func Test_reinterviewTick_MissingNWKLeavesAnnotation(t *testing.T) {
 		"annotation stays set so the operator sees the unmet precondition")
 }
 
-// Test_reinterviewTick_MultipleDevicesIndependent: a malformed device in
-// the list doesn't block other annotated devices in the same tick from
-// being processed.
+// Test_reinterviewTick_MultipleDevicesIndependent: a malformed device
+// in the list doesn't block other annotated devices in the same tick
+// from being registered.
 func Test_reinterviewTick_MultipleDevicesIndependent(t *testing.T) {
 	dGood := &apiv1.Device{}
 	dGood.Name = "0xaaaa"
@@ -290,23 +297,75 @@ func Test_reinterviewTick_MultipleDevicesIndependent(t *testing.T) {
 	dBroken.Spec.IEEEAddress = "0xcccc"
 	// missing NetworkAddress
 
-	z, stub, kc := newTestCoordinator(t, dGood, dBroken)
-	stub.interviewFunc = func(_ context.Context, _ uint16) (*types.DeviceInterviewInfo, error) {
-		return &types.DeviceInterviewInfo{ManufacturerID: 0x1}, nil
-	}
-
+	z, _, kc := newTestCoordinator(t, dGood, dBroken)
 	z.reinterviewTick(context.Background())
 
-	require.Equal(t, int32(1), stub.interviewCalls.Load(), "the good device gets interviewed")
+	require.Equal(t, []uint16{0xbbbb}, pendingNwks(z),
+		"only the good device gets registered as pending")
 
 	var gotGood, gotBroken apiv1.Device
 	require.NoError(t, kc.Get(context.Background(), client.ObjectKeyFromObject(dGood), &gotGood))
 	require.NoError(t, kc.Get(context.Background(), client.ObjectKeyFromObject(dBroken), &gotBroken))
-
-	_, goodPresent := gotGood.Annotations[apiv1.AnnotationReinterviewRequested]
-	require.False(t, goodPresent, "good device annotation cleared")
+	require.Equal(t, "true", gotGood.Annotations[apiv1.AnnotationReinterviewRequested],
+		"good device annotation stays — opportunistic enrichment hasn't fired yet")
 	require.Equal(t, "true", gotBroken.Annotations[apiv1.AnnotationReinterviewRequested],
-		"broken device annotation untouched")
+		"broken device annotation also stays (still ineligible)")
+}
+
+// Test_triggerPendingEnrichmentIfAny_NoPending: trigger called for a NWK
+// with no pending entry must be a silent no-op — does not panic, does
+// not modify state.
+func Test_triggerPendingEnrichmentIfAny_NoPending(t *testing.T) {
+	z, _, _ := newTestCoordinator(t)
+	require.NotPanics(t, func() {
+		z.triggerPendingEnrichmentIfAny(0xf88e)
+	})
+}
+
+// Test_triggerPendingEnrichmentIfAny_ConsumesEntry: when activity is
+// observed for a pending NWK, the entry is removed from the map
+// atomically with goroutine kickoff so a flurry of subsequent
+// messages doesn't spawn parallel enrichments. The actual dongle
+// activity is deferred to a goroutine; we just verify the map state
+// flips immediately.
+func Test_triggerPendingEnrichmentIfAny_ConsumesEntry(t *testing.T) {
+	z, _, _ := newTestCoordinator(t)
+	z.registerPendingReinterview(pendingReinterview{
+		ieee: 0xa4c138025b31ffff, nwk: 0xf88e,
+		deviceCRName: "0xa4c138025b31ffff", requestedBy: "test", registeredAt: time.Now(),
+	})
+	require.Equal(t, []uint16{0xf88e}, pendingNwks(z))
+
+	z.triggerPendingEnrichmentIfAny(0xf88e)
+
+	require.Empty(t, pendingNwks(z), "entry consumed synchronously by trigger")
+
+	// A subsequent trigger for the same NWK is a no-op.
+	require.NotPanics(t, func() {
+		z.triggerPendingEnrichmentIfAny(0xf88e)
+	})
+}
+
+// Test_triggerPendingEnrichmentIfAny_UnrelatedNwk: a message from a
+// different NWK than the pending one must not consume the pending
+// entry.
+func Test_triggerPendingEnrichmentIfAny_UnrelatedNwk(t *testing.T) {
+	z, _, _ := newTestCoordinator(t)
+	z.registerPendingReinterview(pendingReinterview{
+		ieee: 0xaaaa, nwk: 0xf88e,
+		deviceCRName: "0xaaaa", requestedBy: "test", registeredAt: time.Now(),
+	})
+
+	z.triggerPendingEnrichmentIfAny(0x1234) // different NWK
+
+	require.Equal(t, []uint16{0xf88e}, pendingNwks(z),
+		"unrelated NWK leaves the pending entry intact")
+}
+
+func timeRegistered(z *ZigbeeCoordinator, nwk uint16) time.Time {
+	z.pendingReinterviewMu.Lock()
+	defer z.pendingReinterviewMu.Unlock()
+	return z.pendingReinterview[nwk].registeredAt
 }
 
 // Test_runReinterviewPoll_NilKubeClientNoOp: if the coordinator was

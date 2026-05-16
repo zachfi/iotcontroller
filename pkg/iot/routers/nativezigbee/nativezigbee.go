@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
+	"k8s.io/client-go/util/retry"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
@@ -206,55 +207,75 @@ func (n *NativeZigbee) InterviewRoute(ctx context.Context, b []byte, ieeeAddr st
 	ieee := result.GetIeeeAddress()
 	deviceName := strings.ToLower(strings.TrimPrefix(ieee, "0x"))
 
-	device, err := iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, deviceName)
-	if err != nil {
-		return fmt.Errorf("getting/creating device %q: %w", deviceName, err)
-	}
-
-	// Populate spec from interview
-	device.Spec.IEEEAddress = ieee
-	device.Spec.NetworkAddress = fmt.Sprintf("0x%04x", result.GetNetworkAddress())
-
-	// Only set Type from ZDO for coordinator/router roles using the proto enum name.
-	// End-device functional type (light, button, sensor) is not known from the interview
-	// alone — it must be set separately (manually or via model mapping).
-	// We preserve any existing Type so manual assignments are not overwritten.
-	if device.Spec.Type == "" {
-		switch result.GetDeviceType() {
-		case zigbeev1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
-			device.Spec.Type = "DEVICE_TYPE_COORDINATOR"
-		case zigbeev1proto.DeviceType_DEVICE_TYPE_ROUTER:
-			device.Spec.Type = "DEVICE_TYPE_ROUTER"
-			// End-device: leave Type empty — set by operator or future model-based mapping.
+	// Wrap the read-modify-update in RetryOnConflict so a concurrent
+	// write to the same Device (e.g. the coordinator's annotation-clear
+	// patch racing this update, which was observed 2026-05-15 during
+	// the opportunistic re-interview path) re-fetches the fresh
+	// resourceVersion and retries instead of dropping the interview
+	// result. Standard k8s read-modify-update pattern; default backoff
+	// retries 5 times with exponential 10ms→160ms delays.
+	var device *apiv1.Device
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		d, gerr := iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, deviceName)
+		if gerr != nil {
+			return fmt.Errorf("getting/creating device %q: %w", deviceName, gerr)
 		}
-	}
 
-	if result.GetManufacturerName() != "" {
-		device.Spec.Vendor = result.GetManufacturerName()
-		device.Spec.ManufactureName = result.GetManufacturerName()
-	}
-	if result.GetModelId() != "" {
-		device.Spec.Model = result.GetModelId()
-		device.Spec.ModelID = result.GetModelId()
-	}
-	if result.GetDateCode() != "" {
-		device.Spec.DateCode = result.GetDateCode()
-	}
-	if result.GetPowerSource() != zigbeev1proto.PowerSource_POWER_SOURCE_UNSPECIFIED {
-		device.Spec.PowerSource = result.GetPowerSource().String()
-	}
+		// Populate spec from interview
+		d.Spec.IEEEAddress = ieee
+		d.Spec.NetworkAddress = fmt.Sprintf("0x%04x", result.GetNetworkAddress())
 
-	if err = n.kubeclient.Update(ctx, device); err != nil {
+		// Only set Type from ZDO for coordinator/router roles using the proto enum name.
+		// End-device functional type (light, button, sensor) is not known from the interview
+		// alone — it must be set separately (manually or via model mapping).
+		// We preserve any existing Type so manual assignments are not overwritten.
+		if d.Spec.Type == "" {
+			switch result.GetDeviceType() {
+			case zigbeev1proto.DeviceType_DEVICE_TYPE_COORDINATOR:
+				d.Spec.Type = "DEVICE_TYPE_COORDINATOR"
+			case zigbeev1proto.DeviceType_DEVICE_TYPE_ROUTER:
+				d.Spec.Type = "DEVICE_TYPE_ROUTER"
+				// End-device: leave Type empty — set by operator or future model-based mapping.
+			}
+		}
+
+		if result.GetManufacturerName() != "" {
+			d.Spec.Vendor = result.GetManufacturerName()
+			d.Spec.ManufactureName = result.GetManufacturerName()
+		}
+		if result.GetModelId() != "" {
+			d.Spec.Model = result.GetModelId()
+			d.Spec.ModelID = result.GetModelId()
+		}
+		if result.GetDateCode() != "" {
+			d.Spec.DateCode = result.GetDateCode()
+		}
+		if result.GetPowerSource() != zigbeev1proto.PowerSource_POWER_SOURCE_UNSPECIFIED {
+			d.Spec.PowerSource = result.GetPowerSource().String()
+		}
+
+		if uerr := n.kubeclient.Update(ctx, d); uerr != nil {
+			return uerr // pass through unwrapped so RetryOnConflict's IsConflict check works
+		}
+		device = d
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("updating device spec: %w", err)
 	}
 
-	// Update status
-	device, err = iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, deviceName)
+	// Status update: same retry pattern since it shares the
+	// resourceVersion contention with the spec update on devices that
+	// receive frequent annotations/labels from elsewhere.
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		d, gerr := iotutil.GetOrCreateAPIDevice(ctx, n.kubeclient, deviceName)
+		if gerr != nil {
+			return fmt.Errorf("refreshing device: %w", gerr)
+		}
+		d.Status.SoftwareBuildID = result.GetSoftwareBuildId()
+		return n.kubeclient.Status().Update(ctx, d)
+	})
 	if err != nil {
-		return fmt.Errorf("refreshing device: %w", err)
-	}
-	device.Status.SoftwareBuildID = result.GetSoftwareBuildId()
-	if err = n.kubeclient.Status().Update(ctx, device); err != nil {
 		return fmt.Errorf("updating device status: %w", err)
 	}
 
