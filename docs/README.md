@@ -18,6 +18,19 @@ directory go deeper on specific subsystems.
   the four built-ins (`sun_color_temperature`, `ramp`,
   `rotate_colors`, `query`), how to add a new computer.
 
+## Proposals
+
+Drafted feature requests, not yet implemented. Each describes the
+operator behaviour the proposal would unlock, what already composes
+from existing primitives, and what's missing.
+
+- [`fade-design.md`](fade-design.md) — unified `fade` Computer
+  covering scheduled fade-to-off, motion-light fade-off, sunset
+  CT/brightness drift, RGB color fade, and wake-up brighten. Window
+  and event anchors share one snapshot machine; `ramp` collapses
+  into a deprecated alias. Supersedes earlier fade-to-off and
+  motion-light drafts.
+
 ## Reference material
 
 - [`reference/ember/`](reference/ember/) — Silicon Labs EmberZNet
