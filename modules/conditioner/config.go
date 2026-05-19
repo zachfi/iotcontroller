@@ -18,6 +18,14 @@ type Config struct {
 	EpochTimeWindow        time.Duration       `yaml:"epoch_time_window"`
 	ApplyDesiredRefreshAge time.Duration       `yaml:"apply_desired_refresh_age,omitempty"`
 
+	// OOBGracePeriod is the minimum age a cache entry must reach before
+	// the out-of-band Status drift check fires. Below this threshold,
+	// stale Status reflects apiserver propagation lag from the
+	// conditioner's own most-recent apply, not an external mover.
+	// Tests set 0 to disable the grace and observe drift detection
+	// directly. Production default: 2 seconds.
+	OOBGracePeriod time.Duration `yaml:"oob_grace_period,omitempty"`
+
 	// EvaluationInterval is the tick interval for the periodic evaluator.
 	// On each tick the evaluator walks enabled Conditions and applies
 	// computer-driven Remediations (those with active_compute set) and
@@ -78,6 +86,7 @@ func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet)
 	// the zone externally). 30 minutes is conservative for the alert /
 	// epoch / cron cadences we drive.
 	f.DurationVar(&cfg.ApplyDesiredRefreshAge, util.PrefixConfig(prefix, "apply-desired-refresh-age"), 30*time.Minute, "Cache TTL for applyDesired: a (condition, zone) entry forces a re-apply after this duration even if desired matches last applied.")
+	f.DurationVar(&cfg.OOBGracePeriod, util.PrefixConfig(prefix, "oob-grace-period"), 2*time.Second, "Minimum age a cache entry must reach before applyDesired inspects Zone CR Status for out-of-band drift. Inside this window, stale Status reflects apiserver propagation from our own apply rather than an external mover.")
 
 	f.DurationVar(&cfg.EvaluationInterval, util.PrefixConfig(prefix, "evaluation-interval"), 60*time.Second, "Tick interval for the periodic evaluator (computer-driven Remediations + alert-window closure).")
 	f.Float64Var(&cfg.Location.Lat, util.PrefixConfig(prefix, "location.lat"), 0, "Latitude for solar calculations (sun_color_temperature computer, SunRelative time intervals).")

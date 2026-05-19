@@ -95,8 +95,29 @@ func (c *Conditioner) applyDesired(ctx context.Context, condName, zone string, r
 	c.condStateMu.Unlock()
 
 	if ok && fresh && prev.state == desiredState && prev.scene == desiredScene {
-		metricApplySuppressed.WithLabelValues(condName, zone, direction).Inc()
-		return nil
+		// We're about to suppress as a redundant apply. Before doing so,
+		// check whether something else moved the zone since we last
+		// applied: button press, second-source alert, direct SetState.
+		// If the Zone CR's Status disagrees with our cached prev.state,
+		// drop the cache so the apply below proceeds against reality.
+		//
+		// The check is skipped when the cache entry is younger than
+		// oobGracePeriod — within that window, an absent or stale
+		// Status reflects apiserver propagation lag from our own most-
+		// recent apply, not an external mover. This is what lets a
+		// rapid double-press still dedup (both presses land before
+		// Status catches up).
+		if prev.state != iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED &&
+			now.Sub(prev.ts) >= c.cfg.OOBGracePeriod &&
+			c.zoneStatusDiffers(ctx, zone, prev.state) {
+			c.condStateMu.Lock()
+			delete(c.condState, key)
+			c.condStateMu.Unlock()
+			metricApplyCacheInvalidated.WithLabelValues(zone, "status-drift").Inc()
+		} else {
+			metricApplySuppressed.WithLabelValues(condName, zone, direction).Inc()
+			return nil
+		}
 	}
 
 	err := c.sched.execRequest(ctx, req, c.zonekeeperClient)
@@ -236,6 +257,36 @@ func inferDefaultInactive(rem apiv1.Remediation) iotv1proto.ZoneState {
 // resolve to the same value and the second is suppressed by
 // applyDesired — that's a deliberate physical-button-bounce debounce,
 // not a missed toggle.
+// zoneStatusDiffers returns true when the Zone CR's Status.State
+// disagrees with `expected`. Used by applyDesired's out-of-band
+// invalidation: the cache's "what we last applied" is only safe to
+// trust as long as nothing else has touched the zone since. The kube
+// client is informer-backed, so the Get is in-memory and effectively
+// free.
+//
+// Conservative on read failure: returns false (assume no drift) so a
+// transient kube blip doesn't blow every cache entry. Conservative on
+// UNSPECIFIED Status: returns false (haven't seen the zone reach a
+// state yet — the next apply will populate Status).
+func (c *Conditioner) zoneStatusDiffers(ctx context.Context, zone string, expected iotv1proto.ZoneState) bool {
+	var z apiv1.Zone
+	if err := c.kubeClient.Get(ctx, kubeclient.ObjectKey{Name: zone, Namespace: "iot"}, &z); err != nil {
+		c.logger.Debug("oob-check: zone status read failed",
+			slog.String("zone", zone),
+			slog.String("error", err.Error()),
+		)
+		return false
+	}
+	if z.Status.State == "" {
+		return false
+	}
+	actual := iotv1proto.ZoneState(iotv1proto.ZoneState_value[z.Status.State])
+	if actual == iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+		return false
+	}
+	return actual != expected
+}
+
 func (c *Conditioner) resolveToggleState(ctx context.Context, zone string) string {
 	var z apiv1.Zone
 	if err := c.kubeClient.Get(ctx, kubeclient.ObjectKey{Name: zone, Namespace: "iot"}, &z); err != nil {

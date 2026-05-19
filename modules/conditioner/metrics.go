@@ -66,3 +66,19 @@ var metricEvalApplyError = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "iotcontroller_conditioner_evaluation_apply_error_total",
 	Help: "Number of ApplyValues RPC failures during evaluator ticks, by computer name.",
 }, []string{"compute"})
+
+// metricApplyCacheInvalidated counts applyDesired cache entries dropped
+// because the Zone CR's Status disagreed with what the cache thought
+// was the last-applied value — i.e. somebody other than this
+// conditioner moved the zone (button press, alert from a second
+// origin, direct SetState). The fade Computer's "key-up while
+// attacking" semantics rely on this: a mid-envelope button press
+// blows the snapshot so the next tick re-seeds from the new current
+// instead of overwriting the operator's intent.
+//
+// Steady-state should be near zero. Per-zone label scopes the noise
+// floor — a single chatty zone shouldn't be drowned out by the rest.
+var metricApplyCacheInvalidated = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_conditioner_apply_cache_invalidations_total",
+	Help: "Number of applyDesired cache entries invalidated due to out-of-band Zone state changes.",
+}, []string{"zone", "reason"})

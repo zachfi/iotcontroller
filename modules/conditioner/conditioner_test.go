@@ -1207,7 +1207,18 @@ func TestApplyDesired_ToggleAlternation(t *testing.T) {
 // effective SetState — applyDesired's cache absorbs the duplicate.
 // This is the deliberate button-bounce debounce.
 func TestApplyDesired_ToggleDoublePressDedup(t *testing.T) {
-	cfg := Config{ApplyDesiredRefreshAge: time.Hour}
+	// OOBGracePeriod is set to a value larger than the test's wall-clock
+	// duration so the out-of-band Status-drift check skips — this is
+	// exactly the production behaviour for rapid button presses, where
+	// the apiserver hasn't yet propagated the first apply's effect on
+	// Zone.Status by the time the second press lands. Without the grace,
+	// the second press would correctly see Status=OFF (stale) ≠ cached
+	// state=ON and re-apply — that's the wrong behaviour for a
+	// deliberate button-bounce debounce.
+	cfg := Config{
+		ApplyDesiredRefreshAge: time.Hour,
+		OOBGracePeriod:         time.Hour,
+	}
 	rec := &recordingZoneKeeper{}
 	kube := &fakeKubeClient{
 		zones: map[string]apiv1.Zone{
