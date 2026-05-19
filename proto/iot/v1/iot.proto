@@ -147,6 +147,22 @@ message ApplyValuesRequest {
   Brightness brightness = 3;
   ColorTemperature color_temperature = 4;
   string color = 5; // hex (e.g. "#FF0000"), empty = no change
+
+  // Continuous companions to the discrete brightness/color_temperature
+  // enums above. When non-zero, the continuous field is authoritative
+  // and the enum is treated as a derived label (the apply handler still
+  // writes the nearest enum to Status for backward-compatible
+  // consumers). The pair lets the fade Computer emit smooth values
+  // across the eval-tick interval without quantizing to one of six
+  // brightness steps or five CT steps, while keeping the enum surface
+  // intact for operators authoring Scenes by name.
+  //
+  // brightness_value is normalized in [0, 1]. Canonical mappings from
+  // the enum (FULL = 1.0, VERYLOW = ~0.28) live in pkg/iot/canonical.go.
+  // color_temperature_kelvin is Kelvin; canonical mappings (DAY ≈ 3333K,
+  // EVENING ≈ 2000K) match the device-native mired infrastructure.
+  double brightness_value = 6;
+  int32 color_temperature_kelvin = 7;
 }
 
 message ApplyValuesResponse {}

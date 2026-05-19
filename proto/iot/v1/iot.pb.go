@@ -1270,8 +1270,23 @@ type ApplyValuesRequest struct {
 	Brightness       Brightness             `protobuf:"varint,3,opt,name=brightness,proto3,enum=iot.v1.Brightness" json:"brightness,omitempty"`
 	ColorTemperature ColorTemperature       `protobuf:"varint,4,opt,name=color_temperature,json=colorTemperature,proto3,enum=iot.v1.ColorTemperature" json:"color_temperature,omitempty"`
 	Color            string                 `protobuf:"bytes,5,opt,name=color,proto3" json:"color,omitempty"` // hex (e.g. "#FF0000"), empty = no change
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Continuous companions to the discrete brightness/color_temperature
+	// enums above. When non-zero, the continuous field is authoritative
+	// and the enum is treated as a derived label (the apply handler still
+	// writes the nearest enum to Status for backward-compatible
+	// consumers). The pair lets the fade Computer emit smooth values
+	// across the eval-tick interval without quantizing to one of six
+	// brightness steps or five CT steps, while keeping the enum surface
+	// intact for operators authoring Scenes by name.
+	//
+	// brightness_value is normalized in [0, 1]. Canonical mappings from
+	// the enum (FULL = 1.0, VERYLOW = ~0.28) live in pkg/iot/canonical.go.
+	// color_temperature_kelvin is Kelvin; canonical mappings (DAY ≈ 3333K,
+	// EVENING ≈ 2000K) match the device-native mired infrastructure.
+	BrightnessValue        float64 `protobuf:"fixed64,6,opt,name=brightness_value,json=brightnessValue,proto3" json:"brightness_value,omitempty"`
+	ColorTemperatureKelvin int32   `protobuf:"varint,7,opt,name=color_temperature_kelvin,json=colorTemperatureKelvin,proto3" json:"color_temperature_kelvin,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *ApplyValuesRequest) Reset() {
@@ -1337,6 +1352,20 @@ func (x *ApplyValuesRequest) GetColor() string {
 		return x.Color
 	}
 	return ""
+}
+
+func (x *ApplyValuesRequest) GetBrightnessValue() float64 {
+	if x != nil {
+		return x.BrightnessValue
+	}
+	return 0
+}
+
+func (x *ApplyValuesRequest) GetColorTemperatureKelvin() int32 {
+	if x != nil {
+		return x.ColorTemperatureKelvin
+	}
+	return 0
 }
 
 type ApplyValuesResponse struct {
@@ -1908,7 +1937,7 @@ const file_iot_v1_iot_proto_rawDesc = "" +
 	"\x17AdjustBrightnessRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05delta\x18\x02 \x01(\x05R\x05delta\"\x1a\n" +
-	"\x18AdjustBrightnessResponse\"\xe2\x01\n" +
+	"\x18AdjustBrightnessResponse\"\xc7\x02\n" +
 	"\x12ApplyValuesRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x11.iot.v1.ZoneStateR\x05state\x122\n" +
@@ -1916,7 +1945,9 @@ const file_iot_v1_iot_proto_rawDesc = "" +
 	"brightness\x18\x03 \x01(\x0e2\x12.iot.v1.BrightnessR\n" +
 	"brightness\x12E\n" +
 	"\x11color_temperature\x18\x04 \x01(\x0e2\x18.iot.v1.ColorTemperatureR\x10colorTemperature\x12\x14\n" +
-	"\x05color\x18\x05 \x01(\tR\x05color\"\x15\n" +
+	"\x05color\x18\x05 \x01(\tR\x05color\x12)\n" +
+	"\x10brightness_value\x18\x06 \x01(\x01R\x0fbrightnessValue\x128\n" +
+	"\x18color_temperature_kelvin\x18\a \x01(\x05R\x16colorTemperatureKelvin\"\x15\n" +
 	"\x13ApplyValuesResponse\"\x86\x03\n" +
 	"\x12SendCommandRequest\x12!\n" +
 	"\fieee_address\x18\x01 \x01(\tR\vieeeAddress\x12\x1a\n" +

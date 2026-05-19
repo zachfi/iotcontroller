@@ -215,11 +215,22 @@ func (z *ZoneKeeper) ApplyValues(ctx context.Context, req *iotv1proto.ApplyValue
 		zone.SetState(ctx, req.State)
 		applied = true
 	}
-	if req.Brightness != iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED {
+	// Continuous brightness/CT fields win when set (non-zero). The
+	// enum fields are accepted as a fallback for callers that haven't
+	// migrated yet — they go through the canonical map so the
+	// continuous representation tracks regardless of which path the
+	// caller picked.
+	if req.BrightnessValue > 0 {
+		zone.SetBrightnessValue(ctx, req.BrightnessValue)
+		applied = true
+	} else if req.Brightness != iotv1proto.Brightness_BRIGHTNESS_UNSPECIFIED {
 		zone.SetBrightness(ctx, req.Brightness)
 		applied = true
 	}
-	if req.ColorTemperature != iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED {
+	if req.ColorTemperatureKelvin > 0 {
+		zone.SetColorTemperatureKelvin(ctx, req.ColorTemperatureKelvin)
+		applied = true
+	} else if req.ColorTemperature != iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED {
 		zone.SetColorTemperature(ctx, req.ColorTemperature)
 		applied = true
 	}

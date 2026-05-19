@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -60,10 +61,20 @@ type Zone struct {
 	name string
 
 	brightness iotv1proto.Brightness
-	colorPool  []string
-	color      string
-	colorTemp  iotv1proto.ColorTemperature
-	state      iotv1proto.ZoneState
+	// brightnessValue is the continuous representation in [0, 1].
+	// SetBrightness writes both this and the enum via the canonical map;
+	// SetBrightnessValue writes the continuous field and the nearest
+	// enum. Flush reads brightnessValue exclusively — the enum stays
+	// for Status reporting and IncrementBrightness/DecrementBrightness.
+	brightnessValue float64
+	colorPool       []string
+	color           string
+	colorTemp       iotv1proto.ColorTemperature
+	// colorTempKelvin is the continuous CT representation in Kelvin.
+	// Dual-write semantics mirror brightnessValue. Flush converts to
+	// mireds via KelvinToMireds at the device boundary.
+	colorTempKelvin int32
+	state           iotv1proto.ZoneState
 
 	devices map[*iotv1proto.Device]Handler
 
@@ -263,6 +274,21 @@ func (z *Zone) SetColorTemperature(ctx context.Context, colorTemp iotv1proto.Col
 	defer z.mtx.Unlock()
 
 	z.colorTemp = colorTemp
+	z.colorTempKelvin = ColorTempCanonical(colorTemp)
+}
+
+// SetColorTemperatureKelvin writes the continuous Kelvin value and
+// derives the nearest enum for Status reporting. The fade Computer
+// uses this path when its color_temperature axis is active.
+func (z *Zone) SetColorTemperatureKelvin(ctx context.Context, kelvin int32) {
+	_, span := z.tracer.Start(ctx, "Zone.SetColorTemperatureKelvin")
+	defer span.End()
+
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	z.colorTempKelvin = kelvin
+	z.colorTemp = ColorTempNearestEnum(kelvin)
 }
 
 func (z *Zone) SetColor(ctx context.Context, color string) {
@@ -283,6 +309,22 @@ func (z *Zone) SetBrightness(ctx context.Context, brightness iotv1proto.Brightne
 	defer z.mtx.Unlock()
 
 	z.brightness = brightness
+	z.brightnessValue = BrightnessCanonical(brightness)
+}
+
+// SetBrightnessValue writes the continuous brightness (normalized in
+// [0, 1]) and derives the nearest enum for Status reporting. The
+// fade Computer uses this path. Out-of-range values are clamped to
+// [0, 1] at the device boundary in Flush.
+func (z *Zone) SetBrightnessValue(ctx context.Context, value float64) {
+	_, span := z.tracer.Start(ctx, "Zone.SetBrightnessValue")
+	defer span.End()
+
+	z.mtx.Lock()
+	defer z.mtx.Unlock()
+
+	z.brightnessValue = value
+	z.brightness = BrightnessNearestEnum(value)
 }
 
 func (z *Zone) IncrementBrightness(ctx context.Context) {
@@ -582,7 +624,16 @@ func (z *Zone) handleColorTemperature(ctx context.Context, limiter FlushLimiter)
 		deviceNames []string
 	)
 
-	tempVal := defaultColorTemperatureMap[z.colorTemp]
+	// Prefer the continuous Kelvin value; fall back to the legacy enum
+	// table when the continuous field hasn't been populated (e.g. zones
+	// that were initialized via SetColorTemperature(enum) before this
+	// became dual-write, or test fixtures that bypass the constructor).
+	tempVal := int32(0)
+	if z.colorTempKelvin > 0 {
+		tempVal = KelvinToMireds(z.colorTempKelvin)
+	} else {
+		tempVal = defaultColorTemperatureMap[z.colorTemp]
+	}
 	desired := strconv.Itoa(int(tempVal))
 	for device, h := range z.devices {
 		switch device.Type {
@@ -632,7 +683,20 @@ func (z *Zone) handleBrightness(ctx context.Context, limiter FlushLimiter) error
 		deviceNames []string
 	)
 
-	brightVal := defaultBrightnessMap[z.brightness]
+	// Prefer the continuous brightness value (clamped to [0, 1] then
+	// mapped to 0..254 for the Zigbee device-native scale); fall back
+	// to the legacy enum table when the continuous field hasn't been
+	// populated.
+	brightVal := uint8(0)
+	if z.brightnessValue > 0 {
+		v := z.brightnessValue
+		if v > 1 {
+			v = 1
+		}
+		brightVal = uint8(math.Round(v * 254))
+	} else {
+		brightVal = defaultBrightnessMap[z.brightness]
+	}
 	desired := strconv.Itoa(int(brightVal))
 	for device, h := range z.devices {
 
