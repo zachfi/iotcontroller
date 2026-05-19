@@ -8,14 +8,14 @@
 // Originally lived in
 // deployment_tools/tk/lib/iot/dashboards/controller/v1.libsonnet;
 // moved here in iotcontroller v0.8.2 so dashboard panels evolve in
-// lockstep with the underlying metrics. The deployment_tools
-// equivalent is now a thin importer that vendors this mixin via
-// jsonnet-bundler.
+// lockstep with the underlying metrics.
 //
-// Datasource var name and the job matcher used to scope /iot.v1.*
-// gRPC traces are hardcoded for the znet deployment shape. A future
-// follow-up will wire mixin/config.libsonnet's overridable knobs into
-// these literals so external consumers can re-skin without forking.
+// This file exports a single function `dashboard(cfg)` that takes the
+// composed `_config` block (see ../config.libsonnet) and returns the
+// dashboard object. The function-of-config pattern means consumer
+// overrides via `+ { _config+:: { ... } }` actually propagate — late
+// binding through self._config in dashboards.libsonnet captures the
+// post-override config and threads it here.
 
 local g = import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet';
 
@@ -27,53 +27,68 @@ local var = g.dashboard.variable;
 local custom = timeSeries.fieldConfig.defaults.custom;
 local options = timeSeries.options;
 
-// Reusable panel builders. Each returns a timeSeries / stat configured
-// with the legend layout and rendering style this dashboard prefers,
-// taking just (title, targets) — keeps the panel grid below readable
-// as a flat list rather than a wall of grafonnet incantations.
-local ts(title, targets) =
-  timeSeries.new(title)
-  + timeSeries.queryOptions.withTargets(targets)
-  + timeSeries.queryOptions.withInterval('1m')
-  + options.legend.withDisplayMode('table')
-  + options.legend.withCalcs(['lastNotNull', 'max'])
-  + custom.withFillOpacity(10)
-  + custom.withShowPoints('never');
-
-local tsSec(title, targets) =
-  ts(title, targets)
-  + timeSeries.standardOptions.withUnit('s')
-  + custom.scaleDistribution.withType('log')
-  + custom.scaleDistribution.withLog(10);
-
-local tsOps(title, targets) =
-  ts(title, targets)
-  + timeSeries.standardOptions.withUnit('ops');
-
-local statPanel(title, targets) =
-  stat.new(title)
-  + stat.queryOptions.withTargets(targets)
-  + stat.options.withColorMode('background')
-  + stat.options.withGraphMode('area')
-  + stat.gridPos.withW(4)
-  + stat.gridPos.withH(4);
-
-local datasource = var.datasource.new('datasource', 'prometheus');
-
-local promTarget(expr, legendFormat='') =
-  g.query.prometheus.new('$datasource', expr)
-  + g.query.prometheus.withLegendFormat(legendFormat);
+// joinMatchers folds a list of label-matcher fragments into a single
+// `{a, b, c}` selector. Empty fragments drop out so a deployment
+// without job/zone scoping doesn't end up with stray commas.
+local joinMatchers(fragments) =
+  std.join(',', std.filter(function(s) s != '', fragments));
 
 {
-  dashboard:
-    g.dashboard.new('IOT Controller')
+  dashboard(cfg):
+    local datasource = var.datasource.new(cfg.datasourceName, 'prometheus');
+
+    local promTarget(expr, legendFormat='') =
+      g.query.prometheus.new('$' + cfg.datasourceName, expr)
+      + g.query.prometheus.withLegendFormat(legendFormat);
+
+    // Reusable panel builders. Each returns a timeSeries / stat
+    // configured with the legend layout and rendering style this
+    // dashboard prefers, taking just (title, targets) — keeps the
+    // panel grid below readable as a flat list rather than a wall
+    // of grafonnet incantations.
+    local ts(title, targets) =
+      timeSeries.new(title)
+      + timeSeries.queryOptions.withTargets(targets)
+      + timeSeries.queryOptions.withInterval('1m')
+      + options.legend.withDisplayMode('table')
+      + options.legend.withCalcs(['lastNotNull', 'max'])
+      + custom.withFillOpacity(10)
+      + custom.withShowPoints('never');
+
+    local tsSec(title, targets) =
+      ts(title, targets)
+      + timeSeries.standardOptions.withUnit('s')
+      + custom.scaleDistribution.withType('log')
+      + custom.scaleDistribution.withLog(10);
+
+    local tsOps(title, targets) =
+      ts(title, targets)
+      + timeSeries.standardOptions.withUnit('ops');
+
+    local statPanel(title, targets) =
+      stat.new(title)
+      + stat.queryOptions.withTargets(targets)
+      + stat.options.withColorMode('background')
+      + stat.options.withGraphMode('area')
+      + stat.gridPos.withW(4)
+      + stat.gridPos.withH(4);
+
+    // gRPC route matcher: the `{job=..., route=~"/iot.v1\..*"}` clause
+    // reused across the route panels. jobMatcher is operator-supplied;
+    // when empty (default) the panel matches purely on route name,
+    // which works for single-tenant deployments where iotcontroller
+    // is the only /iot.v1.* exporter.
+    local routeSelector = '{' + joinMatchers([cfg.jobMatcher, 'route=~"/iot.v1\\\\..*"']) + '}';
+
+    g.dashboard.new(cfg.dashboardTitle)
     + g.dashboard.withDescription('IOT Controller module health and automation activity')
-    + g.dashboard.withTags(['iot', 'controller'])
+    + g.dashboard.withTags(cfg.dashboardTags)
+    + (if cfg.dashboardUid != '' then g.dashboard.withUid(cfg.dashboardUid) else {})
     + g.dashboard.withVariables([datasource])
-    + g.dashboard.time.withFrom('now-3h')
-    + g.dashboard.time.withTo('now')
+    + g.dashboard.time.withFrom(cfg.timeFrom)
+    + g.dashboard.time.withTo(cfg.timeTo)
     + g.dashboard.graphTooltip.withSharedCrosshair()
-    + g.dashboard.withRefresh('1m')
+    + g.dashboard.withRefresh(cfg.refresh)
     + g.dashboard.withPanels(
       g.util.grid.wrapPanels([
 
@@ -143,11 +158,11 @@ local promTarget(expr, legendFormat='') =
           ),
         ]),
 
-        // Stage 3 migration thermometer. Per-device rate of action events
-        // that fell through to the legacy ActionHandler because no Binding
-        // matched. Watch this drain to zero per device as Bindings are
-        // rolled out; once flat we can retire the ActionHandler switch.
-        // Action label exposes which vocab strings are still unbound.
+        // Per-device rate of action events that fell through to the
+        // legacy ActionHandler because no Binding matched. Watch this
+        // drain to zero per device as Bindings are rolled out; once
+        // flat the ActionHandler switch can be retired. Action label
+        // exposes which vocab strings are still unbound.
         ts('Action Fallback (legacy ActionHandler, per device)', [
           promTarget(
             'sum by (device, action, zone) (rate(iotcontroller_router_action_fallback_total[5m]))',
@@ -158,25 +173,25 @@ local promTarget(expr, legendFormat='') =
         // ── Conditioner ──────────────────────────────────────────────────
         row.new('Conditioner'),
 
-        // Per-route gRPC handling rate. ActivateCondition vs ActionHandler
-        // shows whether the binding path or the legacy switch is doing the
-        // work. After the Stage 3 migration completes, ActivateCondition
-        // should be the dominant call rate among ZoneKeeper-targeted RPCs.
+        // Per-route gRPC handling rate. ActivateCondition vs
+        // ActionHandler shows whether the binding path or the
+        // legacy switch is doing the work; in a Binding-first
+        // deployment ActivateCondition should dominate.
         tsOps('gRPC Call Rate (by route)', [
           promTarget(
-            'sum by (route) (rate(iot_request_duration_seconds_count{job=~"iot/controller-core",route=~"/iot.v1\\\\..*"}[5m]))',
+            'sum by (route) (rate(iot_request_duration_seconds_count' + routeSelector + '[5m]))',
             '{{route}}'
           ),
         ]),
 
-        // Per-route p99 server-side latency. The big-picture answer to
-        // "is this slow?" — spikes on Conditioner.ActivateCondition or
-        // ZoneKeeperService.SetState mean a press took more than 250ms
-        // somewhere inside the controller pod. Pair with traces for
-        // span-level breakdown.
+        // Per-route p99 server-side latency. The big-picture answer
+        // to "is this slow?" — spikes on Conditioner.ActivateCondition
+        // or ZoneKeeperService.SetState mean a press took more than
+        // 250ms somewhere inside the controller pod. Pair with traces
+        // for span-level breakdown.
         tsSec('gRPC P99 Latency (by route)', [
           promTarget(
-            'histogram_quantile(0.99, sum by (le, route) (rate(iot_request_duration_seconds_bucket{job=~"iot/controller-core",route=~"/iot.v1\\\\..*"}[5m])))',
+            'histogram_quantile(0.99, sum by (le, route) (rate(iot_request_duration_seconds_bucket' + routeSelector + '[5m])))',
             '{{route}}'
           ),
         ]),
@@ -185,10 +200,9 @@ local promTarget(expr, legendFormat='') =
         //  * activate   — re-fires of the same Condition collapsed to no-op
         //  * deactivate — alert-resolve repeat fires
         //  * time-gated — TimeIntervals window suppressed the activation
-        // High activate/deactivate rate vs low state_changes_total proves
-        // the cache is doing its job (Zigbee amplification fix landed).
-        // High time-gated rate proves TimeIntervals are honored as
-        // designed by the Stage 1 work.
+        // High activate/deactivate rate vs low state_changes_total
+        // proves the cache is doing its job. High time-gated rate
+        // proves TimeIntervals are honored as designed.
         tsOps('Conditioner Apply Suppressed (by direction)', [
           promTarget(
             'sum by (direction) (rate(iotcontroller_conditioner_apply_suppressed_total[5m]))',
@@ -196,9 +210,9 @@ local promTarget(expr, legendFormat='') =
           ),
         ]),
 
-        // Per-condition suppression breakdown. Useful when one Condition
-        // dominates the apply rate (alert flapping, scheduled re-fire) to
-        // pinpoint which one to investigate.
+        // Per-condition suppression breakdown. Useful when one
+        // Condition dominates the apply rate (alert flapping,
+        // scheduled re-fire) to pinpoint which one to investigate.
         ts('Conditioner Suppression by Condition (top 10)', [
           promTarget(
             'topk(10, sum by (condition, direction) (rate(iotcontroller_conditioner_apply_suppressed_total[15m])))',
@@ -206,13 +220,13 @@ local promTarget(expr, legendFormat='') =
           ),
         ]),
 
-        // active_compute success rate. The counter increments once per
-        // successful Computer tick (Compute returned no error AND the
-        // ApplyValues RPC succeeded). Per-computer breakdown answers
-        // "is fade firing? circadian? sun_color_temperature?" without
-        // resorting to log grep or status spelunking. Steady-state
-        // value should track (conditioner.evaluation_total × number
-        // of in-window active_compute Remediations).
+        // active_compute success rate. The counter increments once
+        // per successful Computer tick (Compute returned no error
+        // AND the ApplyValues RPC succeeded). Per-computer breakdown
+        // answers "is fade firing? circadian? sun_color_temperature?"
+        // without resorting to log grep or status spelunking.
+        // Steady-state value tracks (conditioner.evaluation_total
+        // × number of in-window active_compute Remediations).
         tsOps('Conditioner Compute Applied (by computer)', [
           promTarget(
             'sum by (compute) (rate(iotcontroller_conditioner_evaluation_compute_applied_total[5m]))',
@@ -234,8 +248,8 @@ local promTarget(expr, legendFormat='') =
 
         // Computer failure paths. Three thin lines that should all
         // sit at zero on a healthy deployment. Non-zero on
-        // compute_unknown is an operator typo or a metric referencing
-        // a not-yet-compiled Computer; compute_error is internal to
+        // compute_unknown is an operator typo or a reference to a
+        // not-yet-compiled Computer; compute_error is internal to
         // the Computer (e.g. query's PromQL HTTP failure); apply_error
         // is downstream of ZoneKeeper.ApplyValues.
         ts('Conditioner Compute Failures', [
@@ -257,8 +271,8 @@ local promTarget(expr, legendFormat='') =
         // Status changes — somebody other than this conditioner (a
         // button press, alert from a second origin, direct SetState)
         // moved the zone. Steady-state should be near zero; bursts
-        // correlate with manual operator activity or fade
-        // Computer key-up events.
+        // correlate with manual operator activity or fade Computer
+        // key-up events.
         tsOps('Apply Cache Invalidations (out-of-band)', [
           promTarget(
             'sum by (zone, reason) (rate(iotcontroller_conditioner_apply_cache_invalidations_total[5m]))',
@@ -290,12 +304,11 @@ local promTarget(expr, legendFormat='') =
           ),
         ]),
 
-        // Harvester queue depth — the headline cold-start signal. With
-        // the single-goroutine consumer this could climb to hundreds
-        // during a controller-core restart (1.7s queue waits per item
-        // observed in traces). With bounded fan-out (default 16
-        // workers) it should hold at 0 except during the cold-start
-        // window or a downstream Router stall.
+        // Harvester queue depth — the headline cold-start signal.
+        // With the single-goroutine consumer this could climb to
+        // hundreds during a controller-core restart; with bounded
+        // fan-out (default 16 workers) it should hold at 0 except
+        // during the cold-start window or a downstream Router stall.
         ts('Harvester Queue Depth', [
           promTarget(
             'iot_harvester_queue_depth',
@@ -303,10 +316,10 @@ local promTarget(expr, legendFormat='') =
           ),
         ]),
 
-        // Active fan-out workers inside routeClient.Send. At-saturation
-        // values (≥ -harvester.concurrency) mean every worker is
-        // blocked and items are queueing; correlate with apiserver
-        // write latency and grpc client redial events.
+        // Active fan-out workers inside routeClient.Send.
+        // At-saturation values (≥ -harvester.concurrency) mean every
+        // worker is blocked and items are queueing; correlate with
+        // apiserver write latency and grpc client redial events.
         ts('Harvester Active Workers', [
           promTarget(
             'iot_harvester_active_workers',

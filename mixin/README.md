@@ -49,7 +49,10 @@ Then import and compose:
 ```jsonnet
 local iotctl = (import 'iotcontroller-mixin/mixin.libsonnet') + {
   _config+:: {
-    datasourceName: 'Prometheus',  // your datasource var name
+    datasourceName: 'Prometheus',                      // your datasource var name
+    jobMatcher:     'job=~"iot/controller-core"',      // scrape-label scoping
+    // refresh, time range, tags, title all overridable too — see
+    // config.libsonnet for the full set
   },
 };
 {
@@ -58,8 +61,22 @@ local iotctl = (import 'iotcontroller-mixin/mixin.libsonnet') + {
 }
 ```
 
-The deployment_tools repo at `tk/lib/iot/dashboards/controller/v1.libsonnet`
-is the canonical reference consumer.
+Defaults in `config.libsonnet` aim for a single-tenant standalone
+deployment: empty `jobMatcher` (no scrape-label filter) and default
+`datasource` variable name. Operators running inside kube-prometheus
+or any multi-tenant Prometheus override `jobMatcher` to scope the
+gRPC-route panels to the controller pod. The full list of knobs lives
+in `config.libsonnet` with per-field doc comments.
+
+Override propagation is verified locally with:
+
+```bash
+jsonnet -J <path-to-vendor> -e \
+  '((import "mixin.libsonnet") + { _config+:: { jobMatcher: "job=foo" } }).grafanaDashboards["iotcontroller.json"].panels[12].targets[0].expr'
+```
+
+(panel index 12 is the per-route gRPC call-rate panel; the rendered
+PromQL string should contain `job=foo` next to the route matcher.)
 
 ## Adding a panel
 
