@@ -24,12 +24,19 @@ Drafted feature requests, not yet implemented. Each describes the
 operator behaviour the proposal would unlock, what already composes
 from existing primitives, and what's missing.
 
-- [`fade-design.md`](fade-design.md) — unified `fade` Computer
-  covering scheduled fade-to-off, motion-light fade-off, sunset
-  CT/brightness drift, RGB color fade, and wake-up brighten. Window
-  and event anchors share one snapshot machine; `ramp` collapses
-  into a deprecated alias. Supersedes earlier fade-to-off and
-  motion-light drafts.
+- [`fade-design.md`](fade-design.md) — unified `fade` Computer for
+  time-bounded interpolation of brightness, color temperature, and
+  color. Framed as an attack/sustain/release envelope: the on-side
+  and off-side Conditions for a zone are two halves of one
+  envelope, parameterized via `withMotionEnvelope` (event-anchored)
+  or `withFadeAutoOff` (window-anchored). Commits to a continuous
+  internal representation (the discrete brightness/CT enums become
+  authoring sugar on top of normalized [0,1] and Kelvin) so that
+  forward extensions — LFO-style modulation chaining, a `circadian`
+  Computer driving sun-position CT, percentage-based Scene
+  authoring — don't force second migrations of every CT/brightness
+  consumer. `ramp` collapses into a deprecated alias. Supersedes
+  earlier fade-to-off and motion-light drafts.
 
 ## Reference material
 
