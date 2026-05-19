@@ -56,7 +56,7 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 				})
 				return err
 			}),
-		ieeeCache:           make(map[string]string),
+		ieeeCache: make(map[string]string),
 	}, nil
 }
 

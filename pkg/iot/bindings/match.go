@@ -58,10 +58,10 @@ type Matcher struct {
 
 	debounceMu sync.Mutex
 	debounce   map[debounceKey]debounceEntry
-	now        func() time.Time                              // overridable for tests
-	afterFunc  func(time.Duration, func()) deferredTimer     // overridable for tests
-	activateFn ActivateConditionFunc                         // nil disables the deferred path
-	epsilon    time.Duration                                 // padding past min_duration to avoid early-fire races
+	now        func() time.Time                          // overridable for tests
+	afterFunc  func(time.Duration, func()) deferredTimer // overridable for tests
+	activateFn ActivateConditionFunc                     // nil disables the deferred path
+	epsilon    time.Duration                             // padding past min_duration to avoid early-fire races
 }
 
 // ActivateConditionFunc is the callback the Matcher uses to dispatch a
