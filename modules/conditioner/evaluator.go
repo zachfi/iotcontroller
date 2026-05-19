@@ -223,11 +223,13 @@ func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem 
 	}
 
 	req := &iotv1proto.ApplyValuesRequest{
-		Name:             rem.Zone,
-		State:            vals.State,
-		Brightness:       vals.Brightness,
-		ColorTemperature: vals.ColorTemperature,
-		Color:            vals.Color,
+		Name:                   rem.Zone,
+		State:                  vals.State,
+		Brightness:             vals.Brightness,
+		ColorTemperature:       vals.ColorTemperature,
+		Color:                  vals.Color,
+		BrightnessValue:        vals.BrightnessValue,
+		ColorTemperatureKelvin: vals.ColorTemperatureKelvin,
 	}
 	if _, err = c.zonekeeperClient.ApplyValues(ctx, req); err != nil {
 		c.logger.Error("evaluator: apply values failed",

@@ -42,6 +42,15 @@ type ApplyValues struct {
 	Brightness       iotv1proto.Brightness
 	ColorTemperature iotv1proto.ColorTemperature
 	Color            string
+
+	// Continuous sibling fields. Populated by Computers that interpolate
+	// smoothly (today: fade). When non-zero these override the discrete
+	// enum fields at the ZoneKeeper apply layer; the enum is still set
+	// to the nearest step for Status reporting and dashboard
+	// continuity. See pkg/iot/canonical.go for the enum↔continuous
+	// mappings.
+	BrightnessValue        float64
+	ColorTemperatureKelvin int32
 }
 
 // Computer is the contract every active_compute implementation

@@ -343,6 +343,12 @@ type Conditioner struct {
 	// on every controller startup until they migrate).
 	deprecatedScheduleMu sync.Mutex
 	deprecatedSchedule   map[string]bool
+
+	// fadeSnapshots is the per-(condition, zone) snapshot store for the
+	// fade Computer's envelope state. Owned here so both the Computer
+	// (eval-tick reads/writes) and ActivateCondition (event-mode seed)
+	// can reach it without a package cycle.
+	fadeSnapshots *computer.FadeSnapshotStore
 }
 
 // conditionState records the last desired (state, scene) we sent for a
@@ -366,9 +372,10 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		zonekeeperClient: zoneKeeperClient,
 		kubeClient:       k,
 
-		sched:       newSchedule(logger),
-		alertActive: make(map[string]apiv1.Remediation),
-		condState:   make(map[string]conditionState),
+		sched:         newSchedule(logger),
+		alertActive:   make(map[string]apiv1.Remediation),
+		condState:     make(map[string]conditionState),
+		fadeSnapshots: computer.NewFadeSnapshotStore(),
 	}
 
 	// The query Computer pulls from an operator-configured Prometheus
@@ -386,6 +393,18 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 			Logger:          c.logger,
 		}))
 	}
+
+	// Register fade. The Computer holds references to the snapshot
+	// store (shared with this Conditioner's ActivateCondition path
+	// for event-mode seeding) and a Zone CR Status reader (informer-
+	// cached kube Get for resolving "from = current" axes at seed
+	// time). Always registered — operators referencing fade in a
+	// Remediation get a working Computer with no extra config.
+	var fadeZones computer.FadeZoneReader
+	if k != nil {
+		fadeZones = computer.NewKubeFadeZoneReader(k, "iot")
+	}
+	computer.Register(computer.FadeName, computer.NewFade(c.fadeSnapshots, fadeZones, c.logger))
 
 	c.Service = services.NewBasicService(c.starting, c.running, c.stopping)
 
@@ -641,6 +660,22 @@ func (c *Conditioner) ActivateCondition(ctx context.Context, req *iotv1proto.Act
 
 	var errs []error
 	for _, rem := range cond.Spec.Remediations {
+		// Event-anchored fade: seed the snapshot store *before* the
+		// activate so the next eval tick finds an entry and starts
+		// emitting interpolated values. Re-activation while a fade
+		// is in flight overwrites the entry — monophonic retrigger,
+		// per docs/fade-design.md.
+		if rem.ActiveCompute == computer.FadeName && rem.ActiveComputeArgs["anchor"] == "event" {
+			if c.fadeSnapshots != nil {
+				zones := computer.FadeZoneReader(nil)
+				if c.kubeClient != nil {
+					zones = computer.NewKubeFadeZoneReader(c.kubeClient, "iot")
+				}
+				if entry, ok := computer.SeedEventSnapshot(ctx, zones, time.Now(), rem.Zone, rem.ActiveComputeArgs); ok {
+					c.fadeSnapshots.Set(cond.Name, rem.Zone, entry)
+				}
+			}
+		}
 		if activateErr := c.activateRemediation(ctx, cond.Name, rem); activateErr != nil {
 			errs = append(errs, activateErr)
 		}
