@@ -10,7 +10,6 @@ import (
 )
 
 type Config struct {
-	OccupancyTimeout    time.Duration       `yaml:"occupancy_timeout,omitempty"`
 	ZigbeeCommandClient common.ClientConfig `yaml:"zigbee_command_client,omitempty"`
 
 	// FlushRefreshAge is the per-device idempotent-flush cache TTL used
@@ -27,7 +26,6 @@ type Config struct {
 }
 
 func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet) {
-	f.DurationVar(&cfg.OccupancyTimeout, util.PrefixConfig(prefix, "occupancy-timeout"), 7*time.Minute, "The time to disable the zone after the last occupancy event")
 	f.DurationVar(&cfg.FlushRefreshAge, util.PrefixConfig(prefix, "flush-refresh-age"), 5*time.Minute, "Idempotent-flush cache TTL for zones whose actuators are only lights (BASIC_LIGHT, COLOR_LIGHT).")
 	f.DurationVar(&cfg.FlushRefreshAgeRelay, util.PrefixConfig(prefix, "flush-refresh-age-relay"), 60*time.Second, "Idempotent-flush cache TTL for zones containing at least one RELAY (heaters, pumps, smart plugs). Shorter than the lighting default so drift on safety-relevant relays is corrected quickly.")
 	cfg.ZigbeeCommandClient.ServerAddress = "" // empty = disabled by default

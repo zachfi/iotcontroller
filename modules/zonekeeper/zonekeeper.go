@@ -54,14 +54,7 @@ type ZoneKeeper struct {
 	handlers   map[controllerHandler]iot.Handler
 	announceer map[string]time.Time
 
-	pending map[string]pendingState
-
 	zones map[string]*iot.Zone
-}
-
-type pendingState struct {
-	state  iotv1proto.ZoneState
-	cancel context.CancelFunc
 }
 
 type controllerHandler int
@@ -82,7 +75,6 @@ func New(cfg Config, logger *slog.Logger, mqttclient *mqttclient.MQTTClient, kub
 		zigbeeCommandClient: zigbeeCommandClient,
 		zones:               make(map[string]*iot.Zone),
 		announceer:          make(map[string]time.Time),
-		pending:             make(map[string]pendingState),
 	}
 
 	z.Service = services.NewBasicService(z.starting, z.running, z.stopping)
@@ -332,81 +324,6 @@ func (z *ZoneKeeper) SelfAnnounce(ctx context.Context, req *iotv1proto.SelfAnnou
 		metricZonekeeperFlushTotal.WithLabelValues(req.Zone, "success").Inc()
 	}
 	return resp, err
-}
-
-func (z *ZoneKeeper) OccupancyHandler(ctx context.Context, req *iotv1proto.OccupancyHandlerRequest) (*iotv1proto.OccupancyHandlerResponse, error) {
-	var (
-		err  error
-		resp = &iotv1proto.OccupancyHandlerResponse{}
-	)
-
-	_, span := z.tracer.Start(ctx, "ZoneKeeper.OccupancyHandler", trace.WithSpanKind(trace.SpanKindServer))
-	defer func() { _ = errHandler(span, err) }()
-
-	zone, err := z.GetZone(ctx, req.Zone)
-	if err != nil {
-		return resp, fmt.Errorf("failed to get zone %q for occupancy at %q: %w", req.Zone, req.Device, err)
-	}
-
-	switch zone.State() {
-	case iotv1proto.ZoneState_ZONE_STATE_OFF, iotv1proto.ZoneState_ZONE_STATE_OFFTIMER:
-		// Only update the state and relaunch the timer routine if the state is OFF
-		// or was set OFF by a previous timer.
-		zone.SetState(ctx, iotv1proto.ZoneState_ZONE_STATE_OFFTIMER)
-	default:
-		return &iotv1proto.OccupancyHandlerResponse{}, nil
-	}
-
-	// Switch off after the timer or cacnel
-	go func() {
-		z.mtx.Lock()
-		if ps, ok := z.pending[req.Zone]; ok {
-			ps.cancel()
-		}
-
-		var (
-			cancel context.CancelFunc
-			pctx   context.Context
-		)
-
-		pctx, cancel = context.WithCancel(context.Background())
-		z.pending[req.Zone] = pendingState{
-			state:  iotv1proto.ZoneState_ZONE_STATE_OFF,
-			cancel: cancel,
-		}
-		z.mtx.Unlock()
-
-		timer := time.NewTimer(z.cfg.OccupancyTimeout)
-		defer timer.Stop()
-
-		select {
-		case <-pctx.Done():
-			return
-		case <-timer.C:
-			zone, err = z.GetZone(ctx, req.Zone)
-			if err != nil {
-				z.logger.Info("failed to get zone for occupancy timeout", "zone", req.Zone, "err", err)
-			}
-
-			// If the zone state has changed, do nothing.
-			if zone.State() != iotv1proto.ZoneState_ZONE_STATE_OFFTIMER {
-				return
-			}
-
-			z.mtx.Lock()
-			delete(z.pending, req.Zone)
-			z.mtx.Unlock()
-
-			zone.Off(ctx)
-
-			err = zone.Flush(ctx, unlimited)
-			if err != nil {
-				z.logger.Info("failed to flush zone for occupancy timeout", "zone", req.Zone, "err", err)
-			}
-		}
-	}()
-
-	return resp, errHandler(span, zone.Flush(ctx, unlimited))
 }
 
 func (z *ZoneKeeper) setZoneScene(ctx context.Context, zone *iot.Zone, scene string) error {

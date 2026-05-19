@@ -117,13 +117,6 @@ message SelfAnnounceRequest {
 
 message SelfAnnounceResponse {}
 
-message OccupancyHandlerRequest {
-  string device = 1;
-  string zone = 2;
-}
-
-message OccupancyHandlerResponse {}
-
 // AdjustBrightness applies a relative brightness change to a zone.
 // Positive delta walks the Brightness enum up N steps (toward
 // BRIGHTNESS_FULL); negative walks it down (toward BRIGHTNESS_VERYLOW).
@@ -165,7 +158,6 @@ service ZoneKeeperService {
   rpc AdjustBrightness(AdjustBrightnessRequest) returns (AdjustBrightnessResponse);
   rpc ApplyValues(ApplyValuesRequest) returns (ApplyValuesResponse);
   rpc SelfAnnounce(SelfAnnounceRequest) returns (SelfAnnounceResponse);
-  rpc OccupancyHandler(OccupancyHandlerRequest) returns (OccupancyHandlerResponse);
 }
 
 // ZigbeeCommandService allows callers (e.g. ZoneKeeper) to send commands to

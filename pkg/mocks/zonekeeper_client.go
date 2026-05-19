@@ -32,10 +32,6 @@ func (z *ZoneKeeperClientMock) SelfAnnounce(_ context.Context, _ *iotv1proto.Sel
 	return &iotv1proto.SelfAnnounceResponse{}, nil
 }
 
-func (z *ZoneKeeperClientMock) OccupancyHandler(_ context.Context, _ *iotv1proto.OccupancyHandlerRequest, _ ...grpc.CallOption) (*iotv1proto.OccupancyHandlerResponse, error) {
-	return &iotv1proto.OccupancyHandlerResponse{}, nil
-}
-
 func (z *ZoneKeeperClientMock) AdjustBrightness(_ context.Context, _ *iotv1proto.AdjustBrightnessRequest, _ ...grpc.CallOption) (*iotv1proto.AdjustBrightnessResponse, error) {
 	return &iotv1proto.AdjustBrightnessResponse{}, nil
 }

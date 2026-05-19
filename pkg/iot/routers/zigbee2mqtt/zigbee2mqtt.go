@@ -161,6 +161,15 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 	// If this device has been annotated by a zone, then we pass the action to
 	// the zone handler. Bindings that already dispatched an event are
 	// skipped here so we don't double-fire.
+	//
+	// Occupancy events go through the Binding matcher (with MinDuration
+	// debounce) exclusively. The legacy `occupied()` fallback that fired
+	// OFFTIMER on every motion sample was deleted alongside
+	// ZoneKeeper.OccupancyHandler — it was racing the matcher's debounce
+	// path and winning, so MinDuration on occupancy=true Bindings was
+	// effectively decorative. Zones without an occupancy Binding now see
+	// no controller-side response to motion; that's the deliberate
+	// "wire it through Bindings" contract.
 	if zone, ok := device.Labels[iot.DeviceZoneLabel]; ok {
 		span.SetAttributes(
 			attribute.String("zone", zone),
@@ -172,11 +181,6 @@ func (z *Zigbee2Mqtt) DeviceRoute(ctx context.Context, b []byte, vars ...any) er
 			span.SetAttributes(attribute.String("action", *m.Action))
 			wg.Go(func() {
 				z.action(ctx, *m.Action, device.Name, zone)
-			})
-		case m.Occupancy != nil && *m.Occupancy && !dispatched[events.PropertyOccupancy]:
-			span.SetAttributes(attribute.Bool(events.PropertyOccupancy, *m.Occupancy))
-			wg.Go(func() {
-				z.occupied(ctx, device.Name, zone)
 			})
 		case len(dispatched) == 0:
 			wg.Go(func() {
@@ -283,23 +287,6 @@ func (z *Zigbee2Mqtt) handleZigbeeBridgeDevice(ctx context.Context, logger *slog
 	}
 
 	return nil
-}
-
-func (z *Zigbee2Mqtt) occupied(ctx context.Context, device, zone string) {
-	var err error
-
-	ctx, span := z.tracer.Start(ctx, "occupied", trace.WithAttributes(
-		attribute.String("device", device),
-		attribute.String("zone", zone),
-	))
-	defer func() { _ = tracing.ErrHandler(span, err, "zone occupied", z.logger) }()
-
-	_, err = z.zonekeeperClient.OccupancyHandler(ctx,
-		&iotv1proto.OccupancyHandlerRequest{
-			Device: device,
-			Zone:   zone,
-		},
-	)
 }
 
 func (z *Zigbee2Mqtt) selfAnnounce(ctx context.Context, device, zone string) {
