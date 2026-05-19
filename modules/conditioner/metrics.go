@@ -67,6 +67,29 @@ var metricEvalApplyError = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Number of ApplyValues RPC failures during evaluator ticks, by computer name.",
 }, []string{"compute"})
 
+// metricEvalComputeApplied counts successful active_compute applies — a
+// Computer's Compute returned without error AND the resulting
+// ApplyValues was accepted by ZoneKeeper. Counterpart to the three
+// failure metrics above (compute_unknown / compute_error / apply_error)
+// so an operator can observe "this Condition is alive and firing" from
+// metrics alone, without resorting to grepping logs or reading the Zone
+// Status.
+//
+// Per-(condition, zone, compute) label: the condition label is the
+// one most useful for canary deploys (did the new fade/circadian
+// Condition I just added actually fire?); zone scopes blast radius
+// when the same Computer drives multiple zones; compute lets the
+// operator drill into "how busy is fade vs sun_color_temperature vs
+// circadian" in aggregate.
+//
+// Steady state on a healthy deployment should be roughly
+// rate(iotcontroller_conditioner_evaluation_total) × <count of
+// active_compute Remediations inside their TimeIntervals window>.
+var metricEvalComputeApplied = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_conditioner_evaluation_compute_applied_total",
+	Help: "Number of successful active_compute applies (Compute returned no error AND ApplyValues RPC succeeded), labeled by condition, zone, and computer name.",
+}, []string{"condition", "zone", "compute"})
+
 // metricApplyCacheInvalidated counts applyDesired cache entries dropped
 // because the Zone CR's Status disagreed with what the cache thought
 // was the last-applied value — i.e. somebody other than this

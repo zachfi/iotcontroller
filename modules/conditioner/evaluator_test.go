@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +16,8 @@ import (
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
+	"github.com/zachfi/iotcontroller/modules/conditioner/computer"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 // metav1Meta builds a minimal ObjectMeta for fixture Conditions in tests.
@@ -259,4 +263,67 @@ func TestEvaluate_DeprecatedScheduleWarnedOnce(t *testing.T) {
 	tracked := len(c.deprecatedSchedule)
 	c.deprecatedScheduleMu.Unlock()
 	require.Equal(t, 1, tracked, "Spec.Schedule warning should be tracked exactly once across ticks")
+}
+
+// stubComputeApplied is a test-only Computer that returns a fixed
+// non-zero ApplyValues. Registered with a unique name to avoid
+// colliding with built-ins. We assert via the metric that the
+// success path was reached.
+type stubComputeApplied struct{}
+
+func (stubComputeApplied) Compute(_ context.Context, _ time.Time, _ computer.Location, _ map[string]string) (computer.ApplyValues, error) {
+	return computer.ApplyValues{
+		ColorTemperature:       iotv1proto.ColorTemperature_COLOR_TEMPERATURE_MORNING,
+		ColorTemperatureKelvin: 5000,
+	}, nil
+}
+
+func TestEvaluate_ActiveComputeIncrementsAppliedMetric(t *testing.T) {
+	// A successful active_compute tick — Compute returned no error AND
+	// the ApplyValues RPC succeeded — must increment
+	// metricEvalComputeApplied{condition,zone,compute}. This is the
+	// observability counterpart to compute_unknown / compute_error /
+	// apply_error: those count failure paths, this counts the success
+	// path. Together they cover every exit branch of evaluateCompute.
+	//
+	// Tests the metric (not the side effect) because the recording
+	// mock's ApplyValues returns success but doesn't record the call;
+	// the metric is the externalized observable.
+	const computerName = "stub-evaluate-applied"
+	computer.Register(computerName, stubComputeApplied{})
+
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	allDay := apiv1.TimeIntervalSpec{
+		Times: []apiv1.TimePeriod{{StartTime: "00:00", EndTime: "24:00"}},
+	}
+
+	zk := &recordingZoneKeeper{}
+	conds := []apiv1.Condition{{
+		ObjectMeta: metav1Meta("zone-compute-canary"),
+		Spec: apiv1.ConditionSpec{
+			Enabled: true,
+			Remediations: []apiv1.Remediation{{
+				Zone:          "zone-compute-canary",
+				ActiveCompute: computerName,
+				TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+			}},
+		},
+	}}
+
+	c, err := New(Config{}, logger, zk, &listKubeClient{items: conds})
+	require.NoError(t, err)
+
+	// Snapshot before so the assertion survives global metric state
+	// leaking from sibling tests in the same package run.
+	before := testutil.ToFloat64(metricEvalComputeApplied.WithLabelValues(
+		"zone-compute-canary", "zone-compute-canary", computerName))
+
+	c.evaluate(ctx)
+
+	after := testutil.ToFloat64(metricEvalComputeApplied.WithLabelValues(
+		"zone-compute-canary", "zone-compute-canary", computerName))
+	require.Equal(t, before+1, after,
+		"successful active_compute tick should increment metricEvalComputeApplied by 1")
 }

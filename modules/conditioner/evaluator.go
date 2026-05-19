@@ -248,5 +248,6 @@ func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem 
 		attribute.String("color_temperature", vals.ColorTemperature.String()),
 		attribute.String("color", vals.Color),
 	)
+	metricEvalComputeApplied.WithLabelValues(condName, rem.Zone, rem.ActiveCompute).Inc()
 	return true
 }
