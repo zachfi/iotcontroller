@@ -209,7 +209,24 @@ func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem 
 	augmentedArgs["_condition"] = condName
 	augmentedArgs["_zone"] = rem.Zone
 
-	vals, err := comp.Compute(ctx, time.Now(), loc, augmentedArgs)
+	// Reflect operator-authored args onto the span so the trace UI
+	// answers "what input drove this output?" without a Condition CR
+	// round-trip. Namespaced under `args.` to avoid colliding with
+	// native attrs (state / brightness / etc.); the injected meta
+	// keys (`_condition`, `_zone`) are skipped because they duplicate
+	// the span's own `condition` / `zone`. Empty-value keys are
+	// dropped to keep the span shape clean.
+	for k, v := range rem.ActiveComputeArgs {
+		if k == "" || v == "" {
+			continue
+		}
+		span.SetAttributes(attribute.String("args."+k, v))
+	}
+
+	computeStart := time.Now()
+	vals, err := comp.Compute(ctx, computeStart, loc, augmentedArgs)
+	span.SetAttributes(attribute.Float64("compute_duration_ms",
+		float64(time.Since(computeStart).Microseconds())/1000.0))
 	if err != nil {
 		c.logger.Error("evaluator: compute failed",
 			slog.String("condition", condName),
@@ -219,6 +236,7 @@ func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem 
 		)
 		metricEvalComputeError.WithLabelValues(rem.ActiveCompute).Inc()
 		span.RecordError(err)
+		span.SetAttributes(attribute.String("outcome", "error_compute"))
 		return false
 	}
 
@@ -239,15 +257,28 @@ func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem 
 		)
 		metricEvalApplyError.WithLabelValues(rem.ActiveCompute).Inc()
 		span.RecordError(err)
+		span.SetAttributes(attribute.String("outcome", "error_apply"))
 		return true
 	}
 
+	// Always record the enum form so TraceQL filtering on the discrete
+	// step (e.g. `span.color_temperature = "COLOR_TEMPERATURE_DAY"`)
+	// keeps working. Continuous fields are recorded only when the
+	// Computer actually emitted them — a Computer that touches only
+	// CT shouldn't claim a brightness_value of 0.0 in its trace.
 	span.SetAttributes(
 		attribute.String("state", vals.State.String()),
 		attribute.String("brightness", vals.Brightness.String()),
 		attribute.String("color_temperature", vals.ColorTemperature.String()),
 		attribute.String("color", vals.Color),
+		attribute.String("outcome", "success"),
 	)
+	if vals.ColorTemperatureKelvin != 0 {
+		span.SetAttributes(attribute.Int64("color_temperature_kelvin", int64(vals.ColorTemperatureKelvin)))
+	}
+	if vals.BrightnessValue != 0 {
+		span.SetAttributes(attribute.Float64("brightness_value", vals.BrightnessValue))
+	}
 	metricEvalComputeApplied.WithLabelValues(condName, rem.Zone, rem.ActiveCompute).Inc()
 	return true
 }
