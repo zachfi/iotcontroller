@@ -53,7 +53,13 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		kubeclient:          kubeclient,
 		zonekeeperClient:    zonekeeperClient,
 		eventReceiverClient: eventReceiverClient,
-		matcher:             bindings.New(kubeclient, "iot", logger),
+		matcher: bindings.New(kubeclient, "iot", logger).
+			WithActivateFunc(func(ctx context.Context, condition string) error {
+				_, err := eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
+					Condition: condition,
+				})
+				return err
+			}),
 
 		deviceTracker: iotutil.NewDeviceTracker(
 			[]iotutil.Metric{

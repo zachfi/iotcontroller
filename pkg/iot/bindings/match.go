@@ -41,6 +41,16 @@ const (
 // with a different value resets it. The Condition fires only when the
 // matching event has been continuously observed for at least MinDuration.
 // State is in-process and resets on pod restart.
+//
+// Deferred-fire path: if a debounced Binding's dwell hasn't elapsed
+// when an event arrives, the Matcher arms an internal timer that fires
+// at firstSeen+MinDuration+ε and dispatches the Condition directly via
+// the injected ActivateConditionFunc (without waiting for another
+// inbound event to re-sample the dwell). A value transition cancels
+// every pending deferred fire for that (property, device) key. A
+// successful inline fire from a follow-up event suppresses the
+// corresponding timer's re-dispatch attempt via the per-Binding
+// `fired` flag.
 type Matcher struct {
 	kc        kubeclient.Client
 	namespace string
@@ -48,11 +58,32 @@ type Matcher struct {
 
 	debounceMu sync.Mutex
 	debounce   map[debounceKey]debounceEntry
-	now        func() time.Time // overridable for tests
+	now        func() time.Time                              // overridable for tests
+	afterFunc  func(time.Duration, func()) deferredTimer     // overridable for tests
+	activateFn ActivateConditionFunc                         // nil disables the deferred path
+	epsilon    time.Duration                                 // padding past min_duration to avoid early-fire races
+}
+
+// ActivateConditionFunc is the callback the Matcher uses to dispatch a
+// Condition when a deferred fire elapses without an inbound event to
+// piggyback on. Wired by the router (zigbee2mqtt/nativezigbee) at
+// startup to invoke ActivateCondition on the conditioner client.
+type ActivateConditionFunc func(ctx context.Context, condition string) error
+
+// deferredTimer is the minimal contract a *time.Timer satisfies — Stop
+// is the only operation the Matcher needs. Lets tests inject a fake
+// scheduler that fires callbacks on demand instead of in real time.
+type deferredTimer interface {
+	Stop() bool
 }
 
 // New returns a Matcher that lists Bindings from namespace ns through kc.
 // kc should be the shared cached kubeclient so List is served from cache.
+//
+// The returned Matcher has the deferred-fire path disabled by default;
+// call WithActivateFunc to enable it. Tests that want to drive timer
+// callbacks deterministically also call WithAfterFunc with a fake
+// scheduler.
 func New(kc kubeclient.Client, ns string, logger *slog.Logger) *Matcher {
 	return &Matcher{
 		kc:        kc,
@@ -60,7 +91,25 @@ func New(kc kubeclient.Client, ns string, logger *slog.Logger) *Matcher {
 		logger:    logger.With("component", "bindings.Matcher"),
 		debounce:  make(map[debounceKey]debounceEntry),
 		now:       time.Now,
+		afterFunc: realAfterFunc,
+		epsilon:   100 * time.Millisecond,
 	}
+}
+
+// WithActivateFunc wires the dispatcher the deferred-fire path uses.
+// Without this, deferred fires are inert: pending events whose dwell
+// elapses without a follow-up event simply never activate, and the
+// Matcher's observable behaviour matches its pre-deferred-fire form.
+func (m *Matcher) WithActivateFunc(fn ActivateConditionFunc) *Matcher {
+	m.activateFn = fn
+	return m
+}
+
+// realAfterFunc is the production scheduler. Tests swap in a fake via
+// the unexported field directly (set by the test helper) so simulated
+// time advances synchronously.
+func realAfterFunc(d time.Duration, f func()) deferredTimer {
+	return time.AfterFunc(d, f)
 }
 
 // debounceKey identifies the observed-value state for one (property,
@@ -88,10 +137,20 @@ type debounceKey struct {
 // same (property, device); they share firstSeen but each tracks its
 // own fired flag here, so a 30s-Binding fires at t+30 while a
 // 60s-Binding waits until t+60 and then fires from the same entry.
+//
+// device + timers support the deferred-fire path. device is the full
+// Device pointer captured at observation time so the timer callback
+// can rebuild a DeviceEvent (selectorMatches reads several fields off
+// it) without re-fetching from the kube cache. timers is keyed by
+// Binding name and holds the pending deferred fire for each
+// candidate Binding whose dwell hasn't yet elapsed; a value-transition
+// reset stops every timer in the map.
 type debounceEntry struct {
 	value     string
 	firstSeen time.Time
-	fired     map[string]bool // keyed by Binding name
+	fired     map[string]bool          // keyed by Binding name
+	device    *apiv1.Device            // for deferred-fire reconstruction
+	timers    map[string]deferredTimer // keyed by Binding name
 }
 
 // FindCondition returns the Condition name for the most-specific Binding
@@ -171,7 +230,11 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 		return winner.condition
 	}
 
-	return m.debounceDispatch(winner, ev)
+	result := m.debounceDispatch(winner, ev)
+	if result == "" {
+		m.scheduleDeferred(winner, ev)
+	}
+	return result
 }
 
 // observeValue records the current observed value for one (property,
@@ -181,8 +244,10 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 // event doesn't match.
 //
 // On a same-value re-observation: keep firstSeen as-is (the dwell
-// timer keeps running). On a value transition: reset the entry with a
-// fresh firstSeen and an empty fired map.
+// timer keeps running) but refresh the cached device pointer (label
+// changes etc. can land between events). On a value transition:
+// reset the entry with a fresh firstSeen and empty fired/timers
+// maps, stopping every pending deferred-fire timer first.
 func (m *Matcher) observeValue(ev events.DeviceEvent) {
 	key := debounceKey{property: ev.Property, device: ev.Device.Name}
 	now := m.now()
@@ -192,12 +257,26 @@ func (m *Matcher) observeValue(ev events.DeviceEvent) {
 
 	entry, exists := m.debounce[key]
 	if exists && entry.value == ev.Value {
+		// Refresh the device pointer so the deferred-fire callback
+		// sees current labels if they've drifted since open.
+		entry.device = ev.Device
+		m.debounce[key] = entry
 		return
+	}
+	if exists {
+		for name, t := range entry.timers {
+			if t != nil {
+				t.Stop()
+			}
+			delete(entry.timers, name)
+		}
 	}
 	m.debounce[key] = debounceEntry{
 		value:     ev.Value,
 		firstSeen: now,
 		fired:     map[string]bool{},
+		device:    ev.Device,
+		timers:    map[string]deferredTimer{},
 	}
 	if exists {
 		m.logger.Debug("binding debounce window reset (value transition)",
@@ -211,6 +290,144 @@ func (m *Matcher) observeValue(ev events.DeviceEvent) {
 			slog.String("property", ev.Property),
 			slog.String("device", ev.Device.Name),
 			slog.String("value", ev.Value),
+		)
+	}
+}
+
+// scheduleDeferred arms a timer for `winner` if its dwell hasn't yet
+// elapsed and no timer is already pending for it. Called from the
+// FindCondition pending-return path after debounceDispatch returned ""
+// — i.e. the dwell is *known* to be unsatisfied. The timer fires at
+// firstSeen + min_duration + epsilon and dispatches via activateFn.
+//
+// No-op when activateFn is unset (production wiring not yet hooked
+// in, or tests that intentionally disable the path).
+func (m *Matcher) scheduleDeferred(winner candidate, ev events.DeviceEvent) {
+	if m.activateFn == nil {
+		return
+	}
+	key := debounceKey{property: ev.Property, device: ev.Device.Name}
+
+	m.debounceMu.Lock()
+	entry, ok := m.debounce[key]
+	if !ok {
+		m.debounceMu.Unlock()
+		return
+	}
+	if entry.fired[winner.name] {
+		m.debounceMu.Unlock()
+		return
+	}
+	if _, pending := entry.timers[winner.name]; pending {
+		m.debounceMu.Unlock()
+		return
+	}
+
+	fireAt := entry.firstSeen.Add(winner.minDuration).Add(m.epsilon)
+	delay := fireAt.Sub(m.now())
+	if delay <= 0 {
+		// Past-due. Schedule for epsilon ahead so the dispatch
+		// happens off the calling goroutine; the dwell check inside
+		// debounceDispatch will satisfy on entry.
+		delay = m.epsilon
+	}
+
+	bindingName := winner.name
+	t := m.afterFunc(delay, func() {
+		m.fireDeferred(key, bindingName)
+	})
+	entry.timers[bindingName] = t
+	m.debounce[key] = entry
+	m.debounceMu.Unlock()
+}
+
+// fireDeferred runs in the timer's goroutine. Re-discovers the current
+// matching Binding by name from the cached list, calls debounceDispatch
+// to check the dwell (which by now should be satisfied), and dispatches
+// via activateFn if it fires. The lookup-by-name guards against
+// Bindings being deleted/edited between schedule and fire.
+func (m *Matcher) fireDeferred(key debounceKey, bindingName string) {
+	m.debounceMu.Lock()
+	entry, ok := m.debounce[key]
+	if !ok {
+		m.debounceMu.Unlock()
+		return
+	}
+	delete(entry.timers, bindingName)
+	if entry.fired[bindingName] {
+		// Inline path beat us to it (a same-value event arrived after
+		// dwell and the standard FindCondition dispatched). Nothing
+		// to do.
+		m.debounce[key] = entry
+		m.debounceMu.Unlock()
+		return
+	}
+	device := entry.device
+	value := entry.value
+	m.debounce[key] = entry
+	m.debounceMu.Unlock()
+
+	if device == nil {
+		return
+	}
+
+	ev := events.DeviceEvent{
+		Property: key.property,
+		Value:    value,
+		Device:   device,
+	}
+
+	// Re-list and find the named Binding. observe is intentionally
+	// skipped here — value hasn't changed, firstSeen must stay.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	list := &apiv1.BindingList{}
+	if err := m.kc.List(ctx, list, kubeclient.InNamespace(m.namespace)); err != nil {
+		m.logger.Debug("deferred fire list failed",
+			slog.String("binding", bindingName),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+
+	var winner candidate
+	found := false
+	for i := range list.Items {
+		b := &list.Items[i]
+		if b.Name != bindingName {
+			continue
+		}
+		if !propertyMatches(b.Spec.Event, ev) {
+			break
+		}
+		if !selectorMatches(b.Spec.Event.Selector, ev.Device) {
+			break
+		}
+		winner = candidate{
+			name:        b.Name,
+			condition:   b.Spec.Condition,
+			score:       specificity(b.Spec.Event.Selector),
+			minDuration: b.Spec.Event.MinDuration.Duration,
+		}
+		found = true
+		break
+	}
+	if !found || winner.minDuration <= 0 {
+		// Binding removed, no longer matches, or MinDuration was
+		// edited away between schedule and fire. Drop the fire.
+		return
+	}
+
+	result := m.debounceDispatch(winner, ev)
+	if result == "" {
+		return
+	}
+
+	if err := m.activateFn(ctx, result); err != nil {
+		m.logger.Debug("deferred activate failed",
+			slog.String("condition", result),
+			slog.String("error", err.Error()),
 		)
 	}
 }
