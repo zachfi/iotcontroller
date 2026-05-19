@@ -248,10 +248,10 @@ func (f *fade) interpolate(p fadeParams, entry FadeSnapshot, now time.Time, cond
 // Keeps parsing centralized so SeedEventSnapshot and Compute share
 // the same validation rules.
 type fadeParams struct {
-	anchor    string
-	duration  time.Duration
-	startAt   string
-	timezone  string
+	anchor   string
+	duration time.Duration
+	startAt  string
+	timezone string
 
 	brightnessTo   float64 // 0 = axis unused
 	brightnessFrom float64 // 0 = use snapshot/current

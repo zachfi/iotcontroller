@@ -15,8 +15,15 @@ directory go deeper on specific subsystems.
   trigger sources (Alert, ActivateCondition, eval-loop, deprecated
   Schedule).
 - [`computers.md`](computers.md) — Computer interface, registry,
-  the four built-ins (`sun_color_temperature`, `ramp`,
-  `rotate_colors`, `query`), how to add a new computer.
+  the built-ins (`sun_color_temperature`, `ramp`,
+  `rotate_colors`, `query`, `fade`, `circadian`), how to add a new
+  computer.
+- [`circadian-design.md`](circadian-design.md) — the `circadian`
+  Computer: continuous-Kelvin peer of `sun_color_temperature` driven
+  by piecewise-linear interpolation between sun-anchored points.
+  Operator-tunable noon / evening / night Kelvin and a whole-curve
+  bias. Standalone use shipped in v0.8.1; chaining via
+  `_to_compute` is forward work tracked in `fade-design.md`.
 
 ## Proposals
 
@@ -37,6 +44,16 @@ from existing primitives, and what's missing.
   authoring — don't force second migrations of every CT/brightness
   consumer. `ramp` collapses into a deprecated alias. Supersedes
   earlier fade-to-off and motion-light drafts.
+- [`binding-only-design.md`](binding-only-design.md) — small
+  controller-side primitive: a `binding_only: true` flag on
+  Remediation that suppresses eval-loop firing while keeping
+  `withinActiveWindow` as a gate for explicit activations
+  (Binding match, `ActivateCondition` RPC, alert, epoch). Unblocks
+  motion-during-window-only patterns (bedside lamp on after
+  `sunset−15m` only if motion) and time-of-day-aware button
+  presses (re-enables the disabled `-full`/`-dim` block in
+  deployment_tools). Independent of and composes with the fade
+  Computer.
 
 ## Reference material
 

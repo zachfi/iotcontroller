@@ -42,11 +42,11 @@ var colorTempCanonical = []struct {
 	enum   iotv1proto.ColorTemperature
 	kelvin int32
 }{
-	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_FIRSTLIGHT, 10000}, // 100 mireds
-	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_MORNING, 5000},     // 200 mireds
-	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_DAY, 3333},         // 300 mireds
+	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_FIRSTLIGHT, 10000},   // 100 mireds
+	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_MORNING, 5000},       // 200 mireds
+	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_DAY, 3333},           // 300 mireds
 	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_LATEAFTERNOON, 2500}, // 400 mireds
-	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_EVENING, 2000},     // 500 mireds
+	{iotv1proto.ColorTemperature_COLOR_TEMPERATURE_EVENING, 2000},       // 500 mireds
 }
 
 // BrightnessCanonical returns the canonical normalized value [0, 1]

@@ -211,6 +211,46 @@ cadence dominates the response latency, which is fine for these
 use cases. For instant events (button press, leak detection,
 occupancy), use a Binding instead — those activate in ~1 ms.
 
+### `fade`
+
+Time-bounded interpolation across the brightness and color-temperature
+axes. Two anchor modes: `window` (today's `start_at` in a named
+timezone; lazy-seeded on the first eval tick inside the window) and
+`event` (seeded by `ActivateCondition` at activation time). Reads
+"from = current" values out of the Zone CR Status at seed time so
+the operator can specify only the terminal `*_to` axes and let the
+fade pick up wherever the zone happens to be. See
+[`fade-design.md`](fade-design.md) for the full envelope framing and
+authoring patterns — including the `withMotionEnvelope` /
+`withFadeAutoOff` jsonnet helpers and the planned `_to_compute`
+chaining grammar.
+
+### `circadian`
+
+Pure function of `(now, lat, lon)` → continuous Kelvin tracking
+the kind of light the sun is producing at that moment. Same
+calendar-crossing plumbing as `sun_color_temperature` but with the
+five enum buckets replaced by an eight-anchor piecewise-linear
+curve. Defaults match the design doc's table; four operator-tunable
+knobs cover the common adjustments without copying anchor tables
+around:
+
+```yaml
+active_compute: circadian
+active_compute_args:
+  noon_kelvin: 5500       # peak; default 5500
+  evening_kelvin: 2700    # dusk anchor; default 2700
+  night_kelvin: 2200      # pre-dawn floor + night floor; default 2200
+  bias_kelvin: -200       # shifts whole curve; negative = warmer
+```
+
+Returns `ColorTemperatureKelvin` (the truth) plus
+`ColorTemperature` (nearest enum step, for Status writeback and
+dashboard continuity). Brightness, state, color stay
+`UNSPECIFIED` — pair with a Scene or another Computer for those
+axes. See [`circadian-design.md`](circadian-design.md) for the
+curve shape, dusk-to-night smoothing tail, and short-day handling.
+
 ## Adding a new Computer
 
 1. Create `modules/conditioner/computer/<name>.go` with a Compute
