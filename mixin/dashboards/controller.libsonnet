@@ -280,6 +280,57 @@ local joinMatchers(fragments) =
           ),
         ]),
 
+        // Zone state churn — state transitions per minute per zone.
+        // Headline conflict signature: when two Conditions on the
+        // same zone disagree on state, each one's eval-tick fire
+        // overrides the other, producing sustained ~1-2/min flips.
+        // Healthy zones sit well under 0.1/min. Real case that
+        // motivated this panel: foyer overnight 2026-05-19 had 286
+        // ON + 296 OFF state changes in 12h because foyer-off
+        // (overnight state=off) overlapped foyer-motion-nightvision
+        // (motion → state=on red). The IOTZoneStateChurn alert
+        // fires when any zone sustains > 0.5/min for 10m.
+        ts('Zone State Churn (state changes/min)', [
+          promTarget(
+            'sum by (zone) (rate(iotcontroller_zonekeeper_state_changes_total[5m])) * 60',
+            '{{zone}}'
+          ),
+        ]),
+
+        // Top oscillating zones over a longer window. Same data,
+        // 1h aggregation, topk-5, so a glance answers "which zone is
+        // the worst right now?" without scanning every zone's line
+        // in the panel above. Set the time-range to a meaningful
+        // overnight span to see whether the conflict is sleeping or
+        // active.
+        ts('Top 5 Oscillating Zones (state changes/hour, 1h rate)', [
+          promTarget(
+            'topk(5, sum by (zone) (rate(iotcontroller_zonekeeper_state_changes_total[1h])) * 3600)',
+            '{{zone}}'
+          ),
+        ]),
+
+        // Per-(zone, condition) activate-rate density. When the
+        // state-churn panel above flags a zone, this panel pinpoints
+        // *which* Conditions are fighting. The conflict signature:
+        // two condition lines on the same zone both sustained at
+        // similar non-zero rates. Filter by clicking a zone in the
+        // legend.
+        //
+        // direction="activate" means "applyDesired suppressed this
+        // because cache already matched" — but in a conflict the
+        // cache keeps flipping, so each Condition's activate rate
+        // stays high. (A solo non-conflicting Condition will mostly
+        // suppress as activate too once its state has been applied
+        // once — the discriminator is having TWO with high rates,
+        // not one.)
+        ts('Condition Activation Density (top 10 by zone+condition)', [
+          promTarget(
+            'topk(10, sum by (zone, condition) (rate(iotcontroller_conditioner_apply_suppressed_total{direction="activate"}[15m])))',
+            '{{zone}}/{{condition}}'
+          ),
+        ]),
+
         // ── MQTT Client ───────────────────────────────────────────────────
         row.new('MQTT Client'),
 

@@ -75,5 +75,21 @@
     dashboardTitle: 'IOT Controller',
     dashboardTags: ['iot', 'controller'],
     dashboardUid: '',
+
+    // ── Alert thresholds ────────────────────────────────────────
+    //
+    // zoneStateChurnRatePerMin: floor for IOTZoneStateChurn. Healthy
+    // zones do <0.1 state changes/min over any 5m window (motion
+    // events arrive in bursts, then 5m off-dwells gate the
+    // off-side). 0.5/min is ~10× normal noise floor. Busy multi-
+    // occupant households or motion-heavy zones may legitimately
+    // exceed this; raise per-deployment via _config override.
+    zoneStateChurnRatePerMin: 0.5,
+    // zoneStateChurnFor: how long the rate has to stay above the
+    // floor before alerting. 10m suppresses a brief multi-press
+    // button burst (which legitimately flips state several times in
+    // a minute). A persistent conflict will keep tripping forever
+    // until corrected.
+    zoneStateChurnFor: '10m',
   },
 }

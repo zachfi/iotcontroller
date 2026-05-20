@@ -9,13 +9,17 @@ corresponding dashboard panel.
 
 - `mixin.libsonnet` — entry point.
 - `config.libsonnet` — overridable knobs (`datasourceName`, `jobMatcher`,
-  `refresh`, etc.). First cut hardcodes defaults inside the dashboards;
-  the config block is wired through in a follow-up.
+  `refresh`, alert thresholds, etc.). Function-of-config pattern threads
+  these through the dashboards and alerts at render time.
 - `dashboards.libsonnet` — manifest mapping JSON output names to
   dashboard source files.
 - `dashboards/controller.libsonnet` — operator-facing controller
   dashboard. Rows: HookReceiver, ZoneKeeper, Router, Conditioner,
   MQTT Client.
+- `alerts.libsonnet` — manifest composing alert groups.
+- `alerts/controller.libsonnet` — alert rules tied to the controller
+  binary's metrics. Currently: `IOTZoneStateChurn` (zone-conflict
+  detection via state-change rate).
 
 ## Consuming the mixin
 
