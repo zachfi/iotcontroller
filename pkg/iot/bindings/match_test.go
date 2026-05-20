@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -334,4 +335,37 @@ func TestNilDevice_NoMatch(t *testing.T) {
 	require.Equal(t, "", m.FindCondition(context.Background(), events.DeviceEvent{
 		Property: events.PropertyAction, Value: "single", Device: nil,
 	}))
+}
+
+// TestFastPath_IncrementsFiredMetric guards the metric-coverage gap
+// caught with the foyer immediate-fire deploy (v0.8.4): Bindings
+// without min_duration take the fast path that bypassed
+// debounceDispatch, which is the only call site that incremented
+// metricBindingDebounced. Operators querying "did this Binding fire
+// today?" would conclude "no" for any immediate-fire Binding.
+//
+// Three FindCondition calls against a fast-path Binding must produce
+// three fires on the {binding, outcome="fired"} series. The condition
+// return value must also be the Binding's condition (proves the fast
+// path's success behaviour is preserved, not just the metric side
+// effect).
+func TestFastPath_IncrementsFiredMetric(t *testing.T) {
+	const bindingName = "fast-path-bind"
+	m := makeMatcher(t, b(bindingName, apiv1.EventTrigger{
+		Property: events.PropertyOccupancy, Value: "true",
+		// no MinDuration → fast path
+	}, "cond-evening"))
+	d := dev("motion-sensor", "0xff", "DEVICE_TYPE_MOTION", "foyer", nil)
+
+	before := testutil.ToFloat64(metricBindingDebounced.WithLabelValues(bindingName, "fired"))
+
+	for i := 0; i < 3; i++ {
+		require.Equal(t, "cond-evening", m.FindCondition(context.Background(), events.DeviceEvent{
+			Property: events.PropertyOccupancy, Value: "true", Device: d,
+		}))
+	}
+
+	after := testutil.ToFloat64(metricBindingDebounced.WithLabelValues(bindingName, "fired"))
+	require.Equal(t, before+3, after,
+		"fast-path Binding must increment metricBindingDebounced(outcome=fired) on every match")
 }

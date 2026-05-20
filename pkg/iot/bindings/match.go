@@ -225,8 +225,15 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 	winner := candidates[0]
 
 	// Fast path: no debounce configured. Historical behaviour — fire
-	// every match.
+	// every match. Record the fire on the same outcome counter the
+	// debounce path uses so operators can answer "did this Binding
+	// fire today?" with one PromQL query that works uniformly across
+	// dwell types — before this increment was added, fast-path
+	// Bindings (those with empty min_duration, e.g. motion-evening
+	// after the foyer immediate-fire change) were invisible to the
+	// counter even though they were firing on every match.
 	if winner.minDuration <= 0 {
+		metricBindingDebounced.WithLabelValues(winner.name, "fired").Inc()
 		return winner.condition
 	}
 
