@@ -50,9 +50,135 @@ Each arrow is normalized to one of two contracts:
   the matcher's entry. Every transport must produce this shape; the
   matcher sees a uniform stream.
 - **Outbound commands** are gRPC calls into the `ZoneKeeperService`
-  (SetState / SetScene / AdjustBrightness / ApplyValues / OccupancyHandler
-  / SelfAnnounce). The ZoneKeeper holds the per-zone state machine and
-  knows how to translate to Zigbee.
+  (`SetState` / `SetScene` / `AdjustBrightness` / `ApplyValues` /
+  `SelfAnnounce`). The ZoneKeeper holds the per-zone state machine and
+  knows how to translate to Zigbee. `OccupancyHandler` was removed in
+  v0.8.0; the matcher's deferred-fire path is now the sole owner of
+  occupancy event handling.
+
+## Concrete call stack
+
+A complete trace from a button press to a Zigbee `OnOff cluster, On
+command` leaving the dongle. File:line citations are accurate as of
+v0.8.6. Two entry paths converge at the ZoneKeeper.
+
+**Path 1 — Sensor event (matcher path).** A button press, a motion
+sensor going `occupancy=true`, a leak sensor flipping `water_leak=true`:
+
+```
+zigbee2mqtt (MQTT JSON)                 │ nativezigbee (ZCL proto)
+  pkg/iot/routers/zigbee2mqtt/          │   pkg/iot/routers/nativezigbee/
+    zigbee2mqtt.go:108  DeviceRoute     │     nativezigbee.go:64  DeviceRoute
+    zigbee2mqtt.go:156  dispatchEvent   │     nativezigbee.go:128 matcher.FindCondition
+                       ↓                                        ↓
+                  pkg/iot/bindings/match.go:164  FindCondition
+                    selects the most-specific Binding for this DeviceEvent
+                    (fast path returns immediately; slow path schedules
+                    deferred fire after MinDuration via match.go:312)
+                       ↓
+                  EventReceiverService.ActivateCondition  ←─ gRPC
+                       ↓
+              modules/conditioner/conditioner.go:643  ActivateCondition handler
+                lists this Condition's Remediations, calls one each:
+                       ↓
+              modules/conditioner/conditioner.go:150  activateRemediation
+                151  withinActiveWindow check (time_intervals gate)
+                162  if active_brightness_delta → adjustBrightness
+                168  else → applyDesired(condName, zone, request, "activate")
+                       ↓
+              modules/conditioner/conditioner.go:73   applyDesired
+                89   condStateKey(condName, zone)
+                93   cache lookup; if same (state, scene) and cache
+                     fresh AND Zone Status hasn't drifted OOB → SUPPRESS
+                     (metric: apply_suppressed{direction=activate})
+                123  cache miss → schedule.execRequest dispatches the RPC
+                       ↓
+              modules/conditioner/schedule.go:208  execRequest
+                fans out to the matching ZoneKeeper RPC:
+                219  zonekeeperClient.SetScene(...)   if sceneReq != nil
+                226  zonekeeperClient.SetState(...)   if stateReq != nil
+                       ↓
+              ZoneKeeperService RPC  ←─ gRPC, the apply layer entry
+```
+
+**Path 2 — Periodic evaluator (Computer path).** Every `cfg.Evaluation
+Interval` (60s default), independent of any external event:
+
+```
+modules/conditioner/evaluator.go:60   evaluate(ctx)
+  ticks once per interval; lists all enabled Conditions
+        ↓
+modules/conditioner/evaluator.go:104  evaluateCompute (per active_compute Remediation)
+  168  evaluateCompute
+  169  withinActiveWindow check (time_intervals gate)
+  174  computer.Get(rem.ActiveCompute) — registry lookup
+  227  comp.Compute(ctx, time.Now(), location, args)
+  243  build ApplyValuesRequest from the Computer's partial output
+  252  zonekeeperClient.ApplyValues(req)
+        ↓
+ZoneKeeperService.ApplyValues  ←─ gRPC, rejoins path 1's exit
+```
+
+**Both paths exit through ZoneKeeper.** The ZoneKeeper is the
+enforcement boundary — gRPC calls in, per-device commands out:
+
+```
+modules/zonekeeper/zonekeeper.go
+  85   SetState     → GetZone(name) → zone.SetState → zone.Flush
+  259  SetScene     → GetZone(name) → setZoneScene → zone.Flush
+  184  ApplyValues  → GetZone(name) → zone.Set{State,Brightness,
+                                              ColorTemperature,Color}
+                                    → zone.Flush
+        ↓
+pkg/iot/zone.go:429  Flush
+  switches on z.state, calls handler-per-state:
+  460  handleOn          → per-device h.On(ctx, device)
+  465  handleOff         → per-device h.Off(ctx, device)
+  470  handleColor       → per-device h.SetColor(ctx, device, hex)
+  475  handleRandomColor → pick a hex, then handleColor
+  484  handleBrightness  → after handleOn, sets brightness
+  496  handleColorTemperature → after handleOn, sets CT
+        ↓
+pkg/iot/handlers/...  Handler interface
+  nativezigbee/nativezigbee.go:35  On  → builds SendCommandRequest
+                                       (ZigbeeCommandOn{}), gRPC to
+                                       ZigbeeCoordinator
+  zigbee/...                       MQTT publish to z2m's command topic
+        ↓ (nativezigbee path)
+modules/zigbeecoordinator/commands.go:20  SendCommand RPC handler
+  27   lookupNWK(ieee) — resolve to network short address
+  44   switch on command kind, build ZCL frame:
+       46  ON  → cluster 0x0006 OnOff, frame [0x01, seq, 0x01]
+       50  OFF → cluster 0x0006 OnOff, frame [0x01, seq, 0x00]
+       58  SetBrightness   → cluster 0x0008 Level, level + transition
+       69  SetColorTemp    → cluster 0x0300 Color, mireds + transition
+  85   build OutgoingMessage(NWK, endpoint, cluster, ZCL payload)
+  97   dongle.Send(ctx, msg)  ←── exits the process to the radio
+```
+
+The matcher and Conditioner never know whether the exit is z2m-via-MQTT
+or native-via-ZCL. The ZoneKeeper picks the Handler per Device at
+flush time based on the Device's labels.
+
+## Why ZoneKeeper is the enforcement boundary
+
+Everything above it deals in operator intent: "this Condition fired,
+apply these values." Everything below it deals in protocol: "send
+this byte sequence on this cluster to this radio address."
+
+The boundary is the in-memory `Zone` struct in `pkg/iot/zone.go`.
+Conditioner RPCs mutate the Zone's desired-state fields (atomic
+under a mutex); the Zone's `Flush()` method then dispatches the
+minimum set of per-device commands needed to reach that state. The
+`applyDesired` cache at the Conditioner layer absorbs activate
+repeats; the Zone's mode/brightness/CT/color comparison absorbs
+no-op flushes.
+
+This split is why a new transport (Matter, ESPHome, Home Assistant)
+plugs in by writing a new `Handler` implementation and registering
+it in the Zone's device-to-handler map. The Conditioner doesn't
+change. The Binding matcher doesn't change. The Computer interface
+doesn't change.
 
 ## Modules
 
@@ -135,10 +261,35 @@ spec:
   color_temperature: COLOR_TEMPERATURE_EVENING
 ```
 
-A named bundle of absolute values. Zones reference a Scene by name to
-get all of `(brightness, color_temperature, color, state)` in one
-apply. Use for "go to dusk" semantics. Scenes are global, not
-per-zone — any zone can apply any Scene.
+**Today**, a Scene is a named bundle of *static absolute values* across
+the `(brightness, color_temperature, color)` axes. Zones reference a
+Scene by name to get all axes set in one apply. Use for "go to dusk"
+semantics. Scenes are global, not per-zone — any zone can apply any
+Scene.
+
+**Conceptually**, a Scene is one point in the operator's design space.
+The other point is a *dynamic* description: "set these Computers as the
+source-of-truth for these axes on this zone." Today's Scene is the
+all-static degenerate case of that more general shape, where each
+axis's "Computer" is a constant. The same scene-application machinery
+could in principle dispatch to a Computer per axis, with the operator
+declaring per-axis dependencies like:
+
+```yaml
+# Hypothetical future shape — NOT in the current CRD.
+spec:
+  brightness_compute: cloud_cover      # daylight-compensated brightness
+  color_temperature_compute: circadian  # sun-position CT
+  color: ""                             # unset; bulb stays in CT mode
+```
+
+The Computer registry (`active_compute` today) already produces
+partial outputs — circadian writes only CT, leaves brightness and
+state alone. Scene-as-Computer-composition would surface that
+partial-output composition explicitly in the CRD instead of expressing
+it as multiple Conditions on the same zone with overlapping
+`time_intervals`. This is parked as a design discussion; see
+`docs/scratch/` if a follow-up doc has landed there.
 
 ### Condition
 
