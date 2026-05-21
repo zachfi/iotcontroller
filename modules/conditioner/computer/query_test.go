@@ -213,6 +213,183 @@ func TestQuery_BadOnTrueBrightness(t *testing.T) {
 	}
 }
 
+// ───────────────────────────────────────────────────────────────────
+// Safety invariant tests — Phase B prerequisite per
+// .claude/plans/humble-foraging-pike.md
+//
+// The reconcile architecture migration must not regress two
+// production invariants the query Computer powers today:
+//
+//   * "temp too low → turn on heater" / "temp not low → turn off"
+//   * "water present at pond → turn on pump" / "no water → turn off"
+//
+// These tests lock in the discrete-threshold semantics for both
+// invariants in their actual production args shape. Failures here
+// are blocking — heater + pump are safety-critical zones (heater
+// keeps plants alive in winter; pump damaged if it runs dry).
+// ───────────────────────────────────────────────────────────────────
+
+// TestQuery_HeaterLowTemp_ReturnsOn locks in the heater's on-side
+// invariant. A PromQL expression returning >0 (e.g. "1" because
+// `temp < threshold` is true) must produce on_true → state=on.
+// Today's prop-house heater uses an alert-driven path rather than
+// active_compute=query, but if/when the migration ever wires the
+// heater through query, this is the contract.
+func TestQuery_HeaterLowTemp_ReturnsOn(t *testing.T) {
+	srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// `temp_celsius < 5` returns 1 when temp is below threshold.
+		fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1000,"1"]}]}}`)
+	})
+	q := newTestQuery(t, srv.URL)
+
+	args := map[string]string{
+		"query":           `iot_zigbee2mqtt_temperature{zone="prop-house"} < 5`,
+		"on_true.state":   "ZONE_STATE_ON",
+		"on_false.state":  "ZONE_STATE_OFF",
+	}
+	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_ON {
+		t.Errorf("heater cold: state = %s; want ZONE_STATE_ON (heater fires)", got.State)
+	}
+}
+
+// TestQuery_HeaterHighTemp_ReturnsOff locks in the heater's off-side
+// invariant. PromQL returning 0 (temp ≥ threshold) produces on_false
+// → state=off. This is the hysteresis turn-off; without it the heater
+// cycles forever.
+func TestQuery_HeaterHighTemp_ReturnsOff(t *testing.T) {
+	srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// `temp_celsius < 5` returns 0 (empty vector OR scalar 0) when
+		// the inequality fails. Test the scalar=0 path; the empty-vector
+		// path is covered by TestQuery_EmptyVector_TreatsAsZero.
+		fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1000,"0"]}]}}`)
+	})
+	q := newTestQuery(t, srv.URL)
+
+	args := map[string]string{
+		"query":          `iot_zigbee2mqtt_temperature{zone="prop-house"} < 5`,
+		"on_true.state":  "ZONE_STATE_ON",
+		"on_false.state": "ZONE_STATE_OFF",
+	}
+	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_OFF {
+		t.Errorf("heater warm: state = %s; want ZONE_STATE_OFF (heater stops)", got.State)
+	}
+}
+
+// TestQuery_PumpWaterPresent_ReturnsOn locks in the pump's on-side
+// invariant. The actual production PromQL for pond-pump:
+//
+//	max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pond"}[2m])) > 0.5
+//
+// Returns 1 when ANY pond sensor's 2-min smoothed signal exceeds 0.5
+// (OR-of-two-sensors, redundancy against single-sensor 2.4GHz dropouts).
+// This must produce on_true → state=on.
+func TestQuery_PumpWaterPresent_ReturnsOn(t *testing.T) {
+	srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// `max(...) > 0.5` returns 1 when water is detected.
+		fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1000,"1"]}]}}`)
+	})
+	q := newTestQuery(t, srv.URL)
+
+	args := map[string]string{
+		"query":          `max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pond"}[2m])) > 0.5`,
+		"on_true.state":  "ZONE_STATE_ON",
+		"on_false.state": "ZONE_STATE_OFF",
+	}
+	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_ON {
+		t.Errorf("pump water-present: state = %s; want ZONE_STATE_ON (pump runs)", got.State)
+	}
+}
+
+// TestQuery_PumpWaterAbsent_ReturnsOff locks in the pump's off-side
+// invariant — the *safety-critical* direction. If the water signal
+// drops below 0.5 (sensors no longer see water), the pump MUST go
+// off; running dry damages the upgraded pump.
+func TestQuery_PumpWaterAbsent_ReturnsOff(t *testing.T) {
+	srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// `max(...) > 0.5` returns 0 when smoothed water signal is below
+		// threshold.
+		fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1000,"0"]}]}}`)
+	})
+	q := newTestQuery(t, srv.URL)
+
+	args := map[string]string{
+		"query":          `max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pond"}[2m])) > 0.5`,
+		"on_true.state":  "ZONE_STATE_ON",
+		"on_false.state": "ZONE_STATE_OFF",
+	}
+	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_OFF {
+		t.Errorf("pump water-absent: state = %s; want ZONE_STATE_OFF (pump stops to avoid running dry)", got.State)
+	}
+}
+
+// TestQuery_EmptyVector_HeaterStopsAndPumpStops confirms that an
+// empty PromQL result (the most common failure-adjacent shape — the
+// query returned no series, e.g. metric is missing) fails to the
+// off-side bundle. Both heater and pump treat "no data" as off, by
+// the threshold-against-zero contract. For the pump this is the
+// desired fail-safe (no water signal → pump off → can't run dry).
+// For the heater this is debatable (plants might freeze if the
+// metric is missing during a cold snap) — see the TODO test below
+// for the architectural follow-up.
+func TestQuery_EmptyVector_HeaterStopsAndPumpStops(t *testing.T) {
+	srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[]}}`)
+	})
+	q := newTestQuery(t, srv.URL)
+
+	args := map[string]string{
+		"query":          `nonexistent_metric > 0`,
+		"on_true.state":  "ZONE_STATE_ON",
+		"on_false.state": "ZONE_STATE_OFF",
+	}
+	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_OFF {
+		t.Errorf("empty result: state = %s; want ZONE_STATE_OFF (both heater + pump fail to off-side)", got.State)
+	}
+}
+
+// TestQuery_PumpFailSafeOnFetchError_TODO_OnErrorArgs documents a
+// known safety gap in the current query Computer. On PromQL fetch
+// error (Mimir down, network blip) the Computer returns the CACHED
+// previous result (see query.go:147-160). If the last cached value
+// for the pump was "water present → on", and water then drains
+// during the outage, the pump stays on and runs dry.
+//
+// For the heater, this cached-fallback behavior is defensible
+// ("keep heat going if I can't see the metric"). For the pump it's
+// the wrong direction.
+//
+// Fix scheduled in the reconcile architecture migration (Phase B
+// prereqs in .claude/plans/humble-foraging-pike.md): add explicit
+// on_error.{state,brightness,...} args so operators can declare
+// fail-safe direction per Condition.
+//
+// Test stays skipped until the fix lands; lives here as the
+// inventory entry so reviewers see the gap. Unskip when on_error
+// args are wired through.
+func TestQuery_PumpFailSafeOnFetchError_TODO_OnErrorArgs(t *testing.T) {
+	t.Skip("known gap: cached-fallback on fetch error is not fail-safe for the pump. Scheduled fix: on_error.* args. See .claude/plans/humble-foraging-pike.md Phase B prereqs.")
+}
+
 func TestQuery_HashArgsStableAcrossMapIterations(t *testing.T) {
 	// Map iteration order varies between Compute() calls but the
 	// cache key must not. Compute the hash a few times for identical
