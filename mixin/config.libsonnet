@@ -91,5 +91,20 @@
     // a minute). A persistent conflict will keep tripping forever
     // until corrected.
     zoneStateChurnFor: '10m',
+
+    // conditionConflictPerWindow: minimum number of shadow resolver
+    // conflict increments within 15m for IOTConditionConflict to
+    // fire. Boundary overlap (one Condition's window ending exactly
+    // where another's begins) typically produces 1-2 increments at
+    // the exact transition tick — cosmetic, not a structural
+    // collision. Sustained overlap produces an increment every eval
+    // tick (~60s), so 15m of sustained overlap = ~15 increments.
+    // Default 5 catches sustained overlap without firing on every
+    // boundary tick.
+    conditionConflictPerWindow: 5,
+    // conditionConflictFor: the conflict count must stay above the
+    // threshold for this duration before paging. 5m keeps boundary
+    // ticks from racing past the threshold by accident.
+    conditionConflictFor: '5m',
   },
 }
