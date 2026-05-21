@@ -9,6 +9,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,8 +43,14 @@ func (l *listKubeClient) List(_ context.Context, obj kubeclient.ObjectList, _ ..
 	// a bug in the eval loop.
 	panic("unexpected List type")
 }
-func (l *listKubeClient) Get(_ context.Context, _ kubeclient.ObjectKey, _ kubeclient.Object, _ ...kubeclient.GetOption) error {
-	panic("not implemented")
+// Get returns a not-found error rather than panicking. The shadow
+// resolver's readZoneStatus calls Get to read Zone.Status; in tests
+// we treat any Get as "Zone not yet observed" and the shadow's
+// disagreement-check is skipped. Sufficient for the conflict-detection
+// tests in shadow_test.go; tests that want to assert disagreement
+// behavior specifically should use a different fake.
+func (l *listKubeClient) Get(_ context.Context, key kubeclient.ObjectKey, _ kubeclient.Object, _ ...kubeclient.GetOption) error {
+	return apierrors.NewNotFound(schema.GroupResource{Resource: "zones"}, key.Name)
 }
 func (l *listKubeClient) Apply(_ context.Context, _ runtime.ApplyConfiguration, _ ...kubeclient.ApplyOption) error {
 	panic("not implemented")

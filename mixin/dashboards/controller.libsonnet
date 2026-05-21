@@ -280,6 +280,35 @@ local joinMatchers(fragments) =
           ),
         ]),
 
+        // Shadow resolver — declarative-composition experiment running
+        // alongside the imperative path. Surfaces per-axis conflicts
+        // (two Conditions claiming the same axis on the same zone) and
+        // disagreements between the composed target and Zone.Status.
+        // Read-only; never writes. See modules/conditioner/shadow.go.
+        // Steady-state for conflicts SHOULD be zero — non-zero is a
+        // structural Condition collision worth investigating.
+        ts('Shadow Resolver Conflicts (multi-contributor axes)', [
+          promTarget(
+            'sum by (zone, axis) (rate(iotcontroller_conditioner_shadow_conflicts_total[15m]))',
+            '{{zone}}/{{axis}}'
+          ),
+        ]),
+
+        // Disagreement between shadow target and Zone.Status. Expected
+        // non-zero when out-of-scope writers (active_compute Computers,
+        // alerts, transient Binding fires, manual button presses)
+        // touched the zone since the last shadow comparison. Useful
+        // for correlating: cross-reference with the conflict panel
+        // above and with motion/button/alert trace activity for the
+        // same zone to disambiguate "expected drift from event input"
+        // vs "structural collision."
+        ts('Shadow Resolver Disagreements (vs Zone.Status)', [
+          promTarget(
+            'sum by (zone) (rate(iotcontroller_conditioner_shadow_disagreements_total[15m]))',
+            '{{zone}}'
+          ),
+        ]),
+
         // Zone state churn — state transitions per minute per zone.
         // Headline conflict signature: when two Conditions on the
         // same zone disagree on state, each one's eval-tick fire

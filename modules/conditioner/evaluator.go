@@ -128,6 +128,13 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 		attribute.Int("conditions", len(list.Items)),
 		attribute.Int("applied", applied),
 	)
+
+	// Shadow resolver — read-only declarative composition. Runs after
+	// the imperative path has done its work so any disagreement is
+	// against the just-applied Zone.Status. Emits metrics and log
+	// lines; never writes. See modules/conditioner/shadow.go for the
+	// experiment's design and out-of-scope filters.
+	c.runShadow(ctx)
 }
 
 // maybeWarnDeprecatedSchedule emits a once-per-Condition warning when

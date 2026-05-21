@@ -105,3 +105,45 @@ var metricApplyCacheInvalidated = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "iotcontroller_conditioner_apply_cache_invalidations_total",
 	Help: "Number of applyDesired cache entries invalidated due to out-of-band Zone state changes.",
 }, []string{"zone", "reason"})
+
+// metricShadowConflict counts cases where the shadow resolver finds
+// multiple eval-loop-applicable Remediations on the same zone in the
+// same tick claiming the same axis (state, brightness,
+// color_temperature, color, scene). This is the per-axis form of
+// today's IOTZoneStateChurn alert: churn is the symptom (state flips
+// per minute); a multi-contributor axis on shadow is the cause (two
+// Remediations disagree, last-write-wins picks one, the other writes
+// next tick, and the flip rate matches the eval interval).
+//
+// Steady-state should be zero. Non-zero indicates a structural
+// Condition collision — the same kind we've been catching by hand
+// (foyer-off vs foyer-motion-nightvision overnight; foyer-color-
+// nightvision vs foyer-motion-evening at the 21:00-22:00 boundary).
+//
+// The shadow path is read-only. This metric is the experiment's
+// primary signal for whether the declarative-composition rewrite
+// would catch conflicts the imperative path lets through.
+var metricShadowConflict = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_conditioner_shadow_conflicts_total",
+	Help: "Number of ticks where the shadow resolver found multiple in-scope Remediations claiming the same axis on the same zone. Per-axis counter; one increment per (zone, axis) per tick with a conflict.",
+}, []string{"zone", "axis"})
+
+// metricShadowDisagreement counts cases where the shadow resolver's
+// composed target differs from Zone.Status (the last-applied state).
+// Possible causes:
+//
+//   - An out-of-scope writer (active_compute Computer, alert-driven
+//     Condition, Binding-driven transient activation, manual button)
+//     wrote the current Status. Disagreement is expected here and
+//     should correlate in time with motion / button / alert events.
+//   - A multi-contributor axis where last-write-wins picked a
+//     different winner than shadow's declared-list-order resolution.
+//     This IS the structural conflict the experiment is hunting.
+//
+// Disambiguating the two requires cross-correlating with the conflict
+// metric above and with motion / button / alert events in traces.
+// Per-zone label keeps the noise floor scoped.
+var metricShadowDisagreement = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_conditioner_shadow_disagreements_total",
+	Help: "Number of ticks where the shadow resolver's composed target differs from the observed Zone.Status. Per-zone counter; one increment per zone per tick with disagreement.",
+}, []string{"zone"})
