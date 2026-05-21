@@ -2,11 +2,41 @@ package conditioner
 
 import (
 	"flag"
+	"strings"
 	"time"
 
 	"github.com/zachfi/iotcontroller/internal/common"
 	"github.com/zachfi/zkit/pkg/util"
 )
+
+// csvFlag implements flag.Value for a comma-separated string list.
+// Empty input yields a nil slice; trailing/leading whitespace per item
+// is trimmed; empty items are dropped. Used by ReconcileZones.
+type csvFlag []string
+
+func (c *csvFlag) String() string {
+	if c == nil {
+		return ""
+	}
+	return strings.Join(*c, ",")
+}
+
+func (c *csvFlag) Set(value string) error {
+	if value == "" {
+		*c = nil
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := (*c)[:0]
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	*c = out
+	return nil
+}
 
 // Config holds the conditioner module configuration: ZoneKeeper client settings,
 // how often the timer loop runs, the default epoch window when WhenGate
@@ -40,6 +70,24 @@ type Config struct {
 	// is shared across the conditioner. Plumbed from `znet.location` in
 	// deployment_tools.
 	Location LocationConfig `yaml:"location,omitempty"`
+
+	// ReconcileZones is the per-zone opt-in list for the reconcile-loop
+	// architecture (see docs/reconcile-design.md). Zones in this list
+	// route through the Active Computer Stack reconciler instead of the
+	// imperative activateRemediation / applyDesired path. Zones NOT in
+	// the list keep the legacy behavior unchanged.
+	//
+	// The default empty list means the reconciler ships dormant in the
+	// binary — no behavioral change. Migration is per-zone via the
+	// `-conditioner.reconcile-zones=<csv>` flag.
+	//
+	// Safety constraint: safety-critical zones (heater zones driven by
+	// temperature thresholds; pump zones driven by water-presence
+	// signals) MUST NOT appear in this list until the reconciler has
+	// demonstrated correct fail-safe behavior across their real edge
+	// cases. Lighting zones (where missed/wrong-state is cosmetic)
+	// migrate first.
+	ReconcileZones []string `yaml:"reconcile_zones,omitempty"`
 
 	// Query configures the `query` Computer (Prometheus pull). The
 	// computer is registered only when Query.Endpoint is non-empty, so
@@ -91,6 +139,8 @@ func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet)
 	f.DurationVar(&cfg.EvaluationInterval, util.PrefixConfig(prefix, "evaluation-interval"), 60*time.Second, "Tick interval for the periodic evaluator (computer-driven Remediations + alert-window closure).")
 	f.Float64Var(&cfg.Location.Lat, util.PrefixConfig(prefix, "location.lat"), 0, "Latitude for solar calculations (sun_color_temperature computer, SunRelative time intervals).")
 	f.Float64Var(&cfg.Location.Lon, util.PrefixConfig(prefix, "location.lon"), 0, "Longitude for solar calculations.")
+
+	f.Var((*csvFlag)(&cfg.ReconcileZones), util.PrefixConfig(prefix, "reconcile-zones"), "Comma-separated list of zone names that route through the reconcile-loop architecture (Active Computer Stack) instead of the imperative path. Empty disables the reconciler entirely. NEVER include safety-critical zones (heater / pump / similar) until the reconciler has demonstrated fail-safe correctness for their PromQL-driven semantics.")
 
 	f.StringVar(&cfg.Query.Endpoint, util.PrefixConfig(prefix, "query.endpoint"), "", "Prometheus/Mimir endpoint for the `query` Computer. Empty disables `query` registration entirely.")
 	f.StringVar(&cfg.Query.Tenant, util.PrefixConfig(prefix, "query.tenant"), "", "X-Scope-OrgID for Mimir multi-tenancy. Empty omits the header.")

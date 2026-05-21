@@ -116,9 +116,9 @@ var metricApplyCacheInvalidated = promauto.NewCounterVec(prometheus.CounterOpts{
 // next tick, and the flip rate matches the eval interval).
 //
 // Steady-state should be zero. Non-zero indicates a structural
-// Condition collision — the same kind we've been catching by hand
-// (foyer-off vs foyer-motion-nightvision overnight; foyer-color-
-// nightvision vs foyer-motion-evening at the 21:00-22:00 boundary).
+// Condition collision (two Conditions on the same zone with
+// overlapping time_intervals and disagreeing axis claims) — the
+// same kind operators have been catching by visual observation.
 //
 // The shadow path is read-only. This metric is the experiment's
 // primary signal for whether the declarative-composition rewrite
@@ -127,6 +127,61 @@ var metricShadowConflict = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "iotcontroller_conditioner_shadow_conflicts_total",
 	Help: "Number of ticks where the shadow resolver found multiple in-scope Remediations claiming the same axis on the same zone. Per-axis counter; one increment per (zone, axis) per tick with a conflict.",
 }, []string{"zone", "axis"})
+
+// metricReconcileTickDuration tracks per-zone reconcile wall-clock
+// time. The reconciler runs per zone (not per cluster), so this
+// histogram has one observation per ReconcileZone call. p99 > 5s
+// triggers the IOTReconcilerSlow alert (mixin); typical values
+// should be µs to low ms (single Computer evaluation + at most one
+// ApplyValues RPC).
+var metricReconcileTickDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "iotcontroller_reconciler_tick_duration_seconds",
+	Help:    "Wall-clock time for one ReconcileZone call.",
+	Buckets: []float64{0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5},
+})
+
+// metricReconcileApplied counts ZoneKeeper.ApplyValues calls the
+// reconciler made (target changed since last applied). Compare
+// against the per-zone Zone Status change rate to verify the
+// reconciler is the sole writer for reconcile-managed zones.
+var metricReconcileApplied = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_reconciler_applied_total",
+	Help: "Number of ZoneKeeper.ApplyValues calls the reconciler issued.",
+}, []string{"zone"})
+
+// metricReconcileApplySuppressed counts reconciles that did NOT
+// flush, labeled by reason:
+//
+//	no_delta     — composed target matched last-applied
+//	empty_target — no Activation contributed to any axis
+//
+// High no_delta is expected and healthy (the cache absorbs repeats).
+// High empty_target on a zone that should have a background
+// Activation is a misconfiguration signal — the zone is in the
+// reconciler's policies map but no operator-declared background
+// exists.
+var metricReconcileApplySuppressed = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_reconciler_apply_suppressed_total",
+	Help: "Number of reconciles where the composed target was suppressed (no delta or empty).",
+}, []string{"zone", "reason"})
+
+// metricReconcileComputeError counts Computer.Compute errors during
+// a reconcile pass. Per-zone label because the reconciler doesn't
+// know which Computer threw — operators correlate with the recent
+// Activation pushes for the zone via traces.
+var metricReconcileComputeError = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_reconciler_compute_error_total",
+	Help: "Number of Computer.Compute errors observed during a reconcile pass, by zone.",
+}, []string{"zone"})
+
+// metricReconcileApplyError counts ZoneKeeper.ApplyValues RPC
+// failures during a reconcile pass. Per-zone for the same reason
+// as above. Non-zero here means a downstream gRPC error or
+// ZoneKeeper-side rejection.
+var metricReconcileApplyError = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_reconciler_apply_error_total",
+	Help: "Number of ApplyValues RPC failures during a reconcile pass, by zone.",
+}, []string{"zone"})
 
 // metricShadowDisagreement counts cases where the shadow resolver's
 // composed target differs from Zone.Status (the last-applied state).

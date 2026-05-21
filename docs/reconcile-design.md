@@ -28,15 +28,18 @@ should this axis be doing when nothing else is asserting?"
 
 ## Why this dissolves the current pain
 
-The foyer overnight 2026-05-20 → 2026-05-21 was a perfect
-illustration of what the current model can't express cleanly:
+The motion-zone overnight 2026-05-20 → 2026-05-21 was a perfect
+illustration of what the current model can't express cleanly. The
+zone in question was a transit space (a foot-traffic area with a
+PIR sensor); the same shape applies to any binding-driven zone with
+overlapping time-window Conditions:
 
 ```
-foyer-motion-nightvision: state=on, scene=nightvision
+transit-motion-nightvision: state=on, scene=nightvision
   • fired by Binding on every occupancy=true event
   • ALSO fired by the eval loop every 60s during its window
 
-foyer-motion-off: state=off
+transit-motion-off: state=off
   • fired by Binding only after 5m of sustained occupancy=false
 
 Result overnight:
@@ -46,7 +49,7 @@ Result overnight:
   - 30-minute oscillation, ~16 cycles overnight, neither alert catches it
 ```
 
-The bug is that `foyer-motion-nightvision` is *simultaneously*:
+The bug is that `transit-motion-nightvision` is *simultaneously*:
 
 - A background-state-during-window Condition (eval-loop-applicable)
 - A motion-response Condition (binding-applicable)
@@ -55,14 +58,14 @@ It wears two hats. The two firing paths use different state
 (eval-loop ignores motion events; binding ignores eval-loop ticks).
 They produce different effective behaviors. The async dwell on the
 other side (`motion-off`) completes at a third schedule. There's no
-authoritative answer to "what should the foyer's state be at 02:00
+authoritative answer to "what should the zone's state be at 02:00
 MDT given no motion in the last 30 min" — three Conditions all have
 opinions and none of them agree.
 
 In the proposed model, the same intent is one declaration:
 
 ```
-foyer.state stack:
+transit-zone.state stack:
   bottom: { computer: "off", source: "default" }                # background
   optional push by Binding(occupancy=true, window=22:30-05:48):
          { computer: "nightvision-on", source: "motion-bind", ttl: 5m }
@@ -111,7 +114,7 @@ message Activation {
   map<string, string> args = 2;       // computer-specific config
   SourceKind source_kind = 3;
   string source_name = 4;             // operator-authored identifier
-                                      // (e.g. "foyer-motion-binding")
+                                      // (e.g. "my-motion-binding")
   google.protobuf.Timestamp pushed_at = 5;
   google.protobuf.Duration ttl = 6;   // 0 = no expiration (background)
   int32 priority = 7;
@@ -310,13 +313,13 @@ Three benefits stack:
 ### Foyer at night
 
 ```
-ZonePolicy: foyer
+ZonePolicy: transit-zone
   state:
     Background: { computer: "off" }
     SourcePushes:
-      - Binding(foyer-pir, occupancy=true) during window(22:30-05:48 MDT):
+      - Binding(transit-pir, occupancy=true) during window(22:30-05:48 MDT):
           → { computer: "on", ttl: 5m, refresh_on: ["motion"], priority: 50 }
-      - Binding(foyer-pir, occupancy=true) during window(18:00-21:00 MDT):
+      - Binding(transit-pir, occupancy=true) during window(18:00-21:00 MDT):
           → { computer: "on", ttl: 5m, refresh_on: ["motion"], priority: 50 }
   scene:
     Background: { computer: "scene/none" }
@@ -325,7 +328,7 @@ ZonePolicy: foyer
         respectively
 ```
 
-Overnight at 02:00 MDT with no motion for 10 min: foyer.state stack
+Overnight at 02:00 MDT with no motion for 10 min: transit-zone.state stack
 has only the background "off" remaining; reconciler applies state=off
 exactly once. No flicker. PIR's no-motion heartbeats don't even
 participate — they're occupancy=false events with no push action.
@@ -333,7 +336,7 @@ participate — they're occupancy=false events with no push action.
 ### Bedside-zach pre-bedtime + bedtime nightvision
 
 ```
-ZonePolicy: bedside-zach
+ZonePolicy: bedroom-zone
   state:
     Background: { computer: "off" }
     SourcePushes:
@@ -358,7 +361,7 @@ is "off"). No competing eval-loop fires; no async dwell completion.
 ### Heater (safety-critical, simple)
 
 ```
-ZonePolicy: prop-house-heater
+ZonePolicy: heater-zone
   state:
     Background: { computer: "query: temp < threshold", refresh: 60s }
 ```
@@ -375,7 +378,7 @@ heaters don't need.
 ### Pond pump
 
 ```
-ZonePolicy: pond-pump
+ZonePolicy: pump-zone
   state:
     Background: { computer: "query: water_signal > 0.5", refresh: 60s }
 ```
@@ -393,7 +396,7 @@ resolved by priority. Today this is implicit (last-write-wins);
 explicit priority makes operator intent visible.
 
 ```
-ZonePolicy: office
+ZonePolicy: work-zone
   brightness:
     Background: { computer: "cloud_cover", priority: 10 }    # baseline
     SourcePushes:
@@ -531,14 +534,15 @@ Phase 2 — design:
 
 Phase 3 — canary:
   - Implement the resolver as a writer for one canary zone
-    (bedside-zach is the obvious pick).
-  - Behind a `-conditioner.reconcile-zones=bedside-zach` flag.
+    (a low-stakes, recently-rebuilt single-lamp zone is the obvious
+    pick; operators choose per deployment).
+  - Behind a `-conditioner.reconcile-zones=<csv>` flag.
   - Run alongside imperative path on other zones; compare via
     metrics.
   - Heaters and pump explicitly OUT of the canary set.
 
 Phase 4 — expand:
-  - Migrate foyer, living-area, office once bedside-zach has
+  - Migrate the rest of the lighting zones one at a time once the canary has
     demonstrated correctness for a week including edge cases.
   - Lighting zones first; heaters and pump LAST.
 
@@ -577,8 +581,8 @@ Phase 5 — safety-critical:
    declaration is disabled. Operator-facing toggle remains.
 
 5. **Audit trail.** Per-(zone, axis) push/pop log so operators can
-   reconstruct "why is the foyer red right now?" → grep for the
-   last push on `foyer.color`. Cheap to add; valuable for the same
+   reconstruct "why is zone X displaying color Y right now?" → grep for
+   the last push on `<zone>.color`. Cheap to add; valuable for the same
    reasons today's status-drift alert is valuable.
 
 6. **Computer signature change?** Today Computers take `(now,
@@ -611,7 +615,7 @@ now."
 - Cross-zone composition (e.g. "all lights in this room follow
   the entry-zone's state"). Real use case eventually; not v1.
 
-- Per-device override (e.g. "this one bulb in the foyer is
+- Per-device override (e.g. "this one bulb in the zone is
   scheduled out for maintenance"). Out of scope; device-level
   intent lives in Device CRs already.
 

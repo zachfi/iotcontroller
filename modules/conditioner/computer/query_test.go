@@ -221,7 +221,7 @@ func TestQuery_BadOnTrueBrightness(t *testing.T) {
 // production invariants the query Computer powers today:
 //
 //   * "temp too low → turn on heater" / "temp not low → turn off"
-//   * "water present at pond → turn on pump" / "no water → turn off"
+//   * "water present → turn on pump" / "no water → turn off"
 //
 // These tests lock in the discrete-threshold semantics for both
 // invariants in their actual production args shape. Failures here
@@ -232,7 +232,7 @@ func TestQuery_BadOnTrueBrightness(t *testing.T) {
 // TestQuery_HeaterLowTemp_ReturnsOn locks in the heater's on-side
 // invariant. A PromQL expression returning >0 (e.g. "1" because
 // `temp < threshold` is true) must produce on_true → state=on.
-// Today's prop-house heater uses an alert-driven path rather than
+// Today's production heater zones use an alert-driven path rather than
 // active_compute=query, but if/when the migration ever wires the
 // heater through query, this is the contract.
 func TestQuery_HeaterLowTemp_ReturnsOn(t *testing.T) {
@@ -243,7 +243,7 @@ func TestQuery_HeaterLowTemp_ReturnsOn(t *testing.T) {
 	q := newTestQuery(t, srv.URL)
 
 	args := map[string]string{
-		"query":           `iot_zigbee2mqtt_temperature{zone="prop-house"} < 5`,
+		"query":           `iot_zigbee2mqtt_temperature{zone="heated-zone"} < 5`,
 		"on_true.state":   "ZONE_STATE_ON",
 		"on_false.state":  "ZONE_STATE_OFF",
 	}
@@ -270,7 +270,7 @@ func TestQuery_HeaterHighTemp_ReturnsOff(t *testing.T) {
 	q := newTestQuery(t, srv.URL)
 
 	args := map[string]string{
-		"query":          `iot_zigbee2mqtt_temperature{zone="prop-house"} < 5`,
+		"query":          `iot_zigbee2mqtt_temperature{zone="heated-zone"} < 5`,
 		"on_true.state":  "ZONE_STATE_ON",
 		"on_false.state": "ZONE_STATE_OFF",
 	}
@@ -284,11 +284,11 @@ func TestQuery_HeaterHighTemp_ReturnsOff(t *testing.T) {
 }
 
 // TestQuery_PumpWaterPresent_ReturnsOn locks in the pump's on-side
-// invariant. The actual production PromQL for pond-pump:
+// invariant. A representative production PromQL for the pump:
 //
-//	max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pond"}[2m])) > 0.5
+//	max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pumped-zone"}[2m])) > 0.5
 //
-// Returns 1 when ANY pond sensor's 2-min smoothed signal exceeds 0.5
+// Returns 1 when ANY sensor's 2-min smoothed signal exceeds 0.5
 // (OR-of-two-sensors, redundancy against single-sensor 2.4GHz dropouts).
 // This must produce on_true → state=on.
 func TestQuery_PumpWaterPresent_ReturnsOn(t *testing.T) {
@@ -299,7 +299,7 @@ func TestQuery_PumpWaterPresent_ReturnsOn(t *testing.T) {
 	q := newTestQuery(t, srv.URL)
 
 	args := map[string]string{
-		"query":          `max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pond"}[2m])) > 0.5`,
+		"query":          `max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pumped-zone"}[2m])) > 0.5`,
 		"on_true.state":  "ZONE_STATE_ON",
 		"on_false.state": "ZONE_STATE_OFF",
 	}
@@ -325,7 +325,7 @@ func TestQuery_PumpWaterAbsent_ReturnsOff(t *testing.T) {
 	q := newTestQuery(t, srv.URL)
 
 	args := map[string]string{
-		"query":          `max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pond"}[2m])) > 0.5`,
+		"query":          `max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pumped-zone"}[2m])) > 0.5`,
 		"on_true.state":  "ZONE_STATE_ON",
 		"on_false.state": "ZONE_STATE_OFF",
 	}
