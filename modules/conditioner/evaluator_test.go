@@ -335,3 +335,69 @@ func TestEvaluate_ActiveComputeIncrementsAppliedMetric(t *testing.T) {
 	require.Equal(t, before+1, after,
 		"successful active_compute tick should increment metricEvalComputeApplied by 1")
 }
+
+// TestEvaluate_ReconcileManagedZoneSkipsImperativeApply — when a zone
+// is in cfg.ReconcileZones, the evaluator's per-Condition loop skips
+// the imperative activate path for that zone's Remediations. The
+// reconciler is the sole writer for the zone. Non-managed zones
+// (any zone not in the CSV) keep their imperative behavior.
+//
+// Validates the feature flag's safety property: enabling the
+// reconciler for one zone never affects other zones' apply path.
+func TestEvaluate_ReconcileManagedZoneSkipsImperativeApply(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	allDay := apiv1.TimeIntervalSpec{
+		Times: []apiv1.TimePeriod{{StartTime: "00:00", EndTime: "24:00"}},
+	}
+	zk := &recordingZoneKeeper{}
+	conds := []apiv1.Condition{
+		{
+			ObjectMeta: metav1Meta("managed-cond"),
+			Spec: apiv1.ConditionSpec{
+				Enabled: true,
+				Remediations: []apiv1.Remediation{{
+					Zone:          "managed-zone",
+					ActiveState:   "on",
+					ActiveScene:   "dusk",
+					TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+				}},
+			},
+		},
+		{
+			ObjectMeta: metav1Meta("unmanaged-cond"),
+			Spec: apiv1.ConditionSpec{
+				Enabled: true,
+				Remediations: []apiv1.Remediation{{
+					Zone:          "unmanaged-zone",
+					ActiveState:   "on",
+					ActiveScene:   "dusk",
+					TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+				}},
+			},
+		},
+	}
+
+	// Only "managed-zone" is in the reconciler set; "unmanaged-zone"
+	// stays on the imperative path.
+	cfg := Config{ReconcileZones: []string{"managed-zone"}}
+	c, err := New(cfg, logger, zk, &listKubeClient{items: conds})
+	require.NoError(t, err)
+
+	c.evaluate(ctx)
+
+	// The recording ZoneKeeper sees SetState + SetScene only for
+	// unmanaged-zone (one SetState + one SetScene). Managed-zone's
+	// imperative path was skipped — the reconciler would have fired
+	// instead, but its policies map is empty (no PushActivation yet)
+	// so ReconcileZone is a no-op for now.
+	require.Equal(t, 1, zk.setStateCount(),
+		"expected exactly one SetState call (unmanaged-zone only); managed-zone should skip the imperative path")
+	require.Equal(t, 1, zk.setSceneCount(),
+		"expected exactly one SetScene call (unmanaged-zone only)")
+
+	gotZone, _ := zk.firstSetState()
+	require.Equal(t, "unmanaged-zone", gotZone,
+		"the single SetState should be for the unmanaged zone, not the reconciler-managed one")
+}

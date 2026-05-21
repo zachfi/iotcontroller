@@ -99,6 +99,21 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 		alertDriven := len(cond.Spec.Matches) > 0
 
 		for _, rem := range cond.Spec.Remediations {
+			// Reconciler branch — zones in cfg.ReconcileZones route
+			// through the Active Computer Stack writer (Phase B).
+			// Skip the imperative path's per-Remediation activate so
+			// the reconciler is the sole writer for those zones.
+			//
+			// Phase B caveat: declared-Condition pushes to the
+			// reconciler aren't wired yet (next commit). Reconciler-
+			// managed zones today only respond to external
+			// PushActivation calls; they won't auto-fire from
+			// Conditions until the bridge lands. The flag controls
+			// experimental migration timing, not full feature parity.
+			if c.reconcileManaged[rem.Zone] {
+				continue
+			}
+
 			switch {
 			case rem.ActiveCompute != "":
 				if c.evaluateCompute(ctx, cond.Name, rem) {
@@ -121,6 +136,22 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 				}
 				applied++
 			}
+		}
+	}
+
+	// Reconciler tick — for every reconcile-managed zone, drive the
+	// per-tick reconcile (composes target from stacks, flushes on
+	// delta). Independent of the Condition list above; reconcile-
+	// managed zones are driven by PushActivation events, not by
+	// Condition iteration. The periodic call here is the safety net
+	// for state drift between push events (e.g. external SetState
+	// that bypasses the reconciler).
+	for zone := range c.reconcileManaged {
+		if err := c.reconciler.ReconcileZone(ctx, zone, time.Now()); err != nil {
+			c.logger.Debug("evaluator: reconciler tick failed",
+				slog.String("zone", zone),
+				"err", err,
+			)
 		}
 	}
 

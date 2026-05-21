@@ -349,6 +349,21 @@ type Conditioner struct {
 	// (eval-tick reads/writes) and ActivateCondition (event-mode seed)
 	// can reach it without a package cycle.
 	fadeSnapshots *computer.FadeSnapshotStore
+
+	// reconciler is the Active Computer Stack writer for the reconcile-
+	// loop architecture (see docs/reconcile-design.md). Always
+	// constructed; the cfg.ReconcileZones list controls which zones
+	// actually route through it (empty list = reconciler is inert,
+	// imperative path handles everything). Per-zone opt-in lets the
+	// architecture migrate one zone at a time, with safety-critical
+	// zones (heater / pump) staying on the imperative path until the
+	// reconciler has demonstrated fail-safe behavior in their semantics.
+	reconciler *Reconciler
+
+	// reconcileManaged is the set form of cfg.ReconcileZones for O(1)
+	// "is this zone reconciler-managed?" lookups in the evaluator's
+	// per-zone branch.
+	reconcileManaged map[string]bool
 }
 
 // conditionState records the last desired (state, scene) we sent for a
@@ -376,6 +391,25 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		alertActive:   make(map[string]apiv1.Remediation),
 		condState:     make(map[string]conditionState),
 		fadeSnapshots: computer.NewFadeSnapshotStore(),
+	}
+
+	// The reconciler is always constructed; cfg.ReconcileZones controls
+	// whether it's reachable from the apply path. Loc comes from the
+	// same operator config that drives sun-position computers.
+	c.reconciler = NewReconciler(
+		zoneKeeperClient,
+		computer.Location{Lat: cfg.Location.Lat, Lon: cfg.Location.Lon},
+		c.logger,
+		c.tracer,
+	)
+	c.reconcileManaged = make(map[string]bool, len(cfg.ReconcileZones))
+	for _, z := range cfg.ReconcileZones {
+		c.reconcileManaged[z] = true
+	}
+	if len(cfg.ReconcileZones) > 0 {
+		c.logger.Info("reconciler enabled for zones",
+			slog.Any("zones", cfg.ReconcileZones),
+		)
 	}
 
 	// The query Computer pulls from an operator-configured Prometheus
@@ -641,15 +675,36 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 // (ZCL commands, MQTT messages, or any other input that has already been mapped
 // to a Condition name).
 // PushActivation is the reconcile-loop architecture's canonical event
-// entry. Today this returns Unimplemented — the resolver-as-writer
-// (shadow.go's computeZoneTarget becomes the apply path) lands in
-// Phase B of the migration plan; see docs/reconcile-design.md +
-// .claude/plans/humble-foraging-pike.md. The RPC is registered now so
-// the wire surface is stable from the design-doc moment forward, and
-// so any caller that experiments with pushing Activations gets a
-// clear "not yet implemented" rather than a 404.
-func (c *Conditioner) PushActivation(_ context.Context, _ *iotv1proto.PushActivationRequest) (*iotv1proto.PushActivationResponse, error) {
-	return &iotv1proto.PushActivationResponse{}, fmt.Errorf("PushActivation: not implemented (reconcile architecture Phase B pending; see docs/reconcile-design.md)")
+// entry. Inserts the Activation onto the appropriate (zone, axis)
+// stack via the Reconciler, which schedules an immediate reconcile
+// + a TTL wakeup timer. See docs/reconcile-design.md.
+//
+// External callers (operator scripts, Home Assistant, etc.) hit this
+// RPC over the wire. Internal callers (matcher, alert handler,
+// time-window scheduler) can call c.reconciler.PushActivation
+// directly to avoid the gRPC round-trip; same shape, different
+// transport.
+//
+// Returns an error if the activation's computer_name doesn't resolve
+// in the registry, or if validation (empty zone, UNSPECIFIED axis,
+// nil activation) fails. The error is surfaced over the wire so
+// callers see the failure immediately rather than discovering it at
+// next eval tick.
+func (c *Conditioner) PushActivation(ctx context.Context, req *iotv1proto.PushActivationRequest) (*iotv1proto.PushActivationResponse, error) {
+	ctx, span := c.tracer.Start(ctx, "Conditioner.PushActivation",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("zone", req.GetZone()),
+			attribute.String("axis", req.GetAxis().String()),
+		),
+	)
+	defer span.End()
+
+	if err := c.reconciler.PushActivation(ctx, req.GetZone(), req.GetAxis(), req.GetActivation()); err != nil {
+		span.RecordError(err)
+		return &iotv1proto.PushActivationResponse{}, err
+	}
+	return &iotv1proto.PushActivationResponse{}, nil
 }
 
 func (c *Conditioner) ActivateCondition(ctx context.Context, req *iotv1proto.ActivateConditionRequest) (*iotv1proto.ActivateConditionResponse, error) {
