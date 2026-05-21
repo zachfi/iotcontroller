@@ -25,7 +25,7 @@ func TestShadow_SingleContributorComposes(t *testing.T) {
 		Times: []apiv1.TimePeriod{{StartTime: "00:00", EndTime: "24:00"}},
 	}
 	conds := []apiv1.Condition{{
-		ObjectMeta:    metav1Meta("foyer-on"),
+		ObjectMeta: metav1Meta("foyer-on"),
 		Spec: apiv1.ConditionSpec{
 			Enabled: true,
 			Remediations: []apiv1.Remediation{{

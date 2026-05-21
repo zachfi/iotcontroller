@@ -43,6 +43,7 @@ func (l *listKubeClient) List(_ context.Context, obj kubeclient.ObjectList, _ ..
 	// a bug in the eval loop.
 	panic("unexpected List type")
 }
+
 // Get returns a not-found error rather than panicking. The shadow
 // resolver's readZoneStatus calls Get to read Zone.Status; in tests
 // we treat any Get as "Zone not yet observed" and the shadow's

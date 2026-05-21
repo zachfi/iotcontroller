@@ -424,4 +424,3 @@ func parseColorTemperatureEnum(s string) iotv1proto.ColorTemperature {
 	}
 	return iotv1proto.ColorTemperature_COLOR_TEMPERATURE_UNSPECIFIED
 }
-
