@@ -10,10 +10,12 @@ import (
 
 var _ iotv1proto.EventReceiverServiceClient = (*EventReceiverClientMock)(nil)
 
-// EventReceiverClientMock records ActivateCondition calls for use in tests.
+// EventReceiverClientMock records ActivateCondition + PushActivation calls
+// for use in tests.
 type EventReceiverClientMock struct {
 	mu                     sync.Mutex
 	activateConditionCalls []string
+	pushActivationCalls    []*iotv1proto.PushActivationRequest
 }
 
 func (e *EventReceiverClientMock) Alert(_ context.Context, _ *iotv1proto.AlertRequest, _ ...grpc.CallOption) (*iotv1proto.AlertResponse, error) {
@@ -37,5 +39,21 @@ func (e *EventReceiverClientMock) ActivateConditionCalls() []string {
 	defer e.mu.Unlock()
 	out := make([]string, len(e.activateConditionCalls))
 	copy(out, e.activateConditionCalls)
+	return out
+}
+
+func (e *EventReceiverClientMock) PushActivation(_ context.Context, req *iotv1proto.PushActivationRequest, _ ...grpc.CallOption) (*iotv1proto.PushActivationResponse, error) {
+	e.mu.Lock()
+	e.pushActivationCalls = append(e.pushActivationCalls, req)
+	e.mu.Unlock()
+	return &iotv1proto.PushActivationResponse{}, nil
+}
+
+// PushActivationCalls returns a copy of the recorded PushActivation requests.
+func (e *EventReceiverClientMock) PushActivationCalls() []*iotv1proto.PushActivationRequest {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]*iotv1proto.PushActivationRequest, len(e.pushActivationCalls))
+	copy(out, e.pushActivationCalls)
 	return out
 }

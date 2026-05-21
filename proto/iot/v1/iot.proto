@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package iot.v1;
 
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
 message UpdateDeviceResponse {}
 
 // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
@@ -44,10 +47,101 @@ message ActivateConditionRequest {
 }
 message ActivateConditionResponse {}
 
+// ───────────────────────────────────────────────────────────────────
+// Reconcile-loop architecture types (active-Computer-stack model).
+// See docs/reconcile-design.md for the full design. Used by the
+// PushActivation RPC below and by the in-process resolver.
+// ───────────────────────────────────────────────────────────────────
+
+// AxisKind names the per-zone axis an Activation targets. The
+// reconciler maintains an independent stack per axis per zone.
+enum AxisKind {
+  AXIS_KIND_UNSPECIFIED        = 0;
+  AXIS_KIND_STATE              = 1;
+  AXIS_KIND_BRIGHTNESS         = 2;
+  AXIS_KIND_COLOR_TEMPERATURE  = 3;
+  AXIS_KIND_COLOR              = 4;
+}
+
+// SourceKind names the broad class of pusher. The specific
+// identifier within a kind (e.g. "foyer-motion-binding") lives in
+// Activation.source_name as a free-form string.
+enum SourceKind {
+  SOURCE_KIND_UNSPECIFIED  = 0;
+  SOURCE_KIND_BACKGROUND   = 1;  // bottom of stack; never expires
+  SOURCE_KIND_TIME_WINDOW  = 2;
+  SOURCE_KIND_BINDING      = 3;
+  SOURCE_KIND_ALERT        = 4;
+  SOURCE_KIND_BUTTON       = 5;
+  SOURCE_KIND_MANUAL       = 6;  // direct RPC push from an operator
+}
+
+// PushPolicy controls behavior when the same source re-pushes an
+// Activation that's already in the stack.
+enum PushPolicy {
+  PUSH_POLICY_UNSPECIFIED  = 0;
+  // PUSH_POLICY_REFRESH updates the existing entry's pushed_at + ttl
+  // in place. Used by Bindings: each motion event refreshes the TTL
+  // without growing the stack.
+  PUSH_POLICY_REFRESH      = 1;
+  // PUSH_POLICY_REPLACE swaps the existing entry entirely so new
+  // args can take effect.
+  PUSH_POLICY_REPLACE      = 2;
+}
+
+// Activation is one entry in an axis stack. Computer is referenced
+// by name (resolved via the runtime registry); in-process, the
+// resolver caches the function pointer at push time so the
+// reconciler's hot loop avoids per-tick map lookups.
+message Activation {
+  // computer_name resolves via the registered Computer set
+  // (modules/conditioner/computer). Open-ended string because the
+  // registry is runtime-extensible.
+  string computer_name = 1;
+
+  // args are passed verbatim to Computer.Compute. Schema is
+  // computer-specific.
+  map<string, string> args = 2;
+
+  // source_kind classifies the pusher; source_name is the specific
+  // identifier within that kind. Together they form the dedup key
+  // for PUSH_POLICY_REFRESH behavior.
+  SourceKind source_kind = 3;
+  string source_name = 4;
+
+  google.protobuf.Timestamp pushed_at = 5;
+
+  // ttl is how long this Activation stays in the stack from
+  // pushed_at. 0 means no expiration (background entries).
+  google.protobuf.Duration ttl = 6;
+
+  // priority breaks ties when multiple Activations are present on
+  // the same axis. Higher wins; equal priority resolves to the one
+  // with the more recent pushed_at.
+  int32 priority = 7;
+
+  PushPolicy push_policy = 8;
+}
+
+message PushActivationRequest {
+  string zone = 1;
+  AxisKind axis = 2;
+  Activation activation = 3;
+}
+message PushActivationResponse {}
+
 service EventReceiverService {
   rpc Alert(AlertRequest) returns (AlertResponse);
   rpc Epoch(EpochRequest) returns (EpochResponse);
   rpc ActivateCondition(ActivateConditionRequest) returns (ActivateConditionResponse);
+
+  // PushActivation is the canonical entry for the reconcile-loop
+  // architecture. Internal callers (matcher, alert handler,
+  // time-window scheduler) construct the proto and call the
+  // in-process resolver directly — no actual gRPC round-trip.
+  // External callers go through the wire. Same shape; different
+  // transport. See docs/reconcile-design.md.
+  rpc PushActivation(PushActivationRequest) returns (PushActivationResponse);
 }
 
 message SendRequest {

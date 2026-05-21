@@ -640,6 +640,18 @@ func (c *Conditioner) Epoch(ctx context.Context, req *iotv1proto.EpochRequest) (
 // its remediations. This is the entry point for binding-triggered activations
 // (ZCL commands, MQTT messages, or any other input that has already been mapped
 // to a Condition name).
+// PushActivation is the reconcile-loop architecture's canonical event
+// entry. Today this returns Unimplemented — the resolver-as-writer
+// (shadow.go's computeZoneTarget becomes the apply path) lands in
+// Phase B of the migration plan; see docs/reconcile-design.md +
+// .claude/plans/humble-foraging-pike.md. The RPC is registered now so
+// the wire surface is stable from the design-doc moment forward, and
+// so any caller that experiments with pushing Activations gets a
+// clear "not yet implemented" rather than a 404.
+func (c *Conditioner) PushActivation(_ context.Context, _ *iotv1proto.PushActivationRequest) (*iotv1proto.PushActivationResponse, error) {
+	return &iotv1proto.PushActivationResponse{}, fmt.Errorf("PushActivation: not implemented (reconcile architecture Phase B pending; see docs/reconcile-design.md)")
+}
+
 func (c *Conditioner) ActivateCondition(ctx context.Context, req *iotv1proto.ActivateConditionRequest) (*iotv1proto.ActivateConditionResponse, error) {
 	var err error
 	ctx, span := c.tracer.Start(ctx, "Conditioner.ActivateCondition",

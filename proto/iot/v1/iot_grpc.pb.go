@@ -126,6 +126,7 @@ const (
 	EventReceiverService_Alert_FullMethodName             = "/iot.v1.EventReceiverService/Alert"
 	EventReceiverService_Epoch_FullMethodName             = "/iot.v1.EventReceiverService/Epoch"
 	EventReceiverService_ActivateCondition_FullMethodName = "/iot.v1.EventReceiverService/ActivateCondition"
+	EventReceiverService_PushActivation_FullMethodName    = "/iot.v1.EventReceiverService/PushActivation"
 )
 
 // EventReceiverServiceClient is the client API for EventReceiverService service.
@@ -135,6 +136,13 @@ type EventReceiverServiceClient interface {
 	Alert(ctx context.Context, in *AlertRequest, opts ...grpc.CallOption) (*AlertResponse, error)
 	Epoch(ctx context.Context, in *EpochRequest, opts ...grpc.CallOption) (*EpochResponse, error)
 	ActivateCondition(ctx context.Context, in *ActivateConditionRequest, opts ...grpc.CallOption) (*ActivateConditionResponse, error)
+	// PushActivation is the canonical entry for the reconcile-loop
+	// architecture. Internal callers (matcher, alert handler,
+	// time-window scheduler) construct the proto and call the
+	// in-process resolver directly — no actual gRPC round-trip.
+	// External callers go through the wire. Same shape; different
+	// transport. See docs/reconcile-design.md.
+	PushActivation(ctx context.Context, in *PushActivationRequest, opts ...grpc.CallOption) (*PushActivationResponse, error)
 }
 
 type eventReceiverServiceClient struct {
@@ -175,6 +183,16 @@ func (c *eventReceiverServiceClient) ActivateCondition(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *eventReceiverServiceClient) PushActivation(ctx context.Context, in *PushActivationRequest, opts ...grpc.CallOption) (*PushActivationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PushActivationResponse)
+	err := c.cc.Invoke(ctx, EventReceiverService_PushActivation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EventReceiverServiceServer is the server API for EventReceiverService service.
 // All implementations should embed UnimplementedEventReceiverServiceServer
 // for forward compatibility.
@@ -182,6 +200,13 @@ type EventReceiverServiceServer interface {
 	Alert(context.Context, *AlertRequest) (*AlertResponse, error)
 	Epoch(context.Context, *EpochRequest) (*EpochResponse, error)
 	ActivateCondition(context.Context, *ActivateConditionRequest) (*ActivateConditionResponse, error)
+	// PushActivation is the canonical entry for the reconcile-loop
+	// architecture. Internal callers (matcher, alert handler,
+	// time-window scheduler) construct the proto and call the
+	// in-process resolver directly — no actual gRPC round-trip.
+	// External callers go through the wire. Same shape; different
+	// transport. See docs/reconcile-design.md.
+	PushActivation(context.Context, *PushActivationRequest) (*PushActivationResponse, error)
 }
 
 // UnimplementedEventReceiverServiceServer should be embedded to have
@@ -199,6 +224,9 @@ func (UnimplementedEventReceiverServiceServer) Epoch(context.Context, *EpochRequ
 }
 func (UnimplementedEventReceiverServiceServer) ActivateCondition(context.Context, *ActivateConditionRequest) (*ActivateConditionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ActivateCondition not implemented")
+}
+func (UnimplementedEventReceiverServiceServer) PushActivation(context.Context, *PushActivationRequest) (*PushActivationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PushActivation not implemented")
 }
 func (UnimplementedEventReceiverServiceServer) testEmbeddedByValue() {}
 
@@ -274,6 +302,24 @@ func _EventReceiverService_ActivateCondition_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EventReceiverService_PushActivation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PushActivationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EventReceiverServiceServer).PushActivation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EventReceiverService_PushActivation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EventReceiverServiceServer).PushActivation(ctx, req.(*PushActivationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EventReceiverService_ServiceDesc is the grpc.ServiceDesc for EventReceiverService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -292,6 +338,10 @@ var EventReceiverService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ActivateCondition",
 			Handler:    _EventReceiverService_ActivateCondition_Handler,
+		},
+		{
+			MethodName: "PushActivation",
+			Handler:    _EventReceiverService_PushActivation_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
