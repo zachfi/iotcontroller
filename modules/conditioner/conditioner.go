@@ -478,13 +478,21 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 	// iotcontroller_conditioner_evaluation_compute_unknown_total —
 	// the operator's signal to wire the flag.
 	if cfg.Query.Endpoint != "" {
-		computer.Register(computer.QueryName, computer.NewQuery(computer.QueryConfig{
+		promCfg := computer.QueryConfig{
 			Endpoint:        cfg.Query.Endpoint,
 			Tenant:          cfg.Query.Tenant,
 			Timeout:         cfg.Query.Timeout,
 			AuthTokenEnvVar: cfg.Query.AuthTokenEnvVar,
 			Logger:          c.logger,
-		}))
+		}
+		computer.Register(computer.QueryName, computer.NewQuery(promCfg))
+		// prom_scalar is the continuous-output sibling of query.
+		// Registered with the same QueryConfig — both Computers hit
+		// the same Mimir endpoint with the same auth + tenant; the
+		// only difference is whether the operator wants a discrete
+		// threshold (query, two-bundle output) or a linear map
+		// (prom_scalar, single continuous axis).
+		computer.Register(computer.PromScalarName, computer.NewPromScalar(promCfg))
 	}
 
 	// Register fade. The Computer holds references to the snapshot

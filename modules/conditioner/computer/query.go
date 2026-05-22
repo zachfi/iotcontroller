@@ -4,15 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"net/url"
-	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,27 +45,18 @@ type QueryConfig struct {
 // `computer.Register(QueryName, NewQuery(cfg))` from the conditioner
 // module's start hook when cfg.Endpoint is non-empty.
 //
-// The HTTP client is process-wide and reused across every Compute
-// call — connection pooling against Mimir / Prometheus stays warm,
-// and a slow query consumes one in-flight goroutine, not a fresh TCP
-// handshake each tick.
+// The HTTP client lives inside a shared *promClient — both `query`
+// and `prom_scalar` (continuous-output sibling) construct their own
+// promClient from the same QueryConfig, so each Computer gets its
+// own pooled connections to Mimir but the wire-level fetch logic is
+// the same.
 func NewQuery(cfg QueryConfig) Computer {
-	timeout := cfg.Timeout
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-	var token string
-	if cfg.AuthTokenEnvVar != "" {
-		token = os.Getenv(cfg.AuthTokenEnvVar)
-	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &query{
-		client: &http.Client{Timeout: timeout},
-		cfg:    cfg,
-		token:  token,
+		pc:     newPromClient(cfg),
 		logger: logger.With("computer", QueryName),
 		cache:  map[string]ApplyValues{},
 	}
@@ -118,26 +103,11 @@ func NewQuery(cfg QueryConfig) Computer {
 // identical args share one cache entry — they'd compute the same
 // ApplyValues anyway, so collision is intentional and lossless.
 type query struct {
-	client *http.Client
-	cfg    QueryConfig
-	token  string
+	pc     *promClient
 	logger *slog.Logger
 
 	cacheMu sync.Mutex
 	cache   map[string]ApplyValues
-}
-
-// promResult is the subset of Prometheus's query-API response shape
-// that we consume. We only support `resultType=scalar` and
-// `resultType=vector` (taking the first sample of the vector).
-type promResult struct {
-	Status string `json:"status"`
-	Data   struct {
-		ResultType string          `json:"resultType"`
-		Result     json.RawMessage `json:"result"`
-	} `json:"data"`
-	ErrorType string `json:"errorType"`
-	Error     string `json:"error"`
 }
 
 func (q *query) Compute(ctx context.Context, now time.Time, _ Location, args map[string]string) (ApplyValues, error) {
@@ -155,7 +125,7 @@ func (q *query) Compute(ctx context.Context, now time.Time, _ Location, args map
 	condLabel := args["_condition"]
 	zoneLabel := args["_zone"]
 
-	value, err := q.fetch(ctx, promql, now)
+	value, err := q.pc.Fetch(ctx, promql, now)
 	if err != nil {
 		// Resolution order: declared fail-safe > cache > error.
 		// Operators of safety-critical zones (pump, heater) MUST set
@@ -212,100 +182,6 @@ func (q *query) Compute(ctx context.Context, now time.Time, _ Location, args map
 	q.cacheMu.Unlock()
 
 	return vals, nil
-}
-
-// fetch issues a Prometheus /api/v1/query against q.cfg.Endpoint and
-// returns the scalar value (first sample for vector results). Returns
-// an error on any HTTP, parse, or response-status problem.
-func (q *query) fetch(ctx context.Context, promql string, now time.Time) (float64, error) {
-	endpoint := strings.TrimRight(q.cfg.Endpoint, "/")
-	u, err := url.Parse(endpoint + "/api/v1/query")
-	if err != nil {
-		return 0, fmt.Errorf("parse endpoint %q: %w", q.cfg.Endpoint, err)
-	}
-	params := u.Query()
-	params.Set("query", promql)
-	params.Set("time", strconv.FormatInt(now.Unix(), 10))
-	u.RawQuery = params.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return 0, fmt.Errorf("build request: %w", err)
-	}
-	if q.cfg.Tenant != "" {
-		req.Header.Set("X-Scope-OrgID", q.cfg.Tenant)
-	}
-	if q.token != "" {
-		req.Header.Set("Authorization", "Bearer "+q.token)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := q.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("HTTP: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("read body: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var pr promResult
-	if err := json.Unmarshal(body, &pr); err != nil {
-		return 0, fmt.Errorf("parse JSON: %w", err)
-	}
-	if pr.Status != "success" {
-		return 0, fmt.Errorf("response status %q: %s: %s", pr.Status, pr.ErrorType, pr.Error)
-	}
-
-	switch pr.Data.ResultType {
-	case "scalar":
-		// [<unix>, "<value>"]
-		var pair [2]json.RawMessage
-		if err := json.Unmarshal(pr.Data.Result, &pair); err != nil {
-			return 0, fmt.Errorf("parse scalar: %w", err)
-		}
-		return parseFloatValue(pair[1])
-
-	case "vector":
-		// [{metric, value: [<unix>, "<value>"]}, ...]. Take first.
-		var samples []struct {
-			Value [2]json.RawMessage `json:"value"`
-		}
-		if err := json.Unmarshal(pr.Data.Result, &samples); err != nil {
-			return 0, fmt.Errorf("parse vector: %w", err)
-		}
-		if len(samples) == 0 {
-			// Empty vector: nothing matched. Treat as zero —
-			// operators can use on_false to express "no instances"
-			// behaviour.
-			return 0, nil
-		}
-		return parseFloatValue(samples[0].Value[1])
-
-	default:
-		return 0, fmt.Errorf("unsupported resultType %q", pr.Data.ResultType)
-	}
-}
-
-// parseFloatValue strips the quotes Prometheus wraps numeric values in
-// when serializing the [time, value] pair.
-func parseFloatValue(raw json.RawMessage) (float64, error) {
-	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
-		// Some servers return the value already as a number rather
-		// than a quoted string. Fall back.
-		var f float64
-		if err2 := json.Unmarshal(raw, &f); err2 == nil {
-			return f, nil
-		}
-		return 0, fmt.Errorf("parse value: %w", err)
-	}
-	return strconv.ParseFloat(s, 64)
 }
 
 // hashArgs produces a stable cache key for the args map. Map iteration
