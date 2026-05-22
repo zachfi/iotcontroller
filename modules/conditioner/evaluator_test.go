@@ -72,7 +72,24 @@ func (l *listKubeClient) Patch(_ context.Context, _ kubeclient.Object, _ kubecli
 func (l *listKubeClient) DeleteAllOf(_ context.Context, _ kubeclient.Object, _ ...kubeclient.DeleteAllOfOption) error {
 	panic("not implemented")
 }
-func (l *listKubeClient) Status() kubeclient.SubResourceWriter              { panic("not implemented") }
+func (l *listKubeClient) Status() kubeclient.SubResourceWriter              { return noopSubResourceWriter{} }
+
+// noopSubResourceWriter satisfies the controller-runtime SubResourceWriter
+// interface with no-op methods. Used by listKubeClient so the bridge's
+// reflectStatus Status().Patch call doesn't panic in tests that don't
+// otherwise care about Status reflection. Tests that DO want to assert
+// the patch shape should use a fake client (see reconciler_test.go).
+type noopSubResourceWriter struct{}
+
+func (noopSubResourceWriter) Create(_ context.Context, _ kubeclient.Object, _ kubeclient.Object, _ ...kubeclient.SubResourceCreateOption) error {
+	return nil
+}
+func (noopSubResourceWriter) Update(_ context.Context, _ kubeclient.Object, _ ...kubeclient.SubResourceUpdateOption) error {
+	return nil
+}
+func (noopSubResourceWriter) Patch(_ context.Context, _ kubeclient.Object, _ kubeclient.Patch, _ ...kubeclient.SubResourcePatchOption) error {
+	return nil
+}
 func (l *listKubeClient) SubResource(_ string) kubeclient.SubResourceClient { panic("not implemented") }
 func (l *listKubeClient) Scheme() *runtime.Scheme                           { panic("not implemented") }
 func (l *listKubeClient) RESTMapper() meta.RESTMapper                       { panic("not implemented") }

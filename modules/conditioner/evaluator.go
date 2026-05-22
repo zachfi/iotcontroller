@@ -99,17 +99,21 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 
 		for _, rem := range cond.Spec.Remediations {
 			// Reconciler branch — zones in cfg.ReconcileZones route
-			// through the Active Computer Stack writer (Phase B).
-			// Skip the imperative path's per-Remediation activate so
-			// the reconciler is the sole writer for those zones.
+			// through the Active Computer Stack writer. The eval
+			// loop dispatches to bridgeReconciledRemediation, which
+			// translates the Remediation into PushActivation events.
+			// Time-window gating mirrors the imperative path; outside
+			// the window the bridge no-ops and any Activation already
+			// on the stack ages out via TTL.
 			//
-			// Phase B caveat: declared-Condition pushes to the
-			// reconciler aren't wired yet (next commit). Reconciler-
-			// managed zones today only respond to external
-			// PushActivation calls; they won't auto-fire from
-			// Conditions until the bridge lands. The flag controls
-			// experimental migration timing, not full feature parity.
+			// Bindings + alerts still flow through the imperative
+			// activateRemediation path. For reconcile-managed zones
+			// both writers are active during overlap, but their values
+			// concord (motion-evening + time-windowed dusk both want
+			// state=on), so the dedup caches absorb duplicates.
 			if c.isReconcileManaged(rem.Zone) {
+				c.bridgeReconciledRemediation(ctx, cond.Name, rem)
+				applied++
 				continue
 			}
 
