@@ -2,6 +2,7 @@ package zonekeeper
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -423,12 +424,26 @@ func (z *ZoneKeeper) apiStatusUpdate(ctx context.Context, iotZone *iot.Zone) {
 		return
 	}
 
-	zone.Status.State = iotZone.State().String()
-	zone.Status.Brightness = iotv1proto.Brightness_name[int32(iotZone.Brightness())]
-	zone.Status.ColorTemperature = iotv1proto.ColorTemperature_name[int32(iotZone.ColorTemperature())]
-	zone.Status.Color = color
-
-	if err = z.kubeclient.Status().Update(ctx, zone); err != nil {
+	// Status().Patch on only the zonekeeper-owned fields rather than
+	// Status().Update on the whole sub-resource. The conditioner's
+	// reconciler also writes to Status (reconciler_stack +
+	// last_reconciled_at fields) and its writes go straight to the
+	// apiserver while zonekeeper's Get may have come from a stale
+	// controller-runtime cache; a full Update would overwrite the
+	// reconciler's fields with the cached zeros. JSON merge patch
+	// touches only the keys we list.
+	statusBody, err := json.Marshal(map[string]any{
+		"status": map[string]any{
+			"state":             iotZone.State().String(),
+			"brightness":        iotv1proto.Brightness_name[int32(iotZone.Brightness())],
+			"color_temperature": iotv1proto.ColorTemperature_name[int32(iotZone.ColorTemperature())],
+			"color":             color,
+		},
+	})
+	if err != nil {
+		return
+	}
+	if err = z.kubeclient.Status().Patch(ctx, zone, kubeclient.RawPatch(types.MergePatchType, statusBody)); err != nil {
 		return
 	}
 

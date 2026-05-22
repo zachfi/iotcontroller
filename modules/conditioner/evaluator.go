@@ -74,15 +74,19 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 		return
 	}
 
-	// Build the set of Binding-referenced Condition names. These
-	// Conditions fire via the Binding match → ActivateCondition path,
-	// NOT from the eval loop, even though they typically carry
-	// TimeIntervals as gates. Bridging them would push every tick
-	// while the operator's intent is "only on event AND in window";
-	// for reconcile-managed zones that produces structural ping-pong
-	// on the state axis when motion-on and motion-off Conditions
-	// alternate as top-of-stack each tick.
-	bindingRefs := c.bindingReferencedConditions(ctx)
+	// Build the set of sensor-bound Condition names. These Conditions
+	// have a Binding whose trigger is a sensor (motion, leak, contact,
+	// etc.) — their TimeIntervals are gates on the sensor-driven
+	// path, NOT eval-loop triggers. Bridging them would push every
+	// tick while the operator's intent is "only on event AND in
+	// window"; for reconcile-managed zones that produces structural
+	// ping-pong on the state axis when motion-on and motion-off
+	// Conditions alternate as top-of-stack each tick.
+	//
+	// Button-bound Conditions (event.property=="action") are NOT in
+	// this set — they have an additional schedule-trigger intent that
+	// the eval loop should keep firing.
+	sensorBound := c.sensorBoundConditions(ctx)
 
 	var applied int
 	for i := range list.Items {
@@ -124,12 +128,12 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 			if c.isReconcileManaged(rem.Zone) {
 				// Mirror the imperative branch gates: only bridge
 				// Remediations the eval loop would have fired through
-				// activateRemediation. Skip Binding-referenced
-				// Conditions even when they have TimeIntervals — those
-				// gates are for the Binding-driven path, not for the
-				// eval loop, and bridging them produces ping-pong on
-				// the state axis between motion-on and motion-off.
-				if bindingRefs[cond.Name] {
+				// activateRemediation. Skip sensor-bound Conditions
+				// even when they have TimeIntervals — those gates are
+				// for the sensor-driven path, not for the eval loop,
+				// and bridging them produces ping-pong on the state
+				// axis between motion-on and motion-off.
+				if sensorBound[cond.Name] {
 					continue
 				}
 				switch {
@@ -197,15 +201,36 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 	c.runShadow(ctx)
 }
 
-// bindingReferencedConditions lists all Bindings and returns the set
-// of Condition names referenced by .spec.condition. Used by the eval
-// loop to skip bridging Conditions that fire on Binding match — their
-// TimeIntervals are gates, not standalone triggers. A list error
-// returns an empty set; the caller treats absence as "no Conditions
-// are binding-referenced" which is the safe-degrade direction (worst
-// case: bridge over-pushes, which the existing dedup caches still
-// absorb when values are concordant).
-func (c *Conditioner) bindingReferencedConditions(ctx context.Context) map[string]bool {
+// sensorBindingProperties lists EventTrigger.Property values that
+// represent automatic-sensor inputs (vs operator-press inputs).
+// Conditions referenced by a Binding with one of these properties
+// have their TimeIntervals acting as GATES on the sensor-driven path;
+// the eval loop firing them produces structural ping-pong (the
+// foyer-motion-on/motion-off case). Properties NOT in this set (e.g.
+// "action" for button presses) are operator-intent triggers — the
+// Condition's TimeIntervals are first-class schedule triggers AND the
+// button is an alias, so the eval loop should still bridge them.
+//
+// Add new sensor properties here as devices arrive (vibration,
+// tamper, smoke, etc.) — anything where the device decides when to
+// fire, not the operator.
+var sensorBindingProperties = map[string]bool{
+	"occupancy":  true,
+	"water_leak": true,
+	"contact":    true,
+	"vibration":  true,
+	"tamper":     true,
+}
+
+// sensorBoundConditions lists all Bindings and returns the set of
+// Condition names referenced by a Binding whose EventTrigger.Property
+// is in sensorBindingProperties. Used by the eval loop to skip
+// bridging Conditions whose TimeIntervals are sensor-gates rather
+// than schedule-triggers. A list error returns an empty set; the
+// caller treats absence as "no Conditions are sensor-bound" which is
+// the safe-degrade direction (worst case: bridge over-pushes, which
+// the existing dedup caches still absorb when values are concordant).
+func (c *Conditioner) sensorBoundConditions(ctx context.Context) map[string]bool {
 	out := map[string]bool{}
 	if c.kubeClient == nil {
 		return out
@@ -216,7 +241,7 @@ func (c *Conditioner) bindingReferencedConditions(ctx context.Context) map[strin
 		return out
 	}
 	for _, b := range bl.Items {
-		if b.Spec.Condition != "" {
+		if b.Spec.Condition != "" && sensorBindingProperties[b.Spec.Event.Property] {
 			out[b.Spec.Condition] = true
 		}
 	}
