@@ -74,6 +74,16 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 		return
 	}
 
+	// Build the set of Binding-referenced Condition names. These
+	// Conditions fire via the Binding match → ActivateCondition path,
+	// NOT from the eval loop, even though they typically carry
+	// TimeIntervals as gates. Bridging them would push every tick
+	// while the operator's intent is "only on event AND in window";
+	// for reconcile-managed zones that produces structural ping-pong
+	// on the state axis when motion-on and motion-off Conditions
+	// alternate as top-of-stack each tick.
+	bindingRefs := c.bindingReferencedConditions(ctx)
+
 	var applied int
 	for i := range list.Items {
 		cond := &list.Items[i]
@@ -112,8 +122,24 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 			// concord (motion-evening + time-windowed dusk both want
 			// state=on), so the dedup caches absorb duplicates.
 			if c.isReconcileManaged(rem.Zone) {
-				c.bridgeReconciledRemediation(ctx, cond.Name, rem)
-				applied++
+				// Mirror the imperative branch gates: only bridge
+				// Remediations the eval loop would have fired through
+				// activateRemediation. Skip Binding-referenced
+				// Conditions even when they have TimeIntervals — those
+				// gates are for the Binding-driven path, not for the
+				// eval loop, and bridging them produces ping-pong on
+				// the state axis between motion-on and motion-off.
+				if bindingRefs[cond.Name] {
+					continue
+				}
+				switch {
+				case rem.ActiveCompute != "":
+					c.bridgeReconciledRemediation(ctx, cond.Name, rem)
+					applied++
+				case len(rem.TimeIntervals) > 0 && !alertDriven:
+					c.bridgeReconciledRemediation(ctx, cond.Name, rem)
+					applied++
+				}
 				continue
 			}
 
@@ -169,6 +195,32 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 	// lines; never writes. See modules/conditioner/shadow.go for the
 	// experiment's design and out-of-scope filters.
 	c.runShadow(ctx)
+}
+
+// bindingReferencedConditions lists all Bindings and returns the set
+// of Condition names referenced by .spec.condition. Used by the eval
+// loop to skip bridging Conditions that fire on Binding match — their
+// TimeIntervals are gates, not standalone triggers. A list error
+// returns an empty set; the caller treats absence as "no Conditions
+// are binding-referenced" which is the safe-degrade direction (worst
+// case: bridge over-pushes, which the existing dedup caches still
+// absorb when values are concordant).
+func (c *Conditioner) bindingReferencedConditions(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	if c.kubeClient == nil {
+		return out
+	}
+	bl := &apiv1.BindingList{}
+	if err := c.kubeClient.List(ctx, bl, &kubeclient.ListOptions{}); err != nil {
+		c.logger.Debug("evaluator: failed to list bindings; bridge will treat all Conditions as eval-fireable", "err", err)
+		return out
+	}
+	for _, b := range bl.Items {
+		if b.Spec.Condition != "" {
+			out[b.Spec.Condition] = true
+		}
+	}
+	return out
 }
 
 // maybeWarnDeprecatedSchedule emits a once-per-Condition warning when

@@ -40,8 +40,11 @@ func (l *listKubeClient) List(_ context.Context, obj kubeclient.ObjectList, _ ..
 		cl.Items = append(cl.Items[:0], l.items...)
 		return nil
 	}
-	// The evaluator only Lists ConditionList. Other Lists would be
-	// a bug in the eval loop.
+	if _, ok := obj.(*apiv1.BindingList); ok {
+		// Empty Binding set — tests that want to assert
+		// binding-referenced behavior should use a richer fake.
+		return nil
+	}
 	panic("unexpected List type")
 }
 
@@ -72,7 +75,7 @@ func (l *listKubeClient) Patch(_ context.Context, _ kubeclient.Object, _ kubecli
 func (l *listKubeClient) DeleteAllOf(_ context.Context, _ kubeclient.Object, _ ...kubeclient.DeleteAllOfOption) error {
 	panic("not implemented")
 }
-func (l *listKubeClient) Status() kubeclient.SubResourceWriter              { return noopSubResourceWriter{} }
+func (l *listKubeClient) Status() kubeclient.SubResourceWriter { return noopSubResourceWriter{} }
 
 // noopSubResourceWriter satisfies the controller-runtime SubResourceWriter
 // interface with no-op methods. Used by listKubeClient so the bridge's

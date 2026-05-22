@@ -28,18 +28,24 @@ import (
 // when the apply path is exercised, the recordingZoneKeeper-style
 // ApplyValues capture.
 
-// bridgeTestClient is a kubeclient.Client that serves both Condition
-// lists and Scene Gets. Tests pass a list of Conditions to drive the
-// eval loop and a map of Scene name → SceneSpec to drive the bridge's
-// active_scene resolution.
+// bridgeTestClient is a kubeclient.Client that serves Condition lists,
+// Binding lists, and Scene Gets. Tests pass a list of Conditions to
+// drive the eval loop, Bindings for the binding-referenced skip, and a
+// map of Scene name → SceneSpec to drive the bridge's active_scene
+// resolution.
 type bridgeTestClient struct {
 	conditions []apiv1.Condition
+	bindings   []apiv1.Binding
 	scenes     map[string]apiv1.SceneSpec
 }
 
 func (b *bridgeTestClient) List(_ context.Context, obj kubeclient.ObjectList, _ ...kubeclient.ListOption) error {
 	if cl, ok := obj.(*apiv1.ConditionList); ok {
 		cl.Items = append(cl.Items[:0], b.conditions...)
+		return nil
+	}
+	if bl, ok := obj.(*apiv1.BindingList); ok {
+		bl.Items = append(bl.Items[:0], b.bindings...)
 		return nil
 	}
 	return nil
@@ -276,6 +282,80 @@ func newFakeSchemeClient(t *testing.T, objs ...client.Object) client.Client {
 		WithObjects(objs...).
 		WithStatusSubresource(&apiv1.Zone{}).
 		Build()
+}
+
+// TestBridge_BindingReferencedCondition_Skipped — Conditions referenced
+// by a Binding fire via the Binding-match → ActivateCondition path,
+// not the eval loop. The bridge must NOT push for those even when
+// their Remediation has TimeIntervals (which act as gates on the
+// Binding-driven path). This is the regression test for the relay-
+// click ping-pong on foyer's state axis caused by motion-on /
+// motion-off Conditions both being eval-loop-bridged.
+func TestBridge_BindingReferencedCondition_Skipped(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	allDay := apiv1.TimeIntervalSpec{
+		Times: []apiv1.TimePeriod{{StartTime: "00:00", EndTime: "24:00"}},
+	}
+
+	// One eval-driven Condition (foo-dusk) and one Binding-driven
+	// (foo-motion-on). Both target the same zone and the same axis;
+	// without the skip, they'd alternate top-of-stack each tick.
+	conditions := []apiv1.Condition{
+		{
+			ObjectMeta: metav1Meta("foo-dusk"),
+			Spec: apiv1.ConditionSpec{
+				Enabled: true,
+				Remediations: []apiv1.Remediation{{
+					Zone:          "managed",
+					ActiveState:   "on",
+					TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+				}},
+			},
+		},
+		{
+			ObjectMeta: metav1Meta("foo-motion-on"),
+			Spec: apiv1.ConditionSpec{
+				Enabled: true,
+				Remediations: []apiv1.Remediation{{
+					Zone:          "managed",
+					ActiveState:   "off", // disagrees with foo-dusk
+					TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+				}},
+			},
+		},
+	}
+	bindings := []apiv1.Binding{
+		{
+			ObjectMeta: metav1Meta("motion-binding"),
+			Spec: apiv1.BindingSpec{
+				Event:     apiv1.EventTrigger{Property: "occupancy", Value: "true"},
+				Condition: "foo-motion-on",
+			},
+		},
+	}
+	kc := &bridgeTestClient{conditions: conditions, bindings: bindings}
+
+	zk := &recordingZoneKeeperForReconciler{}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed"}}
+	c, err := New(cfg, logger, zk, kc)
+	require.NoError(t, err)
+
+	c.evaluate(ctx)
+	c.evaluate(ctx)
+
+	// Only foo-dusk should have pushed (state=ON). foo-motion-on is
+	// binding-referenced, so the bridge skipped it.
+	require.True(t, c.reconciler.hasPolicy("managed"))
+	last := zk.lastApply()
+	require.NotNil(t, last)
+	require.Equal(t, "ZONE_STATE_ON", last.State.String(),
+		"top of stack should be foo-dusk's state=on; foo-motion-on should NOT have been bridged")
+
+	// And exactly ONE apply across two evaluate cycles — no ping-pong.
+	require.Equal(t, 1, zk.applyCount(),
+		"two evaluates with binding-referenced condition skipped produces one apply (cache absorbs the second)")
 }
 
 // TestBridge_StatusReflectsAfterPush — exercise the full

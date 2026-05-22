@@ -531,7 +531,6 @@ func (r *Reconciler) reflectStatus(ctx context.Context, zone string, policy *zon
 	}
 }
 
-
 // policy returns the zonePolicy for `zone`, creating it lazily on
 // first access. Write-locked so concurrent first-pushes for the same
 // zone don't race on map creation.
