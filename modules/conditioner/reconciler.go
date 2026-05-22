@@ -2,20 +2,31 @@ package conditioner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/modules/conditioner/computer"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
+
+// statusZoneNamespace is where Zone CRs live. Hardcoded today (same
+// constant the Conditioner uses); revisit if we ever multi-tenant.
+const statusZoneNamespace = "iot"
 
 // reconciler.go — the writer side of Phase B. Reads Active Computer
 // Stacks (from stack.go), composes a per-zone target, and flushes via
@@ -51,6 +62,7 @@ import (
 // the Conditioner.
 type Reconciler struct {
 	zonekeeperClient iotv1proto.ZoneKeeperServiceClient
+	kubeClient       kubeclient.Client
 	location         computer.Location
 	logger           *slog.Logger
 	tracer           trace.Tracer
@@ -79,6 +91,15 @@ type Reconciler struct {
 	lastAppliedMu sync.Mutex
 	lastApplied   map[string]computer.ApplyValues
 
+	// prevTopSource caches the previous-tick top-of-stack source per
+	// (zone, axis). Lets ReconcileZone emit a "top changed" log + metric
+	// only on actual transitions (a 30-second motion refresh produces
+	// hundreds of redundant pushes; we want one log when the lamp
+	// behavior actually changed, not one per push). Key is the same
+	// (zone/axis/id) shape we use for TTL timers.
+	prevTopSourceMu sync.Mutex
+	prevTopSource   map[string]string
+
 	// now is the time function; tests inject a fake clock.
 	now func() time.Time
 	// afterFunc schedules a delayed callback; tests inject a fake
@@ -102,7 +123,12 @@ func (r realTimer) Stop() bool { return r.t.Stop() }
 // ReconcileZone calls. Loc is the operator-configured (lat, lon)
 // passed through to Computer.Compute. The Reconciler is dormant
 // until the first PushActivation arrives; no goroutines started here.
-func NewReconciler(zk iotv1proto.ZoneKeeperServiceClient, loc computer.Location, logger *slog.Logger, tracer trace.Tracer) *Reconciler {
+// NewReconciler builds a Reconciler ready to serve PushActivation and
+// ReconcileZone calls. `kc` is optional — when nil, Status reflection
+// is silently skipped (the rest of the reconcile loop still works).
+// Tests typically pass nil; production wires the same controller-
+// runtime client the Conditioner uses for Condition CR reads.
+func NewReconciler(zk iotv1proto.ZoneKeeperServiceClient, kc kubeclient.Client, loc computer.Location, logger *slog.Logger, tracer trace.Tracer) *Reconciler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -111,6 +137,7 @@ func NewReconciler(zk iotv1proto.ZoneKeeperServiceClient, loc computer.Location,
 	}
 	return &Reconciler{
 		zonekeeperClient: zk,
+		kubeClient:       kc,
 		location:         loc,
 		logger:           logger.With("component", "reconciler"),
 		tracer:           tracer,
@@ -118,6 +145,7 @@ func NewReconciler(zk iotv1proto.ZoneKeeperServiceClient, loc computer.Location,
 		zoneLocks:        make(map[string]*sync.Mutex),
 		lastApplied:      make(map[string]computer.ApplyValues),
 		ttlTimers:        make(map[string]reconcileTimer),
+		prevTopSource:    make(map[string]string),
 		now:              time.Now,
 		afterFunc: func(d time.Duration, f func()) reconcileTimer {
 			return realTimer{t: time.AfterFunc(d, f)}
@@ -144,6 +172,14 @@ func NewReconciler(zk iotv1proto.ZoneKeeperServiceClient, loc computer.Location,
 //     a harmless no-op when it fires (lazy expiration in top()
 //     handles it).
 func (r *Reconciler) PushActivation(ctx context.Context, zone string, axis iotv1proto.AxisKind, act *iotv1proto.Activation) error {
+	ctx, span := r.tracer.Start(ctx, "Reconciler.PushActivation",
+		trace.WithAttributes(
+			attribute.String("zone", zone),
+			attribute.String("axis", axis.String()),
+		),
+	)
+	defer span.End()
+
 	if zone == "" {
 		return errors.New("PushActivation: zone is required")
 	}
@@ -153,11 +189,23 @@ func (r *Reconciler) PushActivation(ctx context.Context, zone string, axis iotv1
 	if act == nil {
 		return errors.New("PushActivation: activation is required")
 	}
+	span.SetAttributes(
+		attribute.String("computer", act.ComputerName),
+		attribute.String("source_kind", act.SourceKind.String()),
+		attribute.String("source_name", act.SourceName),
+		attribute.String("push_policy", act.PushPolicy.String()),
+		attribute.Int64("priority", int64(act.Priority)),
+		attribute.Int64("ttl_ms", act.Ttl.AsDuration().Milliseconds()),
+	)
 
 	policy := r.policy(zone)
 	if err := policy.pushActivation(axis, act, r.logger); err != nil {
+		span.RecordError(err)
 		return err
 	}
+	metricReconcilePushTotal.WithLabelValues(
+		zone, axis.String(), act.SourceKind.String(), act.PushPolicy.String(),
+	).Inc()
 
 	if act.Ttl != nil {
 		ttl := act.Ttl.AsDuration()
@@ -233,22 +281,32 @@ func (r *Reconciler) ReconcileZone(ctx context.Context, zone string, now time.Ti
 	// Memory bookkeeping: drop expired entries before the read.
 	// top() also filters via expired() so this is non-load-bearing
 	// for correctness; it keeps the slice bounded.
-	for _, axis := range []iotv1proto.AxisKind{
+	axes := []iotv1proto.AxisKind{
 		iotv1proto.AxisKind_AXIS_KIND_STATE,
 		iotv1proto.AxisKind_AXIS_KIND_BRIGHTNESS,
 		iotv1proto.AxisKind_AXIS_KIND_COLOR_TEMPERATURE,
 		iotv1proto.AxisKind_AXIS_KIND_COLOR,
-	} {
+	}
+	for _, axis := range axes {
 		if s, ok := policy.stacks[axis]; ok {
 			s.removeExpired(now)
 		}
 	}
+
+	// Capture the per-axis top for this tick — used both to compose
+	// the target and to detect transitions vs the previous tick.
+	tops := policy.activeContributorsByAxis(now)
+	r.observeTopChanges(zone, tops, span)
+	r.sampleStackDepths(zone, policy)
 
 	// Compose target from the top of each axis stack.
 	target, err := policy.applyTopToValues(ctx, now, r.location)
 	if err != nil {
 		span.RecordError(err)
 		metricReconcileComputeError.WithLabelValues(zone).Inc()
+		// Still reflect what we observed; operators want to see the
+		// stack state even when its top's Computer errored.
+		r.reflectStatus(ctx, zone, policy, now)
 		return err
 	}
 
@@ -261,6 +319,11 @@ func (r *Reconciler) ReconcileZone(ctx context.Context, zone string, now time.Ti
 	if same {
 		metricReconcileApplySuppressed.WithLabelValues(zone, "no_delta").Inc()
 		span.SetAttributes(attribute.Bool("delta", false))
+		// Refresh-only pushes (motion sensor heartbeat) bump pushed_at
+		// but compose the same target. The operator still wants to see
+		// the updated last_reconciled_at + a refreshed expires_at on
+		// the active override.
+		r.reflectStatus(ctx, zone, policy, now)
 		return nil
 	}
 
@@ -271,6 +334,7 @@ func (r *Reconciler) ReconcileZone(ctx context.Context, zone string, now time.Ti
 	if isEmptyTarget(target) {
 		metricReconcileApplySuppressed.WithLabelValues(zone, "empty_target").Inc()
 		span.SetAttributes(attribute.Bool("delta", false), attribute.Bool("empty", true))
+		r.reflectStatus(ctx, zone, policy, now)
 		return nil
 	}
 
@@ -292,8 +356,181 @@ func (r *Reconciler) ReconcileZone(ctx context.Context, zone string, now time.Ti
 		attribute.String("color_temperature", target.ColorTemperature.String()),
 		attribute.String("color", target.Color),
 	)
+
+	// Reflect the new stack state into Zone.Status. Errors are
+	// logged but don't fail the reconcile — the apply already
+	// succeeded, status is observability.
+	r.reflectStatus(ctx, zone, policy, now)
 	return nil
 }
+
+// observeTopChanges compares this tick's top-of-stack per axis against
+// the previous tick and emits a counter + Info log on transitions.
+// "Source" here means the (kind, name) tuple — same kind with a new
+// name (e.g. SOURCE_KIND_BINDING/foyer-motion-evening →
+// SOURCE_KIND_BINDING/foyer-motion-nightvision) counts as a change.
+//
+// Empty-top → present-top transitions show as
+// from_source_kind=SOURCE_KIND_UNSPECIFIED → to_source_kind=<actual>.
+// Present → empty (override expired with no fallback) is the inverse.
+func (r *Reconciler) observeTopChanges(zone string, tops map[iotv1proto.AxisKind]*runtimeActivation, span trace.Span) {
+	r.prevTopSourceMu.Lock()
+	defer r.prevTopSourceMu.Unlock()
+
+	for _, axis := range []iotv1proto.AxisKind{
+		iotv1proto.AxisKind_AXIS_KIND_STATE,
+		iotv1proto.AxisKind_AXIS_KIND_BRIGHTNESS,
+		iotv1proto.AxisKind_AXIS_KIND_COLOR_TEMPERATURE,
+		iotv1proto.AxisKind_AXIS_KIND_COLOR,
+	} {
+		key := fmt.Sprintf("%s/%s", zone, axis)
+		var newID, newKind string
+		if top, ok := tops[axis]; ok && top != nil {
+			newID = top.id
+			newKind = top.SourceKind.String()
+		} else {
+			newKind = iotv1proto.SourceKind_SOURCE_KIND_UNSPECIFIED.String()
+		}
+
+		prev, hadPrev := r.prevTopSource[key]
+		if !hadPrev && newID == "" {
+			// Was empty, stayed empty — no event.
+			continue
+		}
+		if prev == newID {
+			continue
+		}
+
+		// Decode previous kind for the metric label. Stored format
+		// matches `activationID` (kind:name); empty string means
+		// "previously empty," so we report UNSPECIFIED there.
+		fromKind := iotv1proto.SourceKind_SOURCE_KIND_UNSPECIFIED.String()
+		if hadPrev && prev != "" {
+			// id is "SOURCE_KIND_XXX:name"; everything before the colon
+			// is the kind. Cheap parse — we control the format in
+			// stack.go's activationID.
+			if idx := strings.IndexByte(prev, ':'); idx >= 0 {
+				fromKind = prev[:idx]
+			}
+		}
+
+		metricReconcileTopChangedTotal.WithLabelValues(
+			zone, axis.String(), fromKind, newKind,
+		).Inc()
+
+		r.logger.Info("reconciler: top changed",
+			slog.String("zone", zone),
+			slog.String("axis", axis.String()),
+			slog.String("from", prev),
+			slog.String("to", newID),
+		)
+		span.AddEvent("top_changed",
+			trace.WithAttributes(
+				attribute.String("axis", axis.String()),
+				attribute.String("from", prev),
+				attribute.String("to", newID),
+			),
+		)
+		r.prevTopSource[key] = newID
+	}
+}
+
+// sampleStackDepths emits a gauge sample per axis with at least one
+// entry. Axes that have never been pushed don't get a gauge sample —
+// avoids labels with permanent zero values.
+func (r *Reconciler) sampleStackDepths(zone string, policy *zonePolicy) {
+	for axis, s := range policy.stacks {
+		depth := len(s.snapshot())
+		metricReconcileStackDepth.WithLabelValues(zone, axis.String()).Set(float64(depth))
+	}
+}
+
+// reflectStatus writes the per-axis stack snapshot into the Zone CR's
+// Status sub-resource via a strategic-merge Patch. The patch touches
+// ONLY the reconciler-owned fields (`reconciler_stack`,
+// `last_reconciled_at`); the zonekeeper's State / Brightness /
+// ColorTemperature / Color fields are preserved by virtue of not
+// appearing in the patch body.
+//
+// kubeClient may be nil in tests; the call is a no-op in that case.
+// Errors are logged at Debug — Status reflection is observability,
+// not load-bearing for the apply path.
+func (r *Reconciler) reflectStatus(ctx context.Context, zone string, policy *zonePolicy, now time.Time) {
+	if r.kubeClient == nil {
+		return
+	}
+
+	entries := make([]apiv1.ReconcilerStackEntry, 0, 4)
+	tops := policy.activeContributorsByAxis(now)
+	for _, axis := range []iotv1proto.AxisKind{
+		iotv1proto.AxisKind_AXIS_KIND_STATE,
+		iotv1proto.AxisKind_AXIS_KIND_BRIGHTNESS,
+		iotv1proto.AxisKind_AXIS_KIND_COLOR_TEMPERATURE,
+		iotv1proto.AxisKind_AXIS_KIND_COLOR,
+	} {
+		s, ok := policy.stacks[axis]
+		if !ok {
+			continue
+		}
+		snap := s.snapshot()
+		if len(snap) == 0 {
+			continue
+		}
+		entry := apiv1.ReconcilerStackEntry{
+			Axis:  axis.String(),
+			Depth: int32(len(snap)),
+		}
+		if top, ok := tops[axis]; ok && top != nil {
+			entry.Top = &apiv1.ReconcilerStackTop{
+				Computer:   top.ComputerName,
+				SourceKind: top.SourceKind.String(),
+				SourceName: top.SourceName,
+				Priority:   top.Priority,
+				PushedAt:   metav1.NewTime(top.pushedAt()),
+			}
+			if top.Ttl.IsValid() && top.Ttl.AsDuration() > 0 {
+				deadline := top.pushedAt().Add(top.Ttl.AsDuration())
+				expires := metav1.NewTime(deadline)
+				entry.Top.ExpiresAt = &expires
+			}
+		}
+		entries = append(entries, entry)
+	}
+
+	statusPatch := map[string]any{
+		"status": map[string]any{
+			"reconciler_stack":   entries,
+			"last_reconciled_at": metav1.NewTime(now),
+		},
+	}
+	body, err := json.Marshal(statusPatch)
+	if err != nil {
+		r.logger.Debug("reconciler: status patch marshal failed",
+			slog.String("zone", zone), slog.Any("err", err))
+		return
+	}
+
+	// Use a typed Zone object so the controller-runtime client routes
+	// to the right resource + Status sub-resource. Merge patch (RFC
+	// 7396) on the Status sub-resource — disjoint fields with the
+	// zonekeeper-written ones, so the merge composes correctly.
+	z := &apiv1.Zone{}
+	z.Namespace = statusZoneNamespace
+	z.Name = zone
+	if err := r.kubeClient.Status().Patch(ctx, z, kubeclient.RawPatch(types.MergePatchType, body)); err != nil {
+		// NotFound is benign — a reconcile-managed zone in cfg might not
+		// have a CR yet (operator-typo or pre-creation race). Log at
+		// Debug so it doesn't drown out real failures.
+		if apierrors.IsNotFound(err) {
+			r.logger.Debug("reconciler: zone CR not found for status reflection",
+				slog.String("zone", zone))
+			return
+		}
+		r.logger.Debug("reconciler: status patch failed",
+			slog.String("zone", zone), slog.Any("err", err))
+	}
+}
+
 
 // policy returns the zonePolicy for `zone`, creating it lazily on
 // first access. Write-locked so concurrent first-pushes for the same

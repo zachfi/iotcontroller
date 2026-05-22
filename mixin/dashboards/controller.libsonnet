@@ -360,6 +360,86 @@ local joinMatchers(fragments) =
           ),
         ]),
 
+        // ── Reconciler (Phase B Active Computer Stack) ────────────────────
+        // Phase B mid-state: flat-zero panels are EXPECTED until the
+        // declared-Condition push bridge lands. Once it lands, stack
+        // depth ramps to ~1-3 per axis, pushRate tracks event sources,
+        // and topChangeRate fires only on real lamp-behavior transitions.
+        row.new('Reconciler (Phase B Active Computer Stack)'),
+
+        // Stack depth per (zone, axis). Steady-state depth=1 is one
+        // background Activation; depth>3 sustained suggests TTL
+        // expiration isn't keeping up.
+        ts('Stack Depth (per zone+axis)', [
+          promTarget(
+            'iotcontroller_reconciler_stack_depth',
+            '{{zone}}/{{axis}}'
+          ),
+        ]),
+
+        // Push rate grouped by source_kind shows the event mix:
+        // SOURCE_KIND_BINDING tracks motion events,
+        // SOURCE_KIND_ALERT correlates with hookreceiver alerts,
+        // SOURCE_KIND_TIME_WINDOW is once-per-window-open.
+        tsOps('Push Rate (by source_kind)', [
+          promTarget(
+            'sum(rate(iotcontroller_reconciler_push_total[$__rate_interval])) by (zone, axis, source_kind)',
+            '{{zone}}/{{axis}}/{{source_kind}}'
+          ),
+        ]),
+
+        // Top-of-stack changes — the "lamp behavior actually changed"
+        // signal. Motion-driven REFRESH pushes don't appear here; only
+        // genuine priority/TTL transitions do. A clean overnight
+        // shows near-zero topChangeRate.
+        tsOps('Top-of-Stack Changes (from → to)', [
+          promTarget(
+            'sum(rate(iotcontroller_reconciler_top_changed_total[$__rate_interval])) by (zone, axis, from_source_kind, to_source_kind)',
+            '{{zone}}/{{axis}}: {{from_source_kind}} → {{to_source_kind}}'
+          ),
+        ]),
+
+        // Apply rate vs suppression reason. Healthy: applies near
+        // zero, no_delta absorbs the bulk of reconciles.
+        tsOps('Apply vs Suppressed (by reason)', [
+          promTarget(
+            'sum(rate(iotcontroller_reconciler_applied_total[$__rate_interval])) by (zone)',
+            'applied/{{zone}}'
+          ),
+          promTarget(
+            'sum(rate(iotcontroller_reconciler_apply_suppressed_total[$__rate_interval])) by (zone, reason)',
+            'suppressed/{{zone}}/{{reason}}'
+          ),
+        ]),
+
+        // Tick duration percentiles. p99 climbing toward seconds
+        // triggers IOTReconcilerSlow. Unknown-zone early-returns
+        // are excluded from this histogram (the /simplify fix).
+        tsSec('Tick Duration (p50 / p99)', [
+          promTarget(
+            'histogram_quantile(0.50, sum(rate(iotcontroller_reconciler_tick_duration_seconds_bucket[$__rate_interval])) by (le))',
+            'p50'
+          ),
+          promTarget(
+            'histogram_quantile(0.99, sum(rate(iotcontroller_reconciler_tick_duration_seconds_bucket[$__rate_interval])) by (le))',
+            'p99'
+          ),
+        ]),
+
+        // Compute + apply errors — operator alarm signal. Per-zone
+        // labels point at the misbehaving Activation; correlate
+        // with the most recent PushActivation trace for the zone.
+        tsOps('Compute + Apply Errors (per zone)', [
+          promTarget(
+            'sum(rate(iotcontroller_reconciler_compute_error_total[$__rate_interval])) by (zone)',
+            'compute_error/{{zone}}'
+          ),
+          promTarget(
+            'sum(rate(iotcontroller_reconciler_apply_error_total[$__rate_interval])) by (zone)',
+            'apply_error/{{zone}}'
+          ),
+        ]),
+
         // ── MQTT Client ───────────────────────────────────────────────────
         row.new('MQTT Client'),
 

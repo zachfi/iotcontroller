@@ -406,6 +406,7 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 	// same operator config that drives sun-position computers.
 	c.reconciler = NewReconciler(
 		zoneKeeperClient,
+		k,
 		computer.Location{Lat: cfg.Location.Lat, Lon: cfg.Location.Lon},
 		c.logger,
 		c.tracer,

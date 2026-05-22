@@ -183,6 +183,49 @@ var metricReconcileApplyError = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Number of ApplyValues RPC failures during a reconcile pass, by zone.",
 }, []string{"zone"})
 
+// metricReconcileStackDepth is a per-(zone, axis) gauge of the
+// non-expired Activation count on the stack. Sampled by the reconciler
+// at the end of each ReconcileZone call (after removeExpired). Zero
+// for axes with no claims; not emitted for axes that have never
+// received a push (avoids label cardinality on unused axes).
+//
+// Watch alongside metricReconcilePushTotal: if depth grows without
+// bound while pushes stay flat, lazy expiration isn't keeping up.
+var metricReconcileStackDepth = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "iotcontroller_reconciler_stack_depth",
+	Help: "Per-axis Active Computer Stack depth (non-expired Activation count) sampled at reconcile time.",
+}, []string{"zone", "axis"})
+
+// metricReconcilePushTotal counts PushActivation events accepted by
+// the reconciler. Per (zone, axis, source_kind, push_policy) — useful
+// for distinguishing background pushes (one-time-at-startup) from
+// motion-driven refreshes (high rate during occupied periods) from
+// alert-driven REPLACE pushes (rare but high-priority).
+//
+// rate(...{source_kind="SOURCE_KIND_BINDING"}[5m]) should match
+// motion event rate. rate(...{source_kind="SOURCE_KIND_ALERT"}[5m])
+// correlates with hookreceiver alert ingest.
+var metricReconcilePushTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_reconciler_push_total",
+	Help: "Number of PushActivation events accepted, by zone, axis, source_kind, and push_policy.",
+}, []string{"zone", "axis", "source_kind", "push_policy"})
+
+// metricReconcileTopChangedTotal counts reconcile passes where the
+// top-of-stack on an axis changed since the previous reconcile. The
+// "interesting" event: this is when the lamp's color or brightness
+// actually flipped because a higher-priority Activation pushed or an
+// override TTL expired and revealed a lower layer.
+//
+// from_source_kind / to_source_kind labels show the transition
+// pattern: SOURCE_KIND_UNSPECIFIED → SOURCE_KIND_BINDING means a
+// motion event activated a previously-empty axis;
+// SOURCE_KIND_BINDING → SOURCE_KIND_TIME_WINDOW means a motion
+// override expired and the time-window background re-asserted.
+var metricReconcileTopChangedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_reconciler_top_changed_total",
+	Help: "Number of reconcile passes where the top-of-stack on an axis changed, labeled by zone, axis, and the from/to source_kind.",
+}, []string{"zone", "axis", "from_source_kind", "to_source_kind"})
+
 // metricShadowDisagreement counts cases where the shadow resolver's
 // composed target differs from Zone.Status (the last-applied state).
 // Possible causes:

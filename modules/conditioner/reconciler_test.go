@@ -11,7 +11,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/modules/conditioner/computer"
 	"github.com/zachfi/iotcontroller/pkg/mocks"
 	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
@@ -87,7 +91,7 @@ func (c *fixedClock) now() time.Time { return c.t }
 func newTestReconciler(t *testing.T) (*Reconciler, *recordingZoneKeeperForReconciler, *fixedClock) {
 	t.Helper()
 	zk := &recordingZoneKeeperForReconciler{}
-	r := NewReconciler(zk, computer.Location{}, nil, nil)
+	r := NewReconciler(zk, nil, computer.Location{}, nil, nil)
 	clock := &fixedClock{t: time.Unix(1000, 0)}
 	r.now = clock.now
 	// No-op afterFunc — real timers would race with the test goroutine.
@@ -377,6 +381,91 @@ func TestReconciler_PushUnknownComputer_Errors(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown computer")
 	require.Equal(t, 0, zk.applyCount(), "failed push must not produce an ApplyValues")
+}
+
+// TestReconciler_StatusReflection — after a successful push +
+// reconcile, the Zone CR's Status.ReconcilerStack carries the
+// top-of-stack projection. Verifies the visibility contract that
+// drives `kubectl get zone foyer -o yaml` debugging.
+func TestReconciler_StatusReflection(t *testing.T) {
+	computer.Register("stub-status", stubComputer{vals: computer.ApplyValues{
+		State: iotv1proto.ZoneState_ZONE_STATE_ON,
+	}})
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, apiv1.AddToScheme(scheme))
+	existing := &apiv1.Zone{}
+	existing.Namespace = statusZoneNamespace
+	existing.Name = "reflect-zone"
+	existing.Status.State = "ZONE_STATE_OFF" // pre-existing zonekeeper-owned field
+	kc := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(existing).
+		WithStatusSubresource(&apiv1.Zone{}).
+		Build()
+
+	zk := &recordingZoneKeeperForReconciler{}
+	r := NewReconciler(zk, kc, computer.Location{}, nil, nil)
+	r.now = (&fixedClock{t: time.Unix(1000, 0)}).now
+	r.afterFunc = func(_ time.Duration, _ func()) reconcileTimer { return noopTimer{} }
+
+	ctx := context.Background()
+	require.NoError(t, r.PushActivation(ctx, "reflect-zone", iotv1proto.AxisKind_AXIS_KIND_STATE,
+		&iotv1proto.Activation{
+			ComputerName: "stub-status",
+			SourceKind:   iotv1proto.SourceKind_SOURCE_KIND_BINDING,
+			SourceName:   "motion-test",
+			PushedAt:     timestamppb.New(time.Unix(1000, 0)),
+			Ttl:          durationpb.New(5 * time.Minute),
+			Priority:     50,
+		}))
+
+	got := &apiv1.Zone{}
+	require.NoError(t, kc.Get(ctx, kubeKey("reflect-zone"), got))
+
+	// Zonekeeper-owned field should still be present — patch did not
+	// touch State.
+	require.Equal(t, "ZONE_STATE_OFF", got.Status.State,
+		"reconciler must not clobber zonekeeper-owned status fields")
+
+	require.Len(t, got.Status.ReconcilerStack, 1, "one entry for the AXIS_KIND_STATE push")
+	entry := got.Status.ReconcilerStack[0]
+	require.Equal(t, "AXIS_KIND_STATE", entry.Axis)
+	require.Equal(t, int32(1), entry.Depth)
+	require.NotNil(t, entry.Top)
+	require.Equal(t, "stub-status", entry.Top.Computer)
+	require.Equal(t, "SOURCE_KIND_BINDING", entry.Top.SourceKind)
+	require.Equal(t, "motion-test", entry.Top.SourceName)
+	require.Equal(t, int32(50), entry.Top.Priority)
+	require.NotNil(t, entry.Top.ExpiresAt, "non-zero TTL should produce an expires_at")
+	require.NotNil(t, got.Status.LastReconciledAt)
+}
+
+// TestReconciler_StatusReflection_NoKubeClient — the reconciler tolerates
+// a nil kubeClient (unit-test default) and never crashes attempting to
+// reflect. Apply path still works.
+func TestReconciler_StatusReflection_NoKubeClient(t *testing.T) {
+	computer.Register("stub-nokc", stubComputer{vals: computer.ApplyValues{
+		State: iotv1proto.ZoneState_ZONE_STATE_ON,
+	}})
+
+	r, zk, _ := newTestReconciler(t) // nil kubeClient
+	require.NoError(t, r.PushActivation(context.Background(), "test-zone",
+		iotv1proto.AxisKind_AXIS_KIND_STATE,
+		&iotv1proto.Activation{
+			ComputerName: "stub-nokc",
+			SourceKind:   iotv1proto.SourceKind_SOURCE_KIND_MANUAL,
+			SourceName:   "src",
+			PushedAt:     timestamppb.New(time.Unix(1000, 0)),
+			Ttl:          durationpb.New(time.Hour),
+			Priority:     50,
+		}))
+	require.Equal(t, 1, zk.applyCount())
+}
+
+// kubeKey is a tiny helper to keep the status-reflection test readable.
+func kubeKey(name string) client.ObjectKey {
+	return client.ObjectKey{Namespace: statusZoneNamespace, Name: name}
 }
 
 // TestReconciler_ValidationErrors — required fields are checked at
