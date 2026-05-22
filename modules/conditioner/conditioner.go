@@ -159,11 +159,32 @@ func (c *Conditioner) activateRemediation(ctx context.Context, condName string, 
 	// when ActiveBrightnessDelta is set — the underlying RPC sets the
 	// zone ON as a side effect, which is what you want for a "press
 	// brighter" intent.
+	//
+	// Reconcile-managed zones currently fall through to the imperative
+	// adjustBrightness path: the reconciler operates on absolute
+	// targets and there's no clean "delta" abstraction for the stack
+	// yet. The adjust writes go directly to ZoneKeeper; the
+	// reconciler's next tick will read the new brightness via Status
+	// and decide whether to overwrite. Documented incompleteness for
+	// the relative-press case on managed zones.
 	if rem.ActiveBrightnessDelta != 0 {
 		return c.adjustBrightness(ctx, condName, rem.Zone, rem.ActiveBrightnessDelta)
 	}
 	if strings.EqualFold(rem.ActiveState, shortHandStateToggle) {
 		rem.ActiveState = c.resolveToggleState(ctx, rem.Zone)
+	}
+	// Reconcile-managed zones get the activate as a stack push instead
+	// of an imperative apply. Source kind defaults to BINDING because
+	// the imperative-call sites that reach here for managed zones are
+	// the ActivateCondition RPC (binding match), the Alert RPC, and
+	// the Epoch RPC. All three are event-driven (vs the eval loop's
+	// time-window path which bypasses activateRemediation entirely for
+	// managed zones). Distinguishing alert/epoch/binding here requires
+	// threading source through every caller — punt on that until we
+	// observe a concrete need to compose alert vs binding priorities
+	// for the same zone.
+	if c.isReconcileManaged(rem.Zone) {
+		return c.bridgeImperativeActivate(ctx, condName, rem)
 	}
 	return c.applyDesired(ctx, condName, rem.Zone, activateRequest(ctx, rem), "activate")
 }

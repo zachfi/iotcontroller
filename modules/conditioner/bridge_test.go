@@ -358,6 +358,117 @@ func TestBridge_BindingReferencedCondition_Skipped(t *testing.T) {
 		"two evaluates with binding-referenced condition skipped produces one apply (cache absorbs the second)")
 }
 
+// TestBridge_ImperativeActivate_PushesAsBinding — activateRemediation
+// on a reconcile-managed zone routes through bridgeImperativeActivate
+// instead of applyDesired. The push carries SOURCE_KIND_BINDING and
+// priority bridgeImperativePriority (100) so it composes correctly
+// above any time-window background pushes on the same axis.
+func TestBridge_ImperativeActivate_PushesAsBinding(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	zoneCR := &apiv1.Zone{}
+	zoneCR.Namespace = "iot"
+	zoneCR.Name = "managed"
+
+	kc := newFakeSchemeClient(t, zoneCR)
+	zk := &recordingZoneKeeperForReconciler{}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed"}}
+	c, err := New(cfg, logger, zk, kc)
+	require.NoError(t, err)
+
+	// Call activateRemediation directly (mirrors what ActivateCondition
+	// RPC does after kubeClient.Get(condition) returns).
+	rem := apiv1.Remediation{
+		Zone:        "managed",
+		ActiveState: "on",
+	}
+	require.NoError(t, c.activateRemediation(ctx, "button-press-cond", rem))
+
+	// One ApplyValues call from the immediate reconcile inside
+	// PushActivation — NOT through applyDesired (no SetState/SetScene
+	// on the recordingZoneKeeperForReconciler).
+	require.Equal(t, 1, zk.applyCount(),
+		"reconcile-managed activate produces one ApplyValues via the reconciler")
+
+	last := zk.lastApply()
+	require.NotNil(t, last)
+	require.Equal(t, "ZONE_STATE_ON", last.State.String())
+
+	// Status reflection should show source_kind=BINDING and the
+	// configured imperative priority.
+	got := &apiv1.Zone{}
+	require.NoError(t, kc.Get(ctx, client.ObjectKey{Namespace: "iot", Name: "managed"}, got))
+	require.NotEmpty(t, got.Status.ReconcilerStack)
+	for _, entry := range got.Status.ReconcilerStack {
+		if entry.Axis == "AXIS_KIND_STATE" {
+			require.NotNil(t, entry.Top)
+			require.Equal(t, "SOURCE_KIND_BINDING", entry.Top.SourceKind)
+			require.Equal(t, int32(bridgeImperativePriority), entry.Top.Priority)
+			return
+		}
+	}
+	t.Fatalf("expected an AXIS_KIND_STATE entry in ReconcilerStack")
+}
+
+// TestBridge_ImperativeWins_TimeWindow — a binding push at priority
+// 100 wins over a time-window push at priority 50 on the same axis.
+// This is the composition contract: motion overrides background, and
+// when the motion entry's TTL expires the background re-asserts.
+func TestBridge_ImperativeWins_TimeWindow(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	allDay := apiv1.TimeIntervalSpec{
+		Times: []apiv1.TimePeriod{{StartTime: "00:00", EndTime: "24:00"}},
+	}
+	// Time-window Remediation: state=off
+	twCond := apiv1.Condition{
+		ObjectMeta: metav1Meta("background-off"),
+		Spec: apiv1.ConditionSpec{
+			Enabled: true,
+			Remediations: []apiv1.Remediation{{
+				Zone:          "managed",
+				ActiveState:   "off",
+				TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+			}},
+		},
+	}
+	// Imperative Remediation: state=on, triggered manually
+	bindCond := apiv1.Condition{
+		ObjectMeta: metav1Meta("button-on"),
+		Spec: apiv1.ConditionSpec{
+			Enabled: true,
+			Remediations: []apiv1.Remediation{{
+				Zone:        "managed",
+				ActiveState: "on",
+			}},
+		},
+	}
+	kc := &bridgeTestClient{conditions: []apiv1.Condition{twCond, bindCond}}
+
+	zk := &recordingZoneKeeperForReconciler{}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed"}}
+	c, err := New(cfg, logger, zk, kc)
+	require.NoError(t, err)
+
+	// Step 1: tick the eval loop — pushes background-off as TIME_WINDOW.
+	c.evaluate(ctx)
+	require.Equal(t, "ZONE_STATE_OFF", zk.lastApply().State.String(),
+		"after eval-only tick, background TIME_WINDOW push wins")
+	initialApplies := zk.applyCount()
+
+	// Step 2: simulate the binding firing for button-on.
+	require.NoError(t, c.activateRemediation(ctx, "button-on", bindCond.Spec.Remediations[0]))
+
+	// Imperative push at priority 100 overrides the time-window push
+	// at priority 50. Last apply should be ON.
+	require.Greater(t, zk.applyCount(), initialApplies,
+		"binding push should cause a new reconcile + apply (target changed)")
+	require.Equal(t, "ZONE_STATE_ON", zk.lastApply().State.String(),
+		"binding push at priority 100 wins over time-window push at priority 50")
+}
+
 // TestBridge_StatusReflectsAfterPush — exercise the full
 // bridge → reconciler → reflectStatus chain. The Zone CR's
 // Status.ReconcilerStack should populate with the bridge-pushed

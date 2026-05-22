@@ -2,6 +2,7 @@ package conditioner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -56,21 +57,36 @@ import (
 //   - Alert-driven activateRemediation push — same reason, follow-up.
 
 const (
-	// bridgePushPriority is the priority the bridge assigns to all
-	// TimeInterval / active_compute pushes. Background-ish: lower than
-	// motion bindings (which will land at 100 in the follow-up) and
-	// lower than alerts (200). Bumping this requires considering how
-	// it composes with future SOURCE_KIND_BINDING / SOURCE_KIND_ALERT
-	// pushes — the stack picks max(priority) with ties broken by
-	// recency.
+	// bridgePushPriority is the priority the bridge assigns to
+	// time-window / active_compute pushes from the eval loop.
+	// Background-ish — lower than imperative-path bindings (100) and
+	// lower than alerts would be (200). Stack picks max(priority)
+	// with ties broken by recency.
 	bridgePushPriority = 50
 
+	// bridgeImperativePriority is the priority assigned to pushes
+	// originating from imperative-path callers (ActivateCondition
+	// RPC, Alert RPC, Epoch RPC). Higher than the time-window
+	// background so an event override wins during overlap windows
+	// (e.g. button press during foyer-dusk's 20:00-21:00 window:
+	// the user's button intent supersedes the schedule until the
+	// imperative push's TTL expires).
+	bridgeImperativePriority = 100
+
 	// bridgeTTLMultiplier multiplies cfg.EvaluationInterval to get the
-	// TTL for bridge-pushed Activations. 3× means a missed tick (one
-	// 60s gap in evaluator output) doesn't expire the Activation;
-	// 2 missed ticks does. Reasonable on a 60s tick: a 3-minute outage
-	// in the conditioner itself is the only way to lose state.
+	// TTL for bridge-pushed time-window Activations. 3× means a
+	// missed tick (one 60s gap in evaluator output) doesn't expire
+	// the Activation; 2 missed ticks does.
 	bridgeTTLMultiplier = 3
+
+	// bridgeImperativeTTL is the default TTL for imperative-path
+	// pushes (binding, alert, epoch). 5 minutes matches motion
+	// sensors' typical dwell semantics — when a motion binding stops
+	// firing, the override pops 5 min later and the time-window
+	// background re-asserts. Bindings that re-fire (motion every few
+	// seconds while occupied) refresh PushedAt in place via
+	// PUSH_POLICY_REFRESH so the 5min window resets on each event.
+	bridgeImperativeTTL = 5 * time.Minute
 )
 
 // bridgeReconciledRemediation translates a single Remediation into
@@ -224,6 +240,139 @@ func (c *Conditioner) bridgeActiveScene(
 			"color": scene.Spec.Color,
 		})
 	}
+}
+
+// bridgeImperativeActivate translates an imperative-path activate
+// (ActivateCondition RPC from a binding match, Alert RPC firing
+// branch, Epoch RPC in-window branch) into PushActivation events for
+// the reconciler.
+//
+// Differs from bridgeReconciledRemediation in three ways:
+//
+//   - SourceKind is BINDING (not TIME_WINDOW) — these are event-
+//     driven activations, not eval-loop ticks.
+//   - Priority is bridgeImperativePriority (100), letting these
+//     pushes override the time-window background during overlap.
+//   - TTL is bridgeImperativeTTL (5 min), giving a sensible motion-
+//     dwell-like fadeout when the binding stops re-firing.
+//
+// PUSH_POLICY_REFRESH dedups: a motion sensor firing every few seconds
+// for the same condName produces one stack entry whose PushedAt + TTL
+// keep refreshing in place. When the sensor goes quiet, the entry's
+// TTL counts down from the last refresh; on expiry the next-lower
+// stack layer (typically the time-window background) re-asserts.
+//
+// Time-window gating is intentionally NOT applied here. The caller
+// (activateRemediation) has already passed the withinActiveWindow
+// check; firing-outside-window goes through forceDeactivate, not
+// here.
+func (c *Conditioner) bridgeImperativeActivate(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	now := time.Now()
+	pushedAt := timestamppb.New(now)
+	ttl := durationpb.New(bridgeImperativeTTL)
+
+	push := func(axis iotv1proto.AxisKind, computerName string, args map[string]string) error {
+		act := &iotv1proto.Activation{
+			ComputerName: computerName,
+			Args:         args,
+			SourceKind:   iotv1proto.SourceKind_SOURCE_KIND_BINDING,
+			SourceName:   condName,
+			PushedAt:     pushedAt,
+			Ttl:          ttl,
+			Priority:     bridgeImperativePriority,
+			PushPolicy:   iotv1proto.PushPolicy_PUSH_POLICY_REFRESH,
+		}
+		if err := c.reconciler.PushActivation(ctx, rem.Zone, axis, act); err != nil {
+			return fmt.Errorf("push %s/%s: %w", rem.Zone, axis, err)
+		}
+		return nil
+	}
+
+	// Branch 1: active_compute — same axis-discovery via one compute
+	// call as bridgeReconciledRemediation. Cached computers (fade /
+	// circadian) handle the double-compute cheaply.
+	if rem.ActiveCompute != "" {
+		comp, ok := computer.Get(rem.ActiveCompute)
+		if !ok {
+			c.logger.Debug("bridge: unknown computer",
+				slog.String("condition", condName),
+				slog.String("zone", rem.Zone),
+				slog.String("compute", rem.ActiveCompute),
+			)
+			return nil
+		}
+		augmented := make(map[string]string, len(rem.ActiveComputeArgs)+2)
+		for k, v := range rem.ActiveComputeArgs {
+			augmented[k] = v
+		}
+		augmented["_condition"] = condName
+		augmented["_zone"] = rem.Zone
+
+		loc := computer.Location{Lat: c.cfg.Location.Lat, Lon: c.cfg.Location.Lon}
+		out, err := comp.Compute(ctx, now, loc, augmented)
+		if err != nil {
+			c.logger.Debug("bridge: imperative compute for axis discovery failed",
+				slog.String("condition", condName),
+				slog.String("zone", rem.Zone),
+				slog.String("compute", rem.ActiveCompute),
+				slog.Any("err", err),
+			)
+			return nil
+		}
+		for _, axis := range claimedAxes(out) {
+			if err := push(axis, rem.ActiveCompute, augmented); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Branch 2: active_state / active_scene — static computer carries
+	// pre-resolved values per axis.
+	if rem.ActiveState != "" {
+		state := zoneState(rem.ActiveState)
+		if state != iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
+			if err := push(iotv1proto.AxisKind_AXIS_KIND_STATE, computer.StaticName, map[string]string{
+				"state": state.String(),
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	if rem.ActiveScene != "" && c.kubeClient != nil {
+		scene := &apiv1.Scene{}
+		if err := c.kubeClient.Get(ctx, kubeclient.ObjectKey{Name: rem.ActiveScene, Namespace: "iot"}, scene); err == nil {
+			if scene.Spec.Brightness != "" {
+				if err := push(iotv1proto.AxisKind_AXIS_KIND_BRIGHTNESS, computer.StaticName, map[string]string{
+					"brightness": scene.Spec.Brightness,
+				}); err != nil {
+					return err
+				}
+			}
+			if scene.Spec.ColorTemperature != "" {
+				if err := push(iotv1proto.AxisKind_AXIS_KIND_COLOR_TEMPERATURE, computer.StaticName, map[string]string{
+					"color_temperature": scene.Spec.ColorTemperature,
+				}); err != nil {
+					return err
+				}
+			}
+			if scene.Spec.Color != "" {
+				if err := push(iotv1proto.AxisKind_AXIS_KIND_COLOR, computer.StaticName, map[string]string{
+					"color": scene.Spec.Color,
+				}); err != nil {
+					return err
+				}
+			}
+		} else {
+			c.logger.Debug("bridge: imperative scene lookup failed",
+				slog.String("condition", condName),
+				slog.String("zone", rem.Zone),
+				slog.String("scene", rem.ActiveScene),
+				slog.Any("err", err),
+			)
+		}
+	}
+	return nil
 }
 
 // claimedAxes returns the AxisKinds whose corresponding field on v is
