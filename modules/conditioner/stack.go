@@ -180,6 +180,14 @@ func (s *axisStack) removeExpired(now time.Time) {
 			kept = append(kept, a)
 		}
 	}
+	// Zero out the tail so the backing array doesn't retain references
+	// to expired runtimeActivations (which embed *iotv1proto.Activation
+	// and potentially large Args maps). Without this, the GC cannot
+	// reclaim the expired entries until the slice is grown past their
+	// positions or replaced entirely.
+	for i := len(kept); i < len(s.entries); i++ {
+		s.entries[i] = nil
+	}
 	s.entries = kept
 }
 

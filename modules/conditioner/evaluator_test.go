@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grafana/dskit/flagext"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -381,7 +382,7 @@ func TestEvaluate_ReconcileManagedZoneSkipsImperativeApply(t *testing.T) {
 
 	// Only "managed-zone" is in the reconciler set; "unmanaged-zone"
 	// stays on the imperative path.
-	cfg := Config{ReconcileZones: []string{"managed-zone"}}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed-zone"}}
 	c, err := New(cfg, logger, zk, &listKubeClient{items: conds})
 	require.NoError(t, err)
 

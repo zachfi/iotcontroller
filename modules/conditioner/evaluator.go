@@ -11,7 +11,6 @@ import (
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/modules/conditioner/computer"
-	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 // runEvaluator is the periodic eval-loop goroutine. It ticks every
@@ -110,7 +109,7 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 			// PushActivation calls; they won't auto-fire from
 			// Conditions until the bridge lands. The flag controls
 			// experimental migration timing, not full feature parity.
-			if c.reconcileManaged[rem.Zone] {
+			if c.isReconcileManaged(rem.Zone) {
 				continue
 			}
 
@@ -146,7 +145,7 @@ func (c *Conditioner) evaluate(ctx context.Context) {
 	// Condition iteration. The periodic call here is the safety net
 	// for state drift between push events (e.g. external SetState
 	// that bypasses the reconciler).
-	for zone := range c.reconcileManaged {
+	for _, zone := range c.cfg.ReconcileZones {
 		if err := c.reconciler.ReconcileZone(ctx, zone, time.Now()); err != nil {
 			c.logger.Debug("evaluator: reconciler tick failed",
 				slog.String("zone", zone),
@@ -278,16 +277,7 @@ func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem 
 		return false
 	}
 
-	req := &iotv1proto.ApplyValuesRequest{
-		Name:                   rem.Zone,
-		State:                  vals.State,
-		Brightness:             vals.Brightness,
-		ColorTemperature:       vals.ColorTemperature,
-		Color:                  vals.Color,
-		BrightnessValue:        vals.BrightnessValue,
-		ColorTemperatureKelvin: vals.ColorTemperatureKelvin,
-	}
-	if _, err = c.zonekeeperClient.ApplyValues(ctx, req); err != nil {
+	if _, err = c.zonekeeperClient.ApplyValues(ctx, vals.ToApplyValuesRequest(rem.Zone)); err != nil {
 		c.logger.Error("evaluator: apply values failed",
 			slog.String("condition", condName),
 			slog.String("zone", rem.Zone),

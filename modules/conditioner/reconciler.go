@@ -65,6 +65,13 @@ type Reconciler struct {
 	zoneLocksMu sync.Mutex
 	zoneLocks   map[string]*sync.Mutex
 
+	// ttlTimers holds the most-recent outstanding TTL wakeup per
+	// (zone, axis, activation_id). On REFRESH, we stop the previous
+	// timer and replace it so we don't accumulate stale wakeups that
+	// race after the activation's pushed_at gets bumped forward.
+	ttlTimersMu sync.Mutex
+	ttlTimers   map[string]reconcileTimer
+
 	// lastApplied caches the most recent target written via
 	// ApplyValues per zone. The reconciler flushes only when the
 	// composed target differs from lastApplied — the per-zone
@@ -110,6 +117,7 @@ func NewReconciler(zk iotv1proto.ZoneKeeperServiceClient, loc computer.Location,
 		policies:         make(map[string]*zonePolicy),
 		zoneLocks:        make(map[string]*sync.Mutex),
 		lastApplied:      make(map[string]computer.ApplyValues),
+		ttlTimers:        make(map[string]reconcileTimer),
 		now:              time.Now,
 		afterFunc: func(d time.Duration, f func()) reconcileTimer {
 			return realTimer{t: time.AfterFunc(d, f)}
@@ -154,12 +162,21 @@ func (r *Reconciler) PushActivation(ctx context.Context, zone string, axis iotv1
 	if act.Ttl != nil {
 		ttl := act.Ttl.AsDuration()
 		if ttl > 0 {
+			// Stop any existing TTL timer for this (zone, axis, source)
+			// before scheduling a fresh one. Without this, every
+			// REFRESH push leaves a stale timer that fires later and
+			// produces a redundant no-op reconcile — noise in metrics
+			// and traces for motion sensors that refresh every few
+			// seconds. The key includes the activation id so different
+			// sources on the same (zone, axis) don't cancel each other.
+			timerKey := fmt.Sprintf("%s/%s/%s", zone, axis, activationID(act.SourceKind, act.SourceName))
 			zoneCapture := zone
-			r.afterFunc(ttl, func() {
-				// Use Background context — the original caller's
-				// context may have closed by the time the timer
-				// fires. The reconcile is the safety net for TTL
-				// expiration anyway.
+
+			r.ttlTimersMu.Lock()
+			if old, ok := r.ttlTimers[timerKey]; ok {
+				old.Stop()
+			}
+			r.ttlTimers[timerKey] = r.afterFunc(ttl, func() {
 				if err := r.ReconcileZone(context.Background(), zoneCapture, r.now()); err != nil {
 					r.logger.Debug("reconciler: TTL-driven reconcile failed",
 						slog.String("zone", zoneCapture),
@@ -167,6 +184,7 @@ func (r *Reconciler) PushActivation(ctx context.Context, zone string, axis iotv1
 					)
 				}
 			})
+			r.ttlTimersMu.Unlock()
 		}
 	}
 
@@ -191,11 +209,6 @@ func (r *Reconciler) ReconcileZone(ctx context.Context, zone string, now time.Ti
 	)
 	defer span.End()
 
-	tStart := time.Now()
-	defer func() {
-		metricReconcileTickDuration.Observe(time.Since(tStart).Seconds())
-	}()
-
 	lock := r.zoneLock(zone)
 	lock.Lock()
 	defer lock.Unlock()
@@ -204,9 +217,18 @@ func (r *Reconciler) ReconcileZone(ctx context.Context, zone string, now time.Ti
 	policy, ok := r.policies[zone]
 	r.policiesMu.RUnlock()
 	if !ok {
-		// Zone has never been pushed to; nothing to reconcile.
+		// Zone has never been pushed to; nothing to reconcile. Skip the
+		// duration metric — the periodic tick calls ReconcileZone for
+		// every cfg.ReconcileZones entry whether or not it has been
+		// pushed to, and including those near-instant no-ops would
+		// drag the histogram's percentiles toward zero.
 		return nil
 	}
+
+	tStart := time.Now()
+	defer func() {
+		metricReconcileTickDuration.Observe(time.Since(tStart).Seconds())
+	}()
 
 	// Memory bookkeeping: drop expired entries before the read.
 	// top() also filters via expired() so this is non-load-bearing
@@ -252,16 +274,7 @@ func (r *Reconciler) ReconcileZone(ctx context.Context, zone string, now time.Ti
 		return nil
 	}
 
-	req := &iotv1proto.ApplyValuesRequest{
-		Name:                   zone,
-		State:                  target.State,
-		Brightness:             target.Brightness,
-		ColorTemperature:       target.ColorTemperature,
-		Color:                  target.Color,
-		BrightnessValue:        target.BrightnessValue,
-		ColorTemperatureKelvin: target.ColorTemperatureKelvin,
-	}
-	if _, err := r.zonekeeperClient.ApplyValues(ctx, req); err != nil {
+	if _, err := r.zonekeeperClient.ApplyValues(ctx, target.ToApplyValuesRequest(zone)); err != nil {
 		span.RecordError(err)
 		metricReconcileApplyError.WithLabelValues(zone).Inc()
 		return fmt.Errorf("ApplyValues: %w", err)
@@ -328,10 +341,13 @@ func isEmptyTarget(t computer.ApplyValues) bool {
 		t.Color == ""
 }
 
-// IsManaged reports whether `zone` is in the reconciler's managed
-// set. Used by the evaluator branch to decide which apply path
-// handles each zone.
-func (r *Reconciler) IsManaged(zone string) bool {
+// hasPolicy reports whether the reconciler has any state for `zone`.
+// Returns true iff at least one PushActivation has arrived for the
+// zone. Used by reconciler tests; the evaluator's routing decision
+// uses Conditioner.isReconcileManaged (config-driven, not state-
+// driven) which is the right source of truth for "should this zone
+// route through the reconciler?"
+func (r *Reconciler) hasPolicy(zone string) bool {
 	r.policiesMu.RLock()
 	defer r.policiesMu.RUnlock()
 	_, ok := r.policies[zone]

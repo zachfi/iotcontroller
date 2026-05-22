@@ -359,11 +359,19 @@ type Conditioner struct {
 	// zones (heater / pump) staying on the imperative path until the
 	// reconciler has demonstrated fail-safe behavior in their semantics.
 	reconciler *Reconciler
+}
 
-	// reconcileManaged is the set form of cfg.ReconcileZones for O(1)
-	// "is this zone reconciler-managed?" lookups in the evaluator's
-	// per-zone branch.
-	reconcileManaged map[string]bool
+// isReconcileManaged reports whether `zone` is in cfg.ReconcileZones.
+// Linear scan; the zone list is typically 0-10 entries so the cost is
+// negligible and the alternative (precomputed map) is redundant state
+// that has to stay in sync with the config.
+func (c *Conditioner) isReconcileManaged(zone string) bool {
+	for _, z := range c.cfg.ReconcileZones {
+		if z == zone {
+			return true
+		}
+	}
+	return false
 }
 
 // conditionState records the last desired (state, scene) we sent for a
@@ -402,10 +410,6 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		c.logger,
 		c.tracer,
 	)
-	c.reconcileManaged = make(map[string]bool, len(cfg.ReconcileZones))
-	for _, z := range cfg.ReconcileZones {
-		c.reconcileManaged[z] = true
-	}
 	if len(cfg.ReconcileZones) > 0 {
 		c.logger.Info("reconciler enabled for zones",
 			slog.Any("zones", cfg.ReconcileZones),

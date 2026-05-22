@@ -53,6 +53,23 @@ type ApplyValues struct {
 	ColorTemperatureKelvin int32
 }
 
+// ToApplyValuesRequest renders the ApplyValues as the proto request
+// shape ZoneKeeper.ApplyValues accepts. Shared by the imperative
+// evaluator (modules/conditioner/evaluator.go) and the reconcile-loop
+// writer (modules/conditioner/reconciler.go) so a future field added
+// to ApplyValuesRequest only needs to change here.
+func (v ApplyValues) ToApplyValuesRequest(zone string) *iotv1proto.ApplyValuesRequest {
+	return &iotv1proto.ApplyValuesRequest{
+		Name:                   zone,
+		State:                  v.State,
+		Brightness:             v.Brightness,
+		ColorTemperature:       v.ColorTemperature,
+		Color:                  v.Color,
+		BrightnessValue:        v.BrightnessValue,
+		ColorTemperatureKelvin: v.ColorTemperatureKelvin,
+	}
+}
+
 // Computer is the contract every active_compute implementation
 // satisfies. The receiver is invoked once per evaluation tick (default
 // 60 s); it should return quickly and without side effects.

@@ -97,7 +97,11 @@ func newTestReconciler(t *testing.T) (*Reconciler, *recordingZoneKeeperForReconc
 
 type noopTimer struct{}
 
-func (noopTimer) Stop() bool { return false }
+// Stop returns true to match time.Timer's contract: the timer was
+// active when Stop was called. Tests don't currently inspect this
+// return value, but matching the documented semantic avoids surprising
+// any future caller that checks it for cleanup decisions.
+func (noopTimer) Stop() bool { return true }
 
 // TestReconciler_PushAndReconcile_AppliesTarget — the happy path.
 // Push one Activation onto the state axis; ReconcileZone composes
@@ -329,16 +333,19 @@ func TestReconciler_MultiAxisCompose(t *testing.T) {
 	require.Equal(t, int32(4000), got.ColorTemperatureKelvin)
 }
 
-// TestReconciler_IsManaged — a zone is "managed" once it has been
-// pushed to. Used by the evaluator's branch to decide which apply
-// path handles each zone.
-func TestReconciler_IsManaged(t *testing.T) {
+// TestReconciler_HasPolicy — `hasPolicy` is the reconciler-internal
+// "do I have any state for this zone?" check. Distinct from
+// Conditioner.isReconcileManaged, which is the config-driven routing
+// decision. A zone in cfg.ReconcileZones that has never received a
+// push is "managed" by the controller (routed to the reconciler) but
+// has no policy in the reconciler (empty stack → no-op tick).
+func TestReconciler_HasPolicy(t *testing.T) {
 	computer.Register("stub-managed", stubComputer{vals: computer.ApplyValues{
 		State: iotv1proto.ZoneState_ZONE_STATE_ON,
 	}})
 
 	r, _, _ := newTestReconciler(t)
-	require.False(t, r.IsManaged("never-pushed"), "unknown zone is not managed")
+	require.False(t, r.hasPolicy("never-pushed"), "unknown zone is not managed")
 
 	require.NoError(t, r.PushActivation(context.Background(), "test-zone", iotv1proto.AxisKind_AXIS_KIND_STATE,
 		&iotv1proto.Activation{
@@ -349,8 +356,8 @@ func TestReconciler_IsManaged(t *testing.T) {
 			Ttl:          durationpb.New(time.Hour),
 			Priority:     50,
 		}))
-	require.True(t, r.IsManaged("test-zone"), "pushed-to zone is managed")
-	require.False(t, r.IsManaged("other-zone"), "other zone still not managed")
+	require.True(t, r.hasPolicy("test-zone"), "pushed-to zone is managed")
+	require.False(t, r.hasPolicy("other-zone"), "other zone still not managed")
 }
 
 // TestReconciler_PushUnknownComputer_Errors — operator typo in

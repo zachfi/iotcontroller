@@ -243,9 +243,9 @@ func TestQuery_HeaterLowTemp_ReturnsOn(t *testing.T) {
 	q := newTestQuery(t, srv.URL)
 
 	args := map[string]string{
-		"query":           `iot_zigbee2mqtt_temperature{zone="heated-zone"} < 5`,
-		"on_true.state":   "ZONE_STATE_ON",
-		"on_false.state":  "ZONE_STATE_OFF",
+		"query":          `iot_zigbee2mqtt_temperature{zone="heated-zone"} < 5`,
+		"on_true.state":  "ZONE_STATE_ON",
+		"on_false.state": "ZONE_STATE_OFF",
 	}
 	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
 	if err != nil {
