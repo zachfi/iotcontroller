@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -367,27 +368,216 @@ func TestQuery_EmptyVector_HeaterStopsAndPumpStops(t *testing.T) {
 	}
 }
 
-// TestQuery_PumpFailSafeOnFetchError_TODO_OnErrorArgs documents a
-// known safety gap in the current query Computer. On PromQL fetch
-// error (Mimir down, network blip) the Computer returns the CACHED
-// previous result (see query.go:147-160). If the last cached value
-// for the pump was "water present → on", and water then drains
-// during the outage, the pump stays on and runs dry.
+// TestQuery_PumpFailSafeOnFetchError_OnErrorArgs locks in the pump's
+// fail-safe direction: with `on_error.state = ZONE_STATE_OFF` declared,
+// a PromQL fetch error returns OFF regardless of what the previous
+// successful query produced. Without this, a cached "water present →
+// on" result during a Mimir outage would keep the pump running while
+// the water drains — running the pump dry damages it.
 //
-// For the heater, this cached-fallback behavior is defensible
-// ("keep heat going if I can't see the metric"). For the pump it's
-// the wrong direction.
+// Sequence:
 //
-// Fix scheduled in the reconcile architecture migration (Phase B
-// prereqs in .claude/plans/humble-foraging-pike.md): add explicit
-// on_error.{state,brightness,...} args so operators can declare
-// fail-safe direction per Condition.
-//
-// Test stays skipped until the fix lands; lives here as the
-// inventory entry so reviewers see the gap. Unskip when on_error
-// args are wired through.
-func TestQuery_PumpFailSafeOnFetchError_TODO_OnErrorArgs(t *testing.T) {
-	t.Skip("known gap: cached-fallback on fetch error is not fail-safe for the pump. Scheduled fix: on_error.* args. See .claude/plans/humble-foraging-pike.md Phase B prereqs.")
+//  1. First call against a healthy server returns "water present → on"
+//     and caches state=on.
+//  2. Server then 500s; the cached on is on the table.
+//  3. Without on_error.state, the cache fallback would return on
+//     (the dangerous direction, asserted by the sibling test below).
+//     With on_error.state=OFF declared, the Computer returns OFF.
+func TestQuery_PumpFailSafeOnFetchError_OnErrorArgs(t *testing.T) {
+	var failNow atomic.Bool
+	srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if failNow.Load() {
+			http.Error(w, "Mimir transiently down", http.StatusInternalServerError)
+			return
+		}
+		fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1000,"1"]}]}}`)
+	})
+	q := newTestQuery(t, srv.URL)
+
+	args := map[string]string{
+		"query":          `max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pumped-zone"}[2m])) > 0.5`,
+		"on_true.state":  "ZONE_STATE_ON",
+		"on_false.state": "ZONE_STATE_OFF",
+		"on_error.state": "ZONE_STATE_OFF", // pump runs dry if it stays on without water signal
+	}
+	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("first Compute: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_ON {
+		t.Fatalf("first Compute (server healthy, water present): state = %s; want ON", got.State)
+	}
+
+	// Server flips to 500. Cached value is ON; declared fail-safe is OFF.
+	// Fail-safe must win.
+	failNow.Store(true)
+	got, err = q.Compute(context.Background(), time.Unix(1060, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("Compute under fetch error with on_error declared should not error: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_OFF {
+		t.Errorf("Mimir down + on_error.state=OFF: state = %s; want ZONE_STATE_OFF (pump must NOT run dry on fetch failure)", got.State)
+	}
+}
+
+// TestQuery_FailSafe_TakesPrecedenceOverCache is the architectural
+// sibling: it asserts the resolution order explicitly. Without
+// on_error.* the cache wins (existing lighting-zone behavior);
+// with on_error.* declared, the fail-safe wins. Catches a future
+// refactor that accidentally swaps the order.
+func TestQuery_FailSafe_TakesPrecedenceOverCache(t *testing.T) {
+	t.Run("no on_error declared: cache fallback returns the previously-applied value", func(t *testing.T) {
+		var failNow atomic.Bool
+		srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+			if failNow.Load() {
+				http.Error(w, "outage", http.StatusInternalServerError)
+				return
+			}
+			fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1000,"1"]}]}}`)
+		})
+		q := newTestQuery(t, srv.URL)
+		args := map[string]string{
+			"query":         `up{zone="lighting-zone"}`,
+			"on_true.state": "ZONE_STATE_ON",
+			// No on_error.* — lighting-zone semantics
+		}
+		if _, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args); err != nil {
+			t.Fatalf("warm cache: %v", err)
+		}
+		failNow.Store(true)
+		got, err := q.Compute(context.Background(), time.Unix(1060, 0), Location{}, args)
+		if err != nil {
+			t.Fatalf("cached fallback should not error: %v", err)
+		}
+		if got.State != iotv1proto.ZoneState_ZONE_STATE_ON {
+			t.Errorf("no on_error declared: cache should return ON; got %s", got.State)
+		}
+	})
+
+	t.Run("on_error declared: fail-safe wins over cache", func(t *testing.T) {
+		var failNow atomic.Bool
+		srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+			if failNow.Load() {
+				http.Error(w, "outage", http.StatusInternalServerError)
+				return
+			}
+			fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1000,"1"]}]}}`)
+		})
+		q := newTestQuery(t, srv.URL)
+		args := map[string]string{
+			"query":          `pump_should_run{}`,
+			"on_true.state":  "ZONE_STATE_ON",
+			"on_false.state": "ZONE_STATE_OFF",
+			"on_error.state": "ZONE_STATE_OFF",
+		}
+		if _, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args); err != nil {
+			t.Fatalf("warm cache: %v", err)
+		}
+		failNow.Store(true)
+		got, err := q.Compute(context.Background(), time.Unix(1060, 0), Location{}, args)
+		if err != nil {
+			t.Fatalf("fail-safe path should not error: %v", err)
+		}
+		if got.State != iotv1proto.ZoneState_ZONE_STATE_OFF {
+			t.Errorf("on_error declared: fail-safe should return OFF (overriding cached ON); got %s", got.State)
+		}
+	})
+
+	t.Run("on_error declared and no cache: fail-safe wins over error", func(t *testing.T) {
+		srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "always down", http.StatusInternalServerError)
+		})
+		q := newTestQuery(t, srv.URL)
+		args := map[string]string{
+			"query":          `pump_should_run{}`,
+			"on_true.state":  "ZONE_STATE_ON",
+			"on_false.state": "ZONE_STATE_OFF",
+			"on_error.state": "ZONE_STATE_OFF",
+		}
+		got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+		if err != nil {
+			t.Fatalf("first-call fail-safe should not error: %v", err)
+		}
+		if got.State != iotv1proto.ZoneState_ZONE_STATE_OFF {
+			t.Errorf("first-call fail-safe: state = %s; want OFF", got.State)
+		}
+	})
+
+	t.Run("malformed on_error.state surfaces parse error", func(t *testing.T) {
+		srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "down", http.StatusInternalServerError)
+		})
+		q := newTestQuery(t, srv.URL)
+		args := map[string]string{
+			"query":          `whatever{}`,
+			"on_error.state": "NOT_A_REAL_ZONE_STATE",
+		}
+		_, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+		if err == nil {
+			t.Fatalf("expected parse error for malformed on_error.state")
+		}
+	})
+}
+
+// TestQuery_FailSafeCovers_AllAxes confirms the fail-safe path
+// supports all four ApplyValues axes (state, brightness,
+// color_temperature, color) not just state. Useful for "outage →
+// turn the office lamp red as a warning" patterns where the operator
+// wants a multi-axis fail-safe.
+func TestQuery_FailSafeCovers_AllAxes(t *testing.T) {
+	srv := promServer(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	})
+	q := newTestQuery(t, srv.URL)
+	args := map[string]string{
+		"query":                      `whatever{}`,
+		"on_error.state":             "ZONE_STATE_ON",
+		"on_error.brightness":        "BRIGHTNESS_FULL",
+		"on_error.color_temperature": "COLOR_TEMPERATURE_DAY",
+		"on_error.color":             "#FF0000",
+	}
+	got, err := q.Compute(context.Background(), time.Unix(1000, 0), Location{}, args)
+	if err != nil {
+		t.Fatalf("fail-safe Compute: %v", err)
+	}
+	if got.State != iotv1proto.ZoneState_ZONE_STATE_ON {
+		t.Errorf("state: got %s, want ON", got.State)
+	}
+	if got.Brightness != iotv1proto.Brightness_BRIGHTNESS_FULL {
+		t.Errorf("brightness: got %s, want FULL", got.Brightness)
+	}
+	if got.ColorTemperature != iotv1proto.ColorTemperature_COLOR_TEMPERATURE_DAY {
+		t.Errorf("color_temperature: got %s, want DAY", got.ColorTemperature)
+	}
+	if got.Color != "#FF0000" {
+		t.Errorf("color: got %q, want #FF0000", got.Color)
+	}
+}
+
+// TestQuery_HasOnErrorArgs_Detection asserts the helper's edge cases.
+// Empty values must NOT count as "declared" — operators templating in
+// scaffolding shouldn't accidentally route through fail-safe with a
+// zero-value ApplyValues.
+func TestQuery_HasOnErrorArgs_Detection(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]string
+		want bool
+	}{
+		{"none set", map[string]string{"query": "x"}, false},
+		{"only empty string", map[string]string{"on_error.state": "  "}, false},
+		{"state declared", map[string]string{"on_error.state": "ZONE_STATE_OFF"}, true},
+		{"brightness only", map[string]string{"on_error.brightness": "BRIGHTNESS_OFF"}, true},
+		{"color only", map[string]string{"on_error.color": "#000000"}, true},
+		{"ct only", map[string]string{"on_error.color_temperature": "COLOR_TEMPERATURE_FIRST_LIGHT"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasOnErrorArgs(tc.args); got != tc.want {
+				t.Errorf("hasOnErrorArgs(%v) = %v; want %v", tc.args, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestQuery_HashArgsStableAcrossMapIterations(t *testing.T) {

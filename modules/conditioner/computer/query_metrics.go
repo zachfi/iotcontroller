@@ -36,3 +36,19 @@ var metricQueryOutcome = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Name: "iotcontroller_conditioner_query_outcome",
 	Help: "Whether the query Computer's threshold check returned on_true (1) or on_false (0) on the last successful evaluation, per (condition, zone).",
 }, []string{"condition", "zone"})
+
+// metricQueryFailSafe counts evaluations where the PromQL fetch
+// errored AND the operator's Condition declared explicit on_error.*
+// fail-safe args, so the Computer returned those values instead of
+// falling back to the cache. Non-zero rate is the operator's signal
+// that a safety-critical zone (pump, heater) is currently running on
+// its declared fail-safe direction rather than fresh data.
+//
+// Pair this with iotcontroller_conditioner_evaluation_compute_error_total
+// to distinguish "fetch is broken AND operator declared a safe
+// fallback" (this metric) from "fetch is broken AND no fallback, eval
+// loop counted an error" (the eval_compute_error counter).
+var metricQueryFailSafe = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_conditioner_query_fail_safe_total",
+	Help: "Number of PromQL fetch failures where the operator's declared on_error.* fail-safe ApplyValues was returned in place of the cached or errored result.",
+}, []string{"condition", "zone"})

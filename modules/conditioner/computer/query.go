@@ -89,17 +89,30 @@ func NewQuery(cfg QueryConfig) Computer {
 //	on_true.color_temperature  ColorTemperature enum name.
 //	on_true.color            Hex color "#RRGGBB".
 //	on_false.{state,brightness,color_temperature,color}  Same shape; defaults to UNSPECIFIED / "".
+//	on_error.{state,brightness,color_temperature,color}  OPTIONAL fail-safe
+//	                  applied when the PromQL fetch errors. Takes
+//	                  precedence over the cache fallback so operators
+//	                  can declare an explicit safe direction
+//	                  (e.g. pump → OFF) instead of inheriting whatever
+//	                  the last successful query returned.
 //
 // Behaviour:
 //
 //	result > 0:  return on_true.*
 //	result == 0 or empty:  return on_false.*
-//	HTTP / parse error: return last-known-good ApplyValues for this
-//	                     args set if cached; else return error (the
-//	                     eval loop counts it as compute_error). On
-//	                     cached fallback the failure is logged at
-//	                     debug; the operator sees the failed metric
-//	                     and reconciles with logs.
+//	HTTP / parse error: fail-safe resolution order —
+//	                     1. if any on_error.* arg is set, return parsed
+//	                        on_error.* (the operator's declared safe
+//	                        direction);
+//	                     2. else if a previous Compute for this args set
+//	                        succeeded, return the cached result;
+//	                     3. else surface the error so the eval loop
+//	                        counts it as compute_error.
+//	                     Step 1 exists for safety-critical zones (pump,
+//	                     heater) where "keep whatever was last applied"
+//	                     is the wrong direction during an outage. Step 2
+//	                     preserves the previous lighting-zone behavior
+//	                     where a Mimir blip shouldn't toggle the lamp.
 //
 // The cache key is sha256(canonicalize(args)). Two Conditions with
 // identical args share one cache entry — they'd compute the same
@@ -144,22 +157,35 @@ func (q *query) Compute(ctx context.Context, now time.Time, _ Location, args map
 
 	value, err := q.fetch(ctx, promql, now)
 	if err != nil {
-		// Transient failure path: return cached last-known-good if
-		// any, with err==nil so the eval loop applies it. Cached
-		// fallback is silent except for a debug log so operators can
-		// trace post-hoc.
+		// Resolution order: declared fail-safe > cache > error.
+		// Operators of safety-critical zones (pump, heater) MUST set
+		// on_error.* to claim explicit direction; lighting Conditions
+		// without on_error.* keep the pre-existing cache-fallback
+		// behavior so a Mimir blip doesn't toggle the lamp.
+		if hasOnErrorArgs(args) {
+			failSafe, perr := parseApplyValues(args, "on_error")
+			if perr != nil {
+				return ApplyValues{}, fmt.Errorf("query: on_error parse: %w", perr)
+			}
+			metricQueryFailSafe.WithLabelValues(condLabel, zoneLabel).Inc()
+			q.logger.Debug("query: fetch failed, returning declared on_error fail-safe",
+				slog.String("promql", promql),
+				slog.String("error", err.Error()),
+			)
+			return failSafe, nil
+		}
 		q.cacheMu.Lock()
 		cached, ok := q.cache[cacheKey]
 		q.cacheMu.Unlock()
 		if ok {
-			q.logger.Debug("query: HTTP/parse failure, returning cached",
+			q.logger.Debug("query: HTTP/parse failure, returning cached last-known-good",
 				slog.String("promql", promql),
 				slog.String("error", err.Error()),
 			)
 			return cached, nil
 		}
-		// First-time failure with no cache: surface the error so the
-		// eval loop can count it.
+		// First-time failure with no cache and no fail-safe declared:
+		// surface the error so the eval loop can count it.
 		return ApplyValues{}, fmt.Errorf("query: %w", err)
 	}
 
@@ -297,6 +323,31 @@ func hashArgs(args map[string]string) string {
 		fmt.Fprintf(h, "%s=%s\x00", k, args[k])
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// onErrorKeys lists the arg names that, if any is set, indicate the
+// operator has declared a fail-safe direction. Used by Compute to
+// route fetch errors through parseApplyValues(args, "on_error")
+// instead of cache fallback.
+var onErrorKeys = []string{
+	"on_error.state",
+	"on_error.brightness",
+	"on_error.color_temperature",
+	"on_error.color",
+}
+
+// hasOnErrorArgs returns true if at least one on_error.* arg carries a
+// non-empty value. The empty-string check matters because operators
+// may template the key in but leave the value blank for axes they
+// don't want to touch — that's not a declared fail-safe, just a
+// scaffolding artifact.
+func hasOnErrorArgs(args map[string]string) bool {
+	for _, k := range onErrorKeys {
+		if strings.TrimSpace(args[k]) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // parseApplyValues reads on_true.* / on_false.* keys from args and
