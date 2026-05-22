@@ -531,6 +531,49 @@ func (r *Reconciler) reflectStatus(ctx context.Context, zone string, policy *zon
 	}
 }
 
+// RemoveActivation evicts the (sourceKind, sourceName) Activation from
+// every axis stack on the named zone, then triggers a reconcile so the
+// composed target reflects whatever's left after removal.
+//
+// Counterpart to PushActivation for imperative deactivate paths
+// (deactivateRemediation, forceDeactivate). Without this, those paths
+// would write to ZoneKeeper directly while leaving the activate entry
+// stranded on the stack, and the reconciler's next tick would
+// re-assert the activate target — fighting the imperative deactivate.
+//
+// Returns nil even if the activation isn't on any axis stack (idempotent
+// — operator can call this without checking first). The reconcile after
+// removal is unconditional: even a no-op removal may have lower-stack
+// entries whose top changed since the last apply.
+func (r *Reconciler) RemoveActivation(ctx context.Context, zone string, sourceKind iotv1proto.SourceKind, sourceName string) error {
+	ctx, span := r.tracer.Start(ctx, "Reconciler.RemoveActivation",
+		trace.WithAttributes(
+			attribute.String("zone", zone),
+			attribute.String("source_kind", sourceKind.String()),
+			attribute.String("source_name", sourceName),
+		),
+	)
+	defer span.End()
+
+	r.policiesMu.RLock()
+	policy, ok := r.policies[zone]
+	r.policiesMu.RUnlock()
+	if !ok {
+		// Nothing to remove; not an error.
+		return nil
+	}
+
+	id := activationID(sourceKind, sourceName)
+	for _, s := range policy.stacks {
+		s.removeByID(id)
+	}
+
+	if err := r.ReconcileZone(ctx, zone, r.now()); err != nil {
+		return fmt.Errorf("reconcile after remove: %w", err)
+	}
+	return nil
+}
+
 // policy returns the zonePolicy for `zone`, creating it lazily on
 // first access. Write-locked so concurrent first-pushes for the same
 // zone don't race on map creation.

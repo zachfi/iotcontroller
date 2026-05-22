@@ -109,6 +109,22 @@ type nopWriter struct{}
 
 func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
 
+// SuggestedTTL satisfies the TTLAdvisor interface. The bridge uses
+// this when pushing fade onto the Active Computer Stack so the
+// stack entry expires shortly after the fade's natural duration —
+// otherwise the bridge's 5-minute default would pin fade as top of
+// stack long after its terminal values have stabilized, blocking the
+// background layer from re-asserting. The small fixed buffer keeps
+// the terminal values visible briefly past progress=1 in case the
+// next reconcile tick lands a moment after the fade's natural end.
+func (f *fade) SuggestedTTL(args map[string]string) time.Duration {
+	p, err := parseFadeArgs(args)
+	if err != nil || p.duration <= 0 {
+		return 0
+	}
+	return p.duration + 30*time.Second
+}
+
 // SeedEventSnapshot builds an event-mode FadeSnapshot from a
 // Remediation's args, resolving any "from = current" axes against
 // the named zone's Status at seed time. Pure helper exported so the

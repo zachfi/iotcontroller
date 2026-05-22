@@ -24,6 +24,29 @@ func (s *stubZoneReader) CurrentColorTemperatureKelvin(_ context.Context, _ stri
 	return s.kelvin
 }
 
+func TestFade_SuggestedTTL_ReturnsDurationPlusBuffer(t *testing.T) {
+	f := NewFade(NewFadeSnapshotStore(), &stubZoneReader{}, nil)
+	adv, ok := f.(TTLAdvisor)
+	require.True(t, ok, "fade should implement TTLAdvisor so the bridge can push it with a sensible TTL")
+
+	got := adv.SuggestedTTL(map[string]string{
+		"anchor":     "event",
+		"duration":   "3s",
+		"brightness": "0%->100%",
+	})
+	// Buffer is 30s in fade.go; the exact value is impl detail but
+	// duration < TTL < something sane.
+	require.Greater(t, got, 3*time.Second, "TTL must outlast the fade itself")
+	require.Less(t, got, 5*time.Minute, "TTL must be much shorter than the bridge default")
+}
+
+func TestFade_SuggestedTTL_UnparseableReturnsZero(t *testing.T) {
+	f := NewFade(NewFadeSnapshotStore(), &stubZoneReader{}, nil)
+	adv := f.(TTLAdvisor)
+	require.Equal(t, time.Duration(0), adv.SuggestedTTL(map[string]string{}),
+		"missing duration should signal 'use bridge default'")
+}
+
 func TestFade_ParseArgs_DurationRequired(t *testing.T) {
 	_, err := parseFadeArgs(map[string]string{})
 	require.Error(t, err, "missing duration must error")

@@ -81,6 +81,20 @@ type Computer interface {
 	Compute(ctx context.Context, now time.Time, loc Location, args map[string]string) (ApplyValues, error)
 }
 
+// TTLAdvisor is an optional Computer-side interface for declaring the
+// natural lifetime of a single imperative activation. The bridge
+// honors a non-zero suggestion in place of its default
+// bridgeImperativeTTL so short-lived Computers (e.g. fade with a 3s
+// duration) don't pin the stack for the bridge's 5-minute default
+// after their effect has completed.
+//
+// SuggestedTTL is invoked once at push time with the same args the
+// Computer's Compute would receive. Returning 0 means "use the bridge
+// default."
+type TTLAdvisor interface {
+	SuggestedTTL(args map[string]string) time.Duration
+}
+
 var (
 	registryMu sync.RWMutex
 	registry   = map[string]Computer{}

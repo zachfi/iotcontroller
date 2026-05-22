@@ -191,6 +191,31 @@ func (s *axisStack) removeExpired(now time.Time) {
 	s.entries = kept
 }
 
+// removeByID drops the entry whose id matches `id`. Returns true if an
+// entry was removed. Used by Reconciler.RemoveActivation to implement
+// the deactivate/forceDeactivate path on reconcile-managed zones:
+// rather than writing to ZoneKeeper imperatively (which leaves the
+// stack's activation stranded), the imperative deactivate path
+// evicts the corresponding activate entry from the stack so the
+// reconciler's next tick composes from whatever's left.
+func (s *axisStack) removeByID(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, a := range s.entries {
+		if a.id != id {
+			continue
+		}
+		last := len(s.entries) - 1
+		copy(s.entries[i:], s.entries[i+1:])
+		// Clear the duplicated tail reference so the backing array
+		// doesn't retain a pointer to the removed runtimeActivation.
+		s.entries[last] = nil
+		s.entries = s.entries[:last]
+		return true
+	}
+	return false
+}
+
 // find returns the runtimeActivation with the given id, or nil.
 // Diagnostic helper; not used in the reconciler hot loop.
 func (s *axisStack) find(id string) *runtimeActivation {

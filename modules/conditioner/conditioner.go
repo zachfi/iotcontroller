@@ -147,7 +147,17 @@ func (c *Conditioner) applyDesired(ctx context.Context, condName, zone string, r
 // If rem.ActiveState is the "toggle" shorthand, it's resolved to "on"
 // or "off" here (based on the zone's current CRD status.state) so
 // downstream apply / cache layers only ever see concrete states.
+// activateRemediation is a convenience entry that defaults the source
+// to SOURCE_KIND_BINDING — appropriate for the ActivateCondition RPC
+// (binding match), the Epoch RPC, and any other caller that doesn't
+// distinguish itself. Callers with a more specific origin (Alert RPC)
+// should call activateRemediationFromSource directly so their stack
+// pushes carry the correct kind.
 func (c *Conditioner) activateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	return c.activateRemediationFromSource(ctx, condName, rem, iotv1proto.SourceKind_SOURCE_KIND_BINDING)
+}
+
+func (c *Conditioner) activateRemediationFromSource(ctx context.Context, condName string, rem apiv1.Remediation, src iotv1proto.SourceKind) error {
 	if len(rem.TimeIntervals) > 0 && !c.withinActiveWindow(ctx, rem, time.Now()) {
 		metricApplySuppressed.WithLabelValues(condName, rem.Zone, "time-gated").Inc()
 		return nil
@@ -163,28 +173,20 @@ func (c *Conditioner) activateRemediation(ctx context.Context, condName string, 
 	// Reconcile-managed zones currently fall through to the imperative
 	// adjustBrightness path: the reconciler operates on absolute
 	// targets and there's no clean "delta" abstraction for the stack
-	// yet. The adjust writes go directly to ZoneKeeper; the
-	// reconciler's next tick will read the new brightness via Status
-	// and decide whether to overwrite. Documented incompleteness for
-	// the relative-press case on managed zones.
+	// yet. Known limitation; documented in MEMORY's reconcile design
+	// notes.
 	if rem.ActiveBrightnessDelta != 0 {
 		return c.adjustBrightness(ctx, condName, rem.Zone, rem.ActiveBrightnessDelta)
 	}
 	if strings.EqualFold(rem.ActiveState, shortHandStateToggle) {
 		rem.ActiveState = c.resolveToggleState(ctx, rem.Zone)
 	}
-	// Reconcile-managed zones get the activate as a stack push instead
-	// of an imperative apply. Source kind defaults to BINDING because
-	// the imperative-call sites that reach here for managed zones are
-	// the ActivateCondition RPC (binding match), the Alert RPC, and
-	// the Epoch RPC. All three are event-driven (vs the eval loop's
-	// time-window path which bypasses activateRemediation entirely for
-	// managed zones). Distinguishing alert/epoch/binding here requires
-	// threading source through every caller — punt on that until we
-	// observe a concrete need to compose alert vs binding priorities
-	// for the same zone.
+	// Reconcile-managed zones push onto the Active Computer Stack
+	// with the supplied source kind (binding/alert/epoch) so the
+	// stack composition rules — priority, dedup by (kind, name),
+	// observability — carry the caller's actual identity.
 	if c.isReconcileManaged(rem.Zone) {
-		return c.bridgeImperativeActivate(ctx, condName, rem)
+		return c.bridgeImperativeActivate(ctx, condName, rem, src)
 	}
 	return c.applyDesired(ctx, condName, rem.Zone, activateRequest(ctx, rem), "activate")
 }
@@ -213,6 +215,21 @@ func (c *Conditioner) adjustBrightness(ctx context.Context, condName, zone strin
 // inactive state — gating that would leave the zone stuck in whatever
 // state the previous activation set.
 func (c *Conditioner) deactivateRemediation(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	return c.deactivateRemediationFromSource(ctx, condName, rem, iotv1proto.SourceKind_SOURCE_KIND_BINDING)
+}
+
+func (c *Conditioner) deactivateRemediationFromSource(ctx context.Context, condName string, rem apiv1.Remediation, src iotv1proto.SourceKind) error {
+	// Reconcile-managed zones: evict the matching (src, condName)
+	// Activation from the stack instead of writing imperatively. This
+	// makes the activate→deactivate pair commutative with the
+	// reconciler: deactivate removes the activate entry; the
+	// reconciler's next tick composes whatever lower layers remain
+	// (background time-window, circadian, etc.) and applies on delta.
+	// Without RemoveActivation the imperative SetState would race the
+	// reconciler's re-assertion of the still-on-stack activate.
+	if c.isReconcileManaged(rem.Zone) {
+		return c.reconciler.RemoveActivation(ctx, rem.Zone, src, condName)
+	}
 	return c.applyDesired(ctx, condName, rem.Zone, deactivateRequest(ctx, rem), "deactivate")
 }
 
@@ -237,6 +254,22 @@ func (c *Conditioner) deactivateRemediation(ctx context.Context, condName string
 // resolving when temp briefly overshoots must NOT turn the heater off,
 // or short-cycling returns.
 func (c *Conditioner) forceDeactivate(ctx context.Context, condName string, rem apiv1.Remediation) error {
+	return c.forceDeactivateFromSource(ctx, condName, rem, iotv1proto.SourceKind_SOURCE_KIND_BINDING)
+}
+
+func (c *Conditioner) forceDeactivateFromSource(ctx context.Context, condName string, rem apiv1.Remediation, src iotv1proto.SourceKind) error {
+	// Reconcile-managed zones: evict the activate entry just like
+	// deactivateRemediation. The stack's lower layers (background
+	// time-window, circadian) then re-assert, which is the
+	// "force-safe" intent when the window closes — provided the
+	// operator declared a lower-layer Condition for the safe state.
+	// Heater zones are deliberately NOT in cfg.ReconcileZones, so the
+	// stuck-on-window-close failure mode that forceDeactivate exists
+	// to prevent stays handled by the imperative branch below.
+	if c.isReconcileManaged(rem.Zone) {
+		return c.reconciler.RemoveActivation(ctx, rem.Zone, src, condName)
+	}
+
 	if req := deactivateRequest(ctx, rem); req != nil {
 		return c.applyDesired(ctx, condName, rem.Zone, req, "deactivate")
 	}
@@ -536,7 +569,7 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 			switch status {
 			case alertStatusFiring:
 				if len(rem.TimeIntervals) == 0 || c.withinActiveWindow(ctx, rem, time.Now()) {
-					if err = c.activateRemediation(ctx, cond.Name, rem); err != nil {
+					if err = c.activateRemediationFromSource(ctx, cond.Name, rem, iotv1proto.SourceKind_SOURCE_KIND_ALERT); err != nil {
 						c.logger.Error("failed to activate condition alert", "err", err)
 					} else if len(rem.TimeIntervals) > 0 {
 						// Track so the background window check can deactivate when the window closes.
@@ -553,7 +586,7 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 					// infers OFF from non-OFF ActiveState; that's the
 					// "window closed → safe state" contract.
 					c.untrackAlertActive(cond.Name, rem)
-					if err = c.forceDeactivate(ctx, cond.Name, rem); err != nil {
+					if err = c.forceDeactivateFromSource(ctx, cond.Name, rem, iotv1proto.SourceKind_SOURCE_KIND_ALERT); err != nil {
 						c.logger.Error("failed to deactivate condition alert (firing outside window)", "err", err)
 					}
 				}
@@ -562,7 +595,7 @@ func (c *Conditioner) Alert(ctx context.Context, req *iotv1proto.AlertRequest) (
 				// InactiveState means "do nothing on resolve" so paired
 				// low/high alerts (heater pattern) don't short-cycle.
 				c.untrackAlertActive(cond.Name, rem)
-				if err = c.deactivateRemediation(ctx, cond.Name, rem); err != nil {
+				if err = c.deactivateRemediationFromSource(ctx, cond.Name, rem, iotv1proto.SourceKind_SOURCE_KIND_ALERT); err != nil {
 					c.logger.Error("failed to deactivate condition alert", "err", err)
 				}
 			default:
@@ -979,7 +1012,12 @@ func (c *Conditioner) runAlertWindowCheckAt(ctx context.Context, now time.Time) 
 				slog.String("key", key),
 				slog.String("zone", rem.Zone),
 			)
-			if err := c.forceDeactivate(ctx, condName, rem); err != nil {
+			// runAlertWindowCheckAt only deactivates entries tracked
+			// by trackAlertActive — i.e. alert-driven activates. Source
+			// kind must match what activateRemediationFromSource pushed
+			// (SOURCE_KIND_ALERT) so RemoveActivation can find the
+			// stack entry on reconcile-managed zones.
+			if err := c.forceDeactivateFromSource(ctx, condName, rem, iotv1proto.SourceKind_SOURCE_KIND_ALERT); err != nil {
 				c.logger.Error("failed to deactivate remediation after window close", "err", err, "zone", rem.Zone)
 			}
 			c.alertActiveMu.Lock()

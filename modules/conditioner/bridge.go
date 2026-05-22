@@ -64,14 +64,18 @@ const (
 	// with ties broken by recency.
 	bridgePushPriority = 50
 
-	// bridgeImperativePriority is the priority assigned to pushes
-	// originating from imperative-path callers (ActivateCondition
-	// RPC, Alert RPC, Epoch RPC). Higher than the time-window
-	// background so an event override wins during overlap windows
-	// (e.g. button press during foyer-dusk's 20:00-21:00 window:
-	// the user's button intent supersedes the schedule until the
-	// imperative push's TTL expires).
+	// bridgeImperativePriority is the priority assigned to bindings
+	// (ActivateCondition RPC, Epoch RPC). Higher than the time-window
+	// background so a button press during foyer-dusk's window
+	// supersedes the schedule until the imperative push's TTL expires.
 	bridgeImperativePriority = 100
+
+	// bridgeAlertPriority is reserved for Alert RPC pushes — above
+	// bindings so a safety-critical alert (low-temp heater, water
+	// leak) outranks any concurrent button press or motion event.
+	// The number 200 leaves room (50/100/200) for future tiers if
+	// needed.
+	bridgeAlertPriority = 200
 
 	// bridgeTTLMultiplier multiplies cfg.EvaluationInterval to get the
 	// TTL for bridge-pushed time-window Activations. 3× means a
@@ -266,20 +270,44 @@ func (c *Conditioner) bridgeActiveScene(
 // (activateRemediation) has already passed the withinActiveWindow
 // check; firing-outside-window goes through forceDeactivate, not
 // here.
-func (c *Conditioner) bridgeImperativeActivate(ctx context.Context, condName string, rem apiv1.Remediation) error {
+func (c *Conditioner) bridgeImperativeActivate(ctx context.Context, condName string, rem apiv1.Remediation, src iotv1proto.SourceKind) error {
 	now := time.Now()
 	pushedAt := timestamppb.New(now)
-	ttl := durationpb.New(bridgeImperativeTTL)
+	// Priority by source: alerts above bindings above time-window.
+	// Lets a fire-alarm-style alert outrank a button-press binding on
+	// the same zone, even though both refresh through the same
+	// imperative path.
+	priority := int32(bridgeImperativePriority)
+	if src == iotv1proto.SourceKind_SOURCE_KIND_ALERT {
+		priority = bridgeAlertPriority
+	}
+
+	// ttlFor returns the TTL for one push. If the named Computer
+	// implements TTLAdvisor and returns a positive duration, use
+	// that — otherwise the bridge default. Lets fade (3s) supersede
+	// the 5min default while letting circadian (stateless,
+	// long-lived) keep the default.
+	ttlFor := func(computerName string, args map[string]string) *durationpb.Duration {
+		comp, ok := computer.Get(computerName)
+		if ok {
+			if adv, ok := comp.(computer.TTLAdvisor); ok {
+				if d := adv.SuggestedTTL(args); d > 0 {
+					return durationpb.New(d)
+				}
+			}
+		}
+		return durationpb.New(bridgeImperativeTTL)
+	}
 
 	push := func(axis iotv1proto.AxisKind, computerName string, args map[string]string) error {
 		act := &iotv1proto.Activation{
 			ComputerName: computerName,
 			Args:         args,
-			SourceKind:   iotv1proto.SourceKind_SOURCE_KIND_BINDING,
+			SourceKind:   src,
 			SourceName:   condName,
 			PushedAt:     pushedAt,
-			Ttl:          ttl,
-			Priority:     bridgeImperativePriority,
+			Ttl:          ttlFor(computerName, args),
+			Priority:     priority,
 			PushPolicy:   iotv1proto.PushPolicy_PUSH_POLICY_REFRESH,
 		}
 		if err := c.reconciler.PushActivation(ctx, rem.Zone, axis, act); err != nil {

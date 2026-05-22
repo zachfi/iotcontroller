@@ -19,6 +19,7 @@ import (
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
 	"github.com/zachfi/iotcontroller/modules/conditioner/computer"
+	iotv1proto "github.com/zachfi/iotcontroller/proto/iot/v1"
 )
 
 // bridge_test.go — coverage for the eval-loop → reconciler bridge.
@@ -467,6 +468,130 @@ func TestBridge_ImperativeWins_TimeWindow(t *testing.T) {
 		"binding push should cause a new reconcile + apply (target changed)")
 	require.Equal(t, "ZONE_STATE_ON", zk.lastApply().State.String(),
 		"binding push at priority 100 wins over time-window push at priority 50")
+}
+
+// TestBridge_AlertSource_PushesAsAlert — Alert RPC paths thread
+// SOURCE_KIND_ALERT through activateRemediationFromSource, and the
+// bridge pushes with priority bridgeAlertPriority (200) rather than
+// bridgeImperativePriority (100). Composition: alert pushes win over
+// concurrent binding pushes on the same axis.
+func TestBridge_AlertSource_PushesAsAlert(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	zoneCR := &apiv1.Zone{}
+	zoneCR.Namespace = "iot"
+	zoneCR.Name = "managed"
+
+	kc := newFakeSchemeClient(t, zoneCR)
+	zk := &recordingZoneKeeperForReconciler{}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed"}}
+	c, err := New(cfg, logger, zk, kc)
+	require.NoError(t, err)
+
+	bindingRem := apiv1.Remediation{Zone: "managed", ActiveState: "off"}
+	require.NoError(t, c.activateRemediation(ctx, "user-button", bindingRem))
+	require.Equal(t, "ZONE_STATE_OFF", zk.lastApply().State.String())
+
+	alertRem := apiv1.Remediation{Zone: "managed", ActiveState: "on"}
+	require.NoError(t, c.activateRemediationFromSource(ctx, "fire-alarm", alertRem,
+		iotv1proto.SourceKind_SOURCE_KIND_ALERT))
+
+	require.Equal(t, "ZONE_STATE_ON", zk.lastApply().State.String(),
+		"alert at priority 200 wins over binding at 100")
+
+	got := &apiv1.Zone{}
+	require.NoError(t, kc.Get(ctx, client.ObjectKey{Namespace: "iot", Name: "managed"}, got))
+	for _, entry := range got.Status.ReconcilerStack {
+		if entry.Axis == "AXIS_KIND_STATE" {
+			require.NotNil(t, entry.Top)
+			require.Equal(t, "SOURCE_KIND_ALERT", entry.Top.SourceKind, "top of state axis is the alert push")
+			require.Equal(t, int32(bridgeAlertPriority), entry.Top.Priority)
+			return
+		}
+	}
+	t.Fatalf("expected AXIS_KIND_STATE entry on managed zone after alert push")
+}
+
+// TestBridge_DeactivateEvictsStackEntry — deactivateRemediation on a
+// reconcile-managed zone removes the matching (sourceKind, sourceName)
+// activation from the stack instead of writing imperatively. After
+// eviction, the stack composes from whatever's left (lower priority
+// layers, or empty).
+func TestBridge_DeactivateEvictsStackEntry(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	zoneCR := &apiv1.Zone{}
+	zoneCR.Namespace = "iot"
+	zoneCR.Name = "managed"
+	kc := newFakeSchemeClient(t, zoneCR)
+	zk := &recordingZoneKeeperForReconciler{}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed"}}
+	c, err := New(cfg, logger, zk, kc)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "managed", ActiveState: "on"}
+	require.NoError(t, c.activateRemediationFromSource(ctx, "alert-x", rem,
+		iotv1proto.SourceKind_SOURCE_KIND_ALERT))
+	require.Equal(t, "ZONE_STATE_ON", zk.lastApply().State.String())
+	require.Equal(t, 1, zk.applyCount())
+
+	// Deactivate with the same source kind as the activate.
+	require.NoError(t, c.deactivateRemediationFromSource(ctx, "alert-x", rem,
+		iotv1proto.SourceKind_SOURCE_KIND_ALERT))
+
+	// Stack is empty; reconciler tries to compose, finds isEmptyTarget,
+	// suppresses. No new ApplyValues call. Zone is no longer claimed
+	// from the stack.
+	require.Equal(t, 1, zk.applyCount(),
+		"deactivate evicts; reconciler sees empty target and suppresses the apply")
+
+	got := &apiv1.Zone{}
+	require.NoError(t, kc.Get(ctx, client.ObjectKey{Namespace: "iot", Name: "managed"}, got))
+	for _, entry := range got.Status.ReconcilerStack {
+		if entry.Axis == "AXIS_KIND_STATE" && entry.Top != nil {
+			t.Fatalf("expected AXIS_KIND_STATE to be evicted; still have top=%+v", entry.Top)
+		}
+	}
+}
+
+// TestBridge_DeactivateWrongSource_NoEvict — RemoveActivation by
+// (sourceKind, sourceName) is precise: a deactivate with a mismatched
+// source kind does NOT evict the active entry. Prevents an alert
+// resolve from accidentally removing a binding push of the same name.
+func TestBridge_DeactivateWrongSource_NoEvict(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	zoneCR := &apiv1.Zone{}
+	zoneCR.Namespace = "iot"
+	zoneCR.Name = "managed"
+	kc := newFakeSchemeClient(t, zoneCR)
+	zk := &recordingZoneKeeperForReconciler{}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed"}}
+	c, err := New(cfg, logger, zk, kc)
+	require.NoError(t, err)
+
+	rem := apiv1.Remediation{Zone: "managed", ActiveState: "on"}
+	require.NoError(t, c.activateRemediationFromSource(ctx, "shared-name", rem,
+		iotv1proto.SourceKind_SOURCE_KIND_BINDING))
+
+	// Try to deactivate using SOURCE_KIND_ALERT — different stack id,
+	// should not evict the binding entry.
+	require.NoError(t, c.deactivateRemediationFromSource(ctx, "shared-name", rem,
+		iotv1proto.SourceKind_SOURCE_KIND_ALERT))
+
+	got := &apiv1.Zone{}
+	require.NoError(t, kc.Get(ctx, client.ObjectKey{Namespace: "iot", Name: "managed"}, got))
+	foundBinding := false
+	for _, entry := range got.Status.ReconcilerStack {
+		if entry.Axis == "AXIS_KIND_STATE" && entry.Top != nil &&
+			entry.Top.SourceKind == "SOURCE_KIND_BINDING" {
+			foundBinding = true
+		}
+	}
+	require.True(t, foundBinding, "binding entry should survive mismatched-kind deactivate")
 }
 
 // TestBridge_StatusReflectsAfterPush — exercise the full
