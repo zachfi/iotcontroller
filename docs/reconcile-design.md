@@ -1,16 +1,160 @@
 # Reconcile-Loop Architecture — Active Computer Stack per Zone
 
-Status: design draft, no implementation. Captures the architectural
-direction agreed in the 2026-05-20 / 2026-05-21 conversations. The
-shadow resolver shipped in v0.8.7 is the read-only first step; this
-doc lays out the model the resolver would eventually become the
-writer for.
+Status: **Phase B-C shipped and running in production.** Phase D
+(safety-critical zone migration) pending. This doc started as design
+notes from 2026-05-20 / 2026-05-21 conversations and now records both
+what was designed and what was actually built.
 
-The core question this doc is trying to answer:
+The core question this doc started by trying to answer:
 
 > What's the smallest mental model that makes the current imperative
 > tangle disappear, *without* forcing us to grow another tap-on-the-
 > harvester workaround the next time we add a Computer?
+
+## Implementation status (2026-05-24)
+
+### What shipped
+
+| Version | What landed |
+|---|---|
+| v0.8.7 | Shadow resolver — read-only first step; observes conflicts |
+| v0.8.8 | `IOTConditionConflict` alert on shadow's multi-contributor metric |
+| **v0.9.0** | **Active Computer Stack data model + PushActivation RPC + flag-gated reconciler (Phase B foundation)** |
+| v0.9.1–0.9.4 | Bridge from eval loop and imperative `activateRemediation` to PushActivation; Zone.Status.ReconcilerStack reflection; metrics + traces |
+| v0.9.5 | `RemoveActivation` for deactivate paths; source-kind threading (Alert → priority 200 vs Binding → 100); fade declares its own TTL via `TTLAdvisor` |
+| `9976452a` (uncut) | `query` Computer `on_error.*` fail-safe + heater/pump invariant test suites (Phase D prereqs) |
+| `98c3e534` (uncut) | `prom_scalar` Computer for continuous PromQL → axis mapping (shelved pending real use case) |
+
+Latest tagged: v0.9.5. Two commits on `main` not yet tagged; planned
+to ship as v0.9.6 after Phase D migration finishes.
+
+### Reconcile-managed zones today
+
+As of 2026-05-24, `-conditioner.reconcile-zones=bedside-zach,foyer,office,living-area`.
+
+| Zone | Shape | Notes |
+|---|---|---|
+| `bedside-zach` | motion + circadian + buttons | First canary; clean since v0.9.0 |
+| `foyer` | motion (evening + nightvision) + scheduled scenes + buttons + S31 plug | The original ping-pong test case; `foyer-motion-nightvision` window now spans `sunset-1h → sunrise+30m` |
+| `office` | active_compute=circadian + scene CT overlap + buttons | Documented within-tick metric noise from circadian+scene-on-CT-axis overlap; lamp behavior correct |
+| `living-area` | button-heavy + cron + time-window scenes | Most recent expansion (2026-05-24); cron `Spec.Schedule` at 22:30 MDT bypasses bridge but target matches what the bridge pushes anyway |
+
+Heater zones (`prop-house-heater`, `mainsuite-heater`, `office-heater`)
+and `pond-pump` are deliberately NOT migrated. Phase D will take them
+on once the canary set has soaked through real edge cases.
+
+### Divergences from the original design
+
+The design held up well; only a few divergences worth recording.
+
+1. **No new `ZonePolicy` CRD (yet).** The original "small step vs big
+   step" fork at Phase A picked small. Existing `Condition` CRs stay
+   as the operator-facing surface; the reconciler-managed view lives
+   on `Zone.Status.ReconcilerStack` for now. Big step (ZonePolicy
+   CRD as the declarative input) is still on the table for Phase E
+   if value materializes.
+
+2. **Sensor-bound Condition skip.** v0.9.3 added the rule "if a
+   Condition is referenced by a `property=occupancy|water_leak|
+   contact|vibration|tamper` Binding, skip it from the eval-loop
+   bridge — its TimeIntervals are sensor gates, not schedule
+   triggers." This wasn't in the original design; emerged from the
+   v0.9.2 ping-pong on the foyer S31 plug, where motion-on and
+   motion-off Conditions both had TimeIntervals and both were being
+   bridged as TIME_WINDOW pushes that competed every tick. Button-
+   property bindings (`property=action`) do NOT trigger the skip —
+   button Conditions with TimeIntervals are legitimate schedule
+   triggers AND button aliases.
+
+3. **Bridge instead of replace.** The original migration plan had
+   the reconciler eventually *replacing* the imperative path
+   (`applyDesired` and friends). What actually shipped is a parallel
+   path: imperative `activateRemediation` intercepts reconcile-
+   managed zones and routes them to `bridgeImperativeActivate`
+   (which pushes onto the stack); non-managed zones continue
+   imperative. The full retirement is Phase E, after all zones
+   migrate.
+
+4. **TTL refresh semantics.** Open question #1 was answered: REFRESH
+   in place (preserve args, bump PushedAt + Ttl). REPLACE is also
+   supported via `PushPolicy_PUSH_POLICY_REPLACE` but no production
+   caller uses it yet.
+
+5. **`TTLAdvisor` interface for short-lived Computers.** Open
+   question #3 evolved into this. Fade declares `duration + 30s` as
+   its TTL so a 3-second fade doesn't pin the stack for the
+   imperative-default 5 minutes. Stateless Computers (circadian,
+   sun-position) don't implement it and use the default.
+
+6. **No Computer signature change** for `zone_status`. Open question
+   #6 stayed in the doc; nothing has needed it yet. Fade resolves
+   "from current" via its own `FadeSnapshotStore` (seeded by the
+   ActivateCondition handler before `activateRemediation` runs)
+   rather than reading zone Status during Compute.
+
+### Production lessons (Phase B-C)
+
+These hit production and shaped the architecture; documented here
+so they aren't re-discovered later.
+
+- **Multi-writer race on Zone.Status.** Initial Status reflection
+  in v0.9.1 fought with zonekeeper's `Status().Update`. Fixed in
+  v0.9.4 by switching zonekeeper to `Status().Patch` on only its
+  owned fields. Both writers now commute via JSON merge patch.
+
+- **CRD must be applied separately from tanka.** The reconciler
+  Status fields are CRD additions (`reconciler_stack`,
+  `last_reconciled_at`). Tanka manages Deployments but not CRDs in
+  this stack; need `kubectl apply -f config/crd/bases/iot.iot_zones.yaml`
+  on each schema bump or apiserver strips the new fields.
+
+- **RBAC: `patch` on `zones/status` is distinct from `update`.**
+  v0.9.2's Status reflection failed silently in production until
+  v0.9.3 added `patch` to the operator's ClusterRole. The Debug-
+  level log made it invisible; would have been quicker to detect
+  with a Warn-level RBAC error.
+
+- **Imperative deactivate had to gain a stack-aware counterpart.**
+  v0.9.4 shipped activate-bridges-to-push but kept
+  `deactivateRemediation` / `forceDeactivate` imperative. Race: an
+  alert resolve wrote OFF via `applyDesired` while the activate
+  entry stayed on the stack and the reconciler kept re-asserting
+  ON. v0.9.5's `Reconciler.RemoveActivation` evicts by `(SourceKind,
+  SourceName)` so deactivate evicts what activate pushed.
+
+- **Source-kind matters for stack identity.** Stack `id` is
+  `(SourceKind, SourceName)`. Without source-kind threading, a
+  binding-driven activate and an alert resolve for the same
+  Condition name would have collided on the same stack entry.
+  v0.9.5 threads source-kind through `activate*FromSource` /
+  `deactivate*FromSource` variants.
+
+- **Within-tick top-changed metric noise is cosmetic.** When two
+  time-window Conditions push to the same axis at priority 50 in
+  one eval tick (e.g. office's circadian + day scene both on CT),
+  each `PushActivation` fires its own immediate `ReconcileZone` and
+  the `top_changed_total` counter increments per push. Final lamp
+  state is correct (last push wins, cache absorbs); the metric just
+  reflects the within-tick stack growth. Not a regression vs the
+  imperative path's per-Condition `applyDesired` writes.
+
+- **Cron `Spec.Schedule` bypasses the bridge.** Cron path goes
+  through `schedule.run → execRequest` directly to ZoneKeeper,
+  never touching the stack. Acceptable when the cron's target
+  matches what's pushed via TimeIntervals on the same axis;
+  documented for the day a cron fires a direction the stack hasn't
+  composed (no examples in production yet).
+
+### Open design questions — current status
+
+| # | Question | Resolved? |
+|---|---|---|
+| 1 | TTL refresh semantics | YES — REFRESH default, REPLACE opt-in |
+| 2 | Computer position-in-stack awareness | NO — Computers stay pure; reconciler picks top |
+| 3 | Fade ↔ stack interaction | YES — `TTLAdvisor` interface, fade returns duration+30s |
+| 4 | Disabled Conditions | YES — `Spec.Enabled=false` → never pushed (eval loop skips at line ~80 of evaluator.go) |
+| 5 | Audit trail | YES — `Zone.Status.ReconcilerStack` reflects top per axis with source name + pushed_at + expires_at |
+| 6 | Computer signature: add `zone_status` | DEFERRED — no Computer has needed it yet |
 
 ## The shape, in one paragraph
 
@@ -519,38 +663,73 @@ event.
 
 ## Migration plan
 
-Phase 1 — already shipped:
-  - Shadow resolver runs alongside imperative path, observes
-    composition disagreements (v0.8.7).
-  - IOTConditionConflict alert on multi-contributor axes (v0.8.8).
+The phases were renamed during implementation; mapping from this doc's
+original labels to the actual delivery labels:
 
-Phase 2 — design:
-  - This doc.
-  - User feedback / iteration.
-  - Decide: small step (add `claims` + `ttl` fields to Remediation,
-    keep existing CRD shape, teach the resolver to interpret them)
-    OR bigger step (new `ZonePolicy` CRD, deprecate Condition for
-    new uses).
+| This doc (original) | Delivery name | Status |
+|---|---|---|
+| Phase 1 | (pre-Phase-A baseline) | DONE — shadow resolver v0.8.7 + alert v0.8.8 |
+| Phase 2 | Phase A — design | DONE — this doc + user review |
+| Phase 3 | Phase B — canary writer | DONE — v0.9.0–v0.9.5 |
+| Phase 4 | Phase C — lighting expansion | IN PROGRESS — 4 of N zones migrated as of 2026-05-24 |
+| Phase 5 | Phase D — safety-critical | PENDING — see `docs/phase-d-migration.md` |
+| (new)   | Phase E — imperative retirement | PENDING — after Phase D |
 
-Phase 3 — canary:
-  - Implement the resolver as a writer for one canary zone
-    (a low-stakes, recently-rebuilt single-lamp zone is the obvious
-    pick; operators choose per deployment).
-  - Behind a `-conditioner.reconcile-zones=<csv>` flag.
-  - Run alongside imperative path on other zones; compare via
-    metrics.
-  - Heaters and pump explicitly OUT of the canary set.
+### Phase A — design (done)
 
-Phase 4 — expand:
-  - Migrate the rest of the lighting zones one at a time once the canary has
-    demonstrated correctness for a week including edge cases.
-  - Lighting zones first; heaters and pump LAST.
+- `docs/reconcile-design.md` (this doc).
+- Small-step variant chosen: extend existing `Condition` Remediation,
+  no new ZonePolicy CRD. Reconciler-managed view lives on
+  `Zone.Status.ReconcilerStack`.
 
-Phase 5 — safety-critical:
-  - Heaters and pump migrate only after lighting zones have run
-    cleanly through a multi-day period that includes the safety-
-    critical zones' real edge cases (cold snap for heaters; sensor
-    failure modes for pump).
+### Phase B — canary writer (done, v0.9.0–v0.9.5)
+
+- `modules/conditioner/stack.go` — axis-stack, runtime Activation,
+  per-zone policy, REFRESH/REPLACE push semantics.
+- `modules/conditioner/reconciler.go` — per-zone writer with
+  lastApplied cache, TTL timers, RemoveActivation, Status reflection.
+- `modules/conditioner/bridge.go` — eval-loop bridge for declared
+  Conditions (TimeInterval-driven + active_compute) AND imperative
+  bridge for binding/alert paths through `activateRemediation`.
+- `-conditioner.reconcile-zones=<csv>` flag.
+- Sensor-bound Condition skip (Bindings on occupancy / water_leak
+  etc. don't bridge their referenced Condition from the eval loop —
+  TimeIntervals are gates for those, not triggers).
+- `TTLAdvisor` interface; fade declares its own TTL.
+- Source-kind threading: bindings push at priority 100, alerts at 200.
+- `Zone.Status.ReconcilerStack` + `last_reconciled_at` reflection.
+
+### Phase C — lighting expansion (in progress)
+
+Add lighting zones one at a time via the `-conditioner.reconcile-zones`
+flag. As of 2026-05-24: `bedside-zach,foyer,office,living-area`.
+Remaining lighting zones in the deployment (axel, bedroom, etc.)
+to migrate as appetite + soak windows allow.
+
+Verify per zone:
+- `iotcontroller_reconciler_stack_depth{zone="<zone>"}` populates.
+- `iotcontroller_reconciler_top_changed_total{zone="<zone>"}` rate
+  doesn't sustain above ~2/min unless multiple Conditions overlap on
+  the same axis (within-tick cosmetic; not a real ping-pong).
+- `iotcontroller_zonekeeper_state_changes_total{zone="<zone>"}` rate
+  doesn't increase post-migration.
+- `Zone.Status.ReconcilerStack` is populated when Conditions are
+  in-window.
+
+### Phase D — safety-critical (pending)
+
+Heaters and pond pump migrate only after Phase C lighting zones
+soak through a multi-day window. The plan + zone-topology question
+(unify sensor + actuator zones?) is its own document:
+[`docs/phase-d-migration.md`](phase-d-migration.md).
+
+### Phase E — imperative retirement (pending)
+
+After all zones migrate, delete `activateRemediation`'s imperative
+branches (`applyDesired`, `condState` cache, `forceDeactivate`'s
+imperative branch). The bridge becomes the only writer. `Condition`
+CRD stays as the operator-facing surface (per Phase A small-step
+decision) or is replaced by ZonePolicy if value materializes.
 
 ## Open design questions
 
