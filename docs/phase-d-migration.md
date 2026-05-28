@@ -119,31 +119,105 @@ Tackle the safety zones one at a time, with at least 24h of
 observation between each flip. The order is chosen to put the most
 forgiving cases first.
 
-### Step 1 — Pond pump (Option B unification)
+### Step 1 — Pond pump (shipped 2026-05-28)
 
-1. Topology change in deployment_tools: move the pump relay
-   (`0xffffb40e06074ee5`) into the `pond` zone. Delete the
-   `pond-pump` zone CR.
-2. New Condition: `pond-pump-query` with
-   - `active_compute: query`
-   - `args.query: max(avg_over_time(iot_zigbee2mqtt_water_leak{zone="pond"}[2m])) > 0.5`
-   - `args.on_true.state: ZONE_STATE_ON`
-   - `args.on_false.state: ZONE_STATE_OFF`
-   - `args.on_error.state: ZONE_STATE_OFF` (safety-critical)
-3. Existing alert-driven `pondLeak` Condition can stay (defense-in-
-   depth) or be retired once the query Condition proves out.
-4. Add `pond` to `-conditioner.reconcile-zones`.
-5. Apply, watch:
-   - `iotcontroller_conditioner_query_fail_safe_total{condition="pond-pump-query"}`
-     should be zero in normal operation (rises only during Mimir
-     outage).
-   - `iotcontroller_conditioner_query_outcome{condition="pond-pump-query"}`
-     should track water presence.
-   - `iot_zigbee2mqtt_state_on{device="0xffffb40e06074ee5"}` should
-     match the query outcome.
+Originally planned as a topology unification (Option B: merge sensors
++ actuator into one `pond` zone) plus a single `active_compute=query`
+Condition. Real-world experience reshaped the plan:
 
-Rollback: remove `pond` from `-conditioner.reconcile-zones`. The
-imperative alert path resumes immediately.
+- A leak event 2026-05-26 → 2026-05-27 exposed a 1h 45m gap in pump
+  coverage during a sustained 11-hour leak. Root cause was the
+  2-minute smoothing window oscillating around the `> 0.5` threshold
+  while sensor sample density dropped, plus a coincident alloyd
+  scrape blip in the same window.
+- The leak sensors are a fragile signal: SNZB-05P devices reporting
+  on transitions only, low link quality at the pond's distance,
+  occasional stuck-true and stuck-silent states.
+- The `active_compute=query` path is end-to-end Mimir-dependent —
+  PromQL eval freshness, scrape success, conditioner's 60s poll
+  cadence all in the critical path.
+
+The shipped shape keeps the `pond-pump` zone (didn't unify) and adds
+a Binding-driven path **alongside** the existing query Condition:
+
+1. **No topology change.** `pond-pump` zone stays. `pond` zone stays.
+   Sensors in `pond`, relay in `pond-pump`. The Binding's
+   selector-by-zone (`event.selector.zone=pond`) picks up either
+   leak sensor; the Condition's `remediations[].zone=pond-pump`
+   routes the apply to the relay zone. Inter-zone routing is
+   intrinsic to the architecture, no reason to fight it for this
+   case.
+
+2. **Symmetric Binding-driven path added to `bindings.libsonnet`:**
+   - `pond-leak-on`: `water_leak=true` from any device in zone=pond
+     → activates `pond-leak-on` Condition (state=on on pond-pump).
+     No on-side dwell — sub-second response to leak detection.
+   - `pond-leak-off`: `water_leak=false` with `min_duration=2m` dwell
+     → activates `pond-leak-off` Condition (state=off). The 2m
+     dwell preserves the smoothing semantic the original PromQL had.
+
+3. **`on_error.state: ZONE_STATE_OFF` added to the existing
+   `pond-pump` Condition** in `conditions.libsonnet`. Mimir/scrape
+   outage now defaults to OFF instead of the cache-fallback
+   direction. Running dry damages the pump; "we can't see data"
+   must mean "stop."
+
+4. **`pond-pump` added to `-conditioner.reconcile-zones`** in
+   `tk/lib/iot/controller.libsonnet`. The zone now uses the stack
+   model — Binding pushes at priority 100, query pushes at priority
+   50. Binding wins composition while sensor publishes refresh
+   PushedAt; query Condition acts as Mimir-fed redundancy with its
+   own fail-safe direction.
+
+5. **Existing alert-driven `pondLeak` path retired implicitly** —
+   the `pond-pump` Condition has `matches: 0`, so Alertmanager
+   webhooks targeting `alertname=pondLeak` don't match any
+   Condition. The webhook hookreceiver still receives them but
+   they no-op. Can clean up the Alertmanager rule and the
+   hookreceiver no-match noise in a follow-up.
+
+Observe:
+- `iotcontroller_reconciler_push_total{zone="pond-pump",source_kind="SOURCE_KIND_BINDING"}` —
+  should increment on each `water_leak=true` event.
+- `iotcontroller_reconciler_apply_suppressed_total{zone="pond-pump",reason="no_delta"}` —
+  steady-state during a sustained leak (Binding push refreshes,
+  target stays state=on, cache absorbs).
+- `iotcontroller_conditioner_query_fail_safe_total{condition="pond-pump"}` —
+  rises only during Mimir/scrape outage; should be zero in normal
+  operation.
+- `Zone.Status.ReconcilerStack` on `pond-pump` zone — should show
+  the active Binding entry (or query entry between leak events).
+
+### Step 1 known limitations (carried forward)
+
+These are sensor / signal problems, not architecture problems.
+Logging them so the next strategy iteration starts from the right
+question:
+
+- **Stuck-true sensor traps OR aggregation.** If one of the two
+  pond sensors gets stuck reporting `water_leak: true`, the OR-of-
+  two-sensors design fires the pump indefinitely. Observed 2026-05-27
+  when sensor `0x08ddebfffeee504d` woke from 28h silence reporting
+  true. Mitigation today: physical inspection / sensor reset.
+  Future: consider a more robust PromQL aggregation (e.g. require
+  inter-sensor agreement above a threshold), OR a "stuck-source"
+  detector that suppresses contributors whose value hasn't toggled
+  in some window.
+
+- **Pump can run dry.** If sensors detect water (e.g. rain on the
+  sensor) but the pump intake is dry, the relay energizes and the
+  motor runs without water-moving load (low W draw, no thermal
+  rise). Observed 2026-05-28: rain wetted sensor 504d, pump drew
+  39.6W for hours without warming up. Dry running shortens pump
+  life. Mitigation: a power-monitoring threshold check (if running
+  AND power < N watts for M minutes → turn off; the relay's smart-
+  plug telemetry already provides current/power), OR a float-switch
+  at the pump intake as a separate gate.
+
+- **Phase D step 1 doesn't move the heater zones.** That's
+  intentional and unchanged: heater migration remains gated on
+  pond-pump soaking cleanly, plus the planned cold-snap validation
+  window.
 
 ### Step 2 — One heater (Option A first)
 
