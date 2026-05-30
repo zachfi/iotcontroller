@@ -106,6 +106,31 @@ type Reconciler struct {
 	// scheduler. Returns a Timer with a Stop method (mirror of
 	// time.AfterFunc).
 	afterFunc func(time.Duration, func()) reconcileTimer
+
+	// statusPatchDebounce is the coalescing window for reconciler
+	// Status.ReconcilerStack patches. Zero = patch synchronously inline
+	// (the test default — keeps existing tests' direct assertions on
+	// Zone.Status working). Production wires a non-zero value via
+	// cfg.StatusPatchDebounce so the kubeclient.Status().Patch() call
+	// doesn't sit on the per-zone reconcile mutex during apiserver
+	// hiccups. Status reflection is observability, not load-bearing.
+	statusPatchDebounce time.Duration
+
+	// pendingStatus holds the most-recent unflushed patch body per
+	// zone. Set inside enqueueStatusPatch under pendingStatusMu;
+	// drained by the afterFunc'd flushStatusPatch on its own goroutine.
+	// Repeated enqueues during the debounce window replace the body in
+	// place — the timer fires once per window.
+	pendingStatusMu sync.Mutex
+	pendingStatus   map[string]*pendingStatusPatch
+}
+
+// pendingStatusPatch is the per-zone debounce slot for a Status patch
+// that hasn't reached the apiserver yet. body is the latest serialized
+// MergePatch; timer is the wakeup that will drain it.
+type pendingStatusPatch struct {
+	body  []byte
+	timer reconcileTimer
 }
 
 // reconcileTimer is the minimal interface tests can satisfy without
@@ -146,6 +171,7 @@ func NewReconciler(zk iotv1proto.ZoneKeeperServiceClient, kc kubeclient.Client, 
 		lastApplied:      make(map[string]computer.ApplyValues),
 		ttlTimers:        make(map[string]reconcileTimer),
 		prevTopSource:    make(map[string]string),
+		pendingStatus:    make(map[string]*pendingStatusPatch),
 		now:              time.Now,
 		afterFunc: func(d time.Duration, f func()) reconcileTimer {
 			return realTimer{t: time.AfterFunc(d, f)}
@@ -445,12 +471,12 @@ func (r *Reconciler) sampleStackDepths(zone string, policy *zonePolicy) {
 	}
 }
 
-// reflectStatus writes the per-axis stack snapshot into the Zone CR's
-// Status sub-resource via a strategic-merge Patch. The patch touches
-// ONLY the reconciler-owned fields (`reconciler_stack`,
-// `last_reconciled_at`); the zonekeeper's State / Brightness /
-// ColorTemperature / Color fields are preserved by virtue of not
-// appearing in the patch body.
+// reflectStatus snapshots the per-axis stack into a Status MergePatch
+// and either sends it inline (debounce==0; tests) or enqueues it for
+// debounced background flush (production). The patch touches ONLY the
+// reconciler-owned fields (`reconciler_stack`, `last_reconciled_at`);
+// the zonekeeper's State / Brightness / ColorTemperature / Color fields
+// are preserved by virtue of not appearing in the patch body.
 //
 // kubeClient may be nil in tests; the call is a no-op in that case.
 // Errors are logged at Debug — Status reflection is observability,
@@ -459,7 +485,21 @@ func (r *Reconciler) reflectStatus(ctx context.Context, zone string, policy *zon
 	if r.kubeClient == nil {
 		return
 	}
+	body, ok := r.buildStatusPatchBody(zone, policy, now)
+	if !ok {
+		return
+	}
+	if r.statusPatchDebounce == 0 {
+		r.applyStatusPatch(ctx, zone, body)
+		return
+	}
+	r.enqueueStatusPatch(zone, body)
+}
 
+// buildStatusPatchBody snapshots policy.stacks into a Zone Status
+// MergePatch JSON body. Returns (body, true) on success; (nil, false)
+// if marshaling fails (logged at Debug). Pure: no I/O, no side effects.
+func (r *Reconciler) buildStatusPatchBody(zone string, policy *zonePolicy, now time.Time) ([]byte, bool) {
 	entries := make([]apiv1.ReconcilerStackEntry, 0, 4)
 	tops := policy.activeContributorsByAxis(now)
 	for _, axis := range []iotv1proto.AxisKind{
@@ -507,9 +547,53 @@ func (r *Reconciler) reflectStatus(ctx context.Context, zone string, policy *zon
 	if err != nil {
 		r.logger.Debug("reconciler: status patch marshal failed",
 			slog.String("zone", zone), slog.Any("err", err))
+		return nil, false
+	}
+	return body, true
+}
+
+// enqueueStatusPatch stores body as the latest pending patch for zone
+// and arms a one-shot timer to flush it after statusPatchDebounce.
+// Coalescing: if a patch is already pending for the zone, this
+// overwrites the body — the existing timer fires at its originally
+// scheduled time, draining the freshest snapshot.
+func (r *Reconciler) enqueueStatusPatch(zone string, body []byte) {
+	r.pendingStatusMu.Lock()
+	defer r.pendingStatusMu.Unlock()
+	if pending, ok := r.pendingStatus[zone]; ok {
+		pending.body = body
 		return
 	}
+	pending := &pendingStatusPatch{body: body}
+	pending.timer = r.afterFunc(r.statusPatchDebounce, func() {
+		r.flushStatusPatch(zone)
+	})
+	r.pendingStatus[zone] = pending
+}
 
+// flushStatusPatch drains the pending patch for zone (if any) and
+// sends it to the apiserver on its own goroutine. Uses
+// context.Background() because the original reflectStatus ctx may be
+// canceled by the time the debounce timer fires — Status reflection
+// should land regardless.
+func (r *Reconciler) flushStatusPatch(zone string) {
+	r.pendingStatusMu.Lock()
+	pending, ok := r.pendingStatus[zone]
+	if !ok {
+		r.pendingStatusMu.Unlock()
+		return
+	}
+	body := pending.body
+	delete(r.pendingStatus, zone)
+	r.pendingStatusMu.Unlock()
+
+	r.applyStatusPatch(context.Background(), zone, body)
+}
+
+// applyStatusPatch is the actual kubeclient.Status().Patch() call —
+// shared by the synchronous (debounce==0) and async (timer-fired)
+// paths. Errors are logged at Debug; NotFound is benign and downgraded.
+func (r *Reconciler) applyStatusPatch(ctx context.Context, zone string, body []byte) {
 	// Use a typed Zone object so the controller-runtime client routes
 	// to the right resource + Status sub-resource. Merge patch (RFC
 	// 7396) on the Status sub-resource — disjoint fields with the
@@ -518,9 +602,6 @@ func (r *Reconciler) reflectStatus(ctx context.Context, zone string, policy *zon
 	z.Namespace = statusZoneNamespace
 	z.Name = zone
 	if err := r.kubeClient.Status().Patch(ctx, z, kubeclient.RawPatch(types.MergePatchType, body)); err != nil {
-		// NotFound is benign — a reconcile-managed zone in cfg might not
-		// have a CR yet (operator-typo or pre-creation race). Log at
-		// Debug so it doesn't drown out real failures.
 		if apierrors.IsNotFound(err) {
 			r.logger.Debug("reconciler: zone CR not found for status reflection",
 				slog.String("zone", zone))

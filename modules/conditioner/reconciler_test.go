@@ -441,6 +441,96 @@ func TestReconciler_StatusReflection(t *testing.T) {
 	require.NotNil(t, got.Status.LastReconciledAt)
 }
 
+// TestReconciler_StatusReflection_Debounced — when statusPatchDebounce
+// > 0, rapid back-to-back reconciles produce ONE apiserver Patch (the
+// timer's fired callback drains the latest body). Verifies the
+// production hot-path optimization: synchronous Status().Patch() moves
+// off the per-zone reconcile critical path.
+func TestReconciler_StatusReflection_Debounced(t *testing.T) {
+	computer.Register("stub-debounce", stubComputer{vals: computer.ApplyValues{
+		State: iotv1proto.ZoneState_ZONE_STATE_ON,
+	}})
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, apiv1.AddToScheme(scheme))
+	existing := &apiv1.Zone{}
+	existing.Namespace = statusZoneNamespace
+	existing.Name = "debounce-zone"
+	kc := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(existing).
+		WithStatusSubresource(&apiv1.Zone{}).
+		Build()
+
+	zk := &recordingZoneKeeperForReconciler{}
+	r := NewReconciler(zk, kc, computer.Location{}, nil, nil)
+	r.now = (&fixedClock{t: time.Unix(1000, 0)}).now
+	r.statusPatchDebounce = 2 * time.Second
+
+	// Capture the afterFunc callbacks so the test can fire them
+	// deterministically. The reconciler's TTL timer path also uses
+	// afterFunc — only the status-flush callback should be fired here.
+	var (
+		mu        sync.Mutex
+		callbacks []func()
+	)
+	r.afterFunc = func(_ time.Duration, f func()) reconcileTimer {
+		mu.Lock()
+		callbacks = append(callbacks, f)
+		mu.Unlock()
+		return noopTimer{}
+	}
+
+	ctx := context.Background()
+	// Three pushes rapid-fire — each triggers a reflectStatus call.
+	// Only the first should arm a flush timer; subsequent ones just
+	// replace the pending body.
+	for i := range 3 {
+		require.NoError(t, r.PushActivation(ctx, "debounce-zone",
+			iotv1proto.AxisKind_AXIS_KIND_STATE,
+			&iotv1proto.Activation{
+				ComputerName: "stub-debounce",
+				SourceKind:   iotv1proto.SourceKind_SOURCE_KIND_BINDING,
+				SourceName:   "test",
+				PushedAt:     timestamppb.New(time.Unix(int64(1000+i), 0)),
+				Priority:     50,
+			}))
+	}
+
+	// Status not yet flushed: zero Patch calls on the apiserver.
+	got := &apiv1.Zone{}
+	require.NoError(t, kc.Get(ctx, kubeKey("debounce-zone"), got))
+	require.Empty(t, got.Status.ReconcilerStack,
+		"status patch must not run inline when debounce > 0")
+
+	// Drain queued callbacks (TTL timer + status-flush). Find the
+	// status-flush by observing pendingStatus presence — the others
+	// are TTL paths that no-op without a real activation expiration.
+	mu.Lock()
+	cbs := append([]func(){}, callbacks...)
+	mu.Unlock()
+	require.NotEmpty(t, cbs, "afterFunc must have been called at least once for the flush")
+
+	// Fire all queued callbacks; only one should successfully drain
+	// the pending status (subsequent flushStatusPatch calls are no-ops
+	// because the map entry was deleted).
+	for _, cb := range cbs {
+		cb()
+	}
+
+	got = &apiv1.Zone{}
+	require.NoError(t, kc.Get(ctx, kubeKey("debounce-zone"), got))
+	require.Len(t, got.Status.ReconcilerStack, 1,
+		"flush must produce the coalesced status patch exactly once")
+	require.Equal(t, "AXIS_KIND_STATE", got.Status.ReconcilerStack[0].Axis)
+
+	// Re-reflect after the drain. Second flush cycle starts fresh —
+	// the pendingStatus map entry was cleared on flush.
+	r.pendingStatusMu.Lock()
+	require.Empty(t, r.pendingStatus, "pendingStatus must be empty after flush")
+	r.pendingStatusMu.Unlock()
+}
+
 // TestReconciler_StatusReflection_NoKubeClient — the reconciler tolerates
 // a nil kubeClient (unit-test default) and never crashes attempting to
 // reflect. Apply path still works.

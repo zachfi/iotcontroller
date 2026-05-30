@@ -62,6 +62,16 @@ type Config struct {
 	// migrate first.
 	ReconcileZones flagext.StringSliceCSV `yaml:"reconcile_zones,omitempty"`
 
+	// StatusPatchDebounce is the window during which back-to-back
+	// reconciler Status.ReconcilerStack patches coalesce into a single
+	// apiserver round-trip. Zero means patches are synchronous (sent
+	// inline from ReconcileZone) — the test default. Production wires
+	// a non-zero value to take the kubeclient.Status().Patch() call out
+	// of the per-tick critical path so a slow apiserver does not stall
+	// the reconciler's per-zone mutex. The patch lands in the
+	// background; Status reflection is observability, not load-bearing.
+	StatusPatchDebounce time.Duration `yaml:"status_patch_debounce,omitempty"`
+
 	// Query configures the `query` Computer (Prometheus pull). The
 	// computer is registered only when Query.Endpoint is non-empty, so
 	// deployments that don't want PromQL-driven Conditions don't have
@@ -114,6 +124,7 @@ func (cfg *Config) RegisterFlagsAndApplyDefaults(prefix string, f *flag.FlagSet)
 	f.Float64Var(&cfg.Location.Lon, util.PrefixConfig(prefix, "location.lon"), 0, "Longitude for solar calculations.")
 
 	f.Var(&cfg.ReconcileZones, util.PrefixConfig(prefix, "reconcile-zones"), "Comma-separated list of zone names that route through the reconcile-loop architecture (Active Computer Stack) instead of the imperative path. Empty disables the reconciler entirely. NEVER include safety-critical zones (heater / pump / similar) until the reconciler has demonstrated fail-safe correctness for their PromQL-driven semantics.")
+	f.DurationVar(&cfg.StatusPatchDebounce, util.PrefixConfig(prefix, "status-patch-debounce"), 2*time.Second, "Debounce window for reconciler Status.ReconcilerStack patches. Coalesces rapid back-to-back patches into one apiserver round-trip and moves the call off the per-zone reconcile hot path. Zero = synchronous patches (test default).")
 
 	f.StringVar(&cfg.Query.Endpoint, util.PrefixConfig(prefix, "query.endpoint"), "", "Prometheus/Mimir endpoint for the `query` Computer. Empty disables `query` registration entirely.")
 	f.StringVar(&cfg.Query.Tenant, util.PrefixConfig(prefix, "query.tenant"), "", "X-Scope-OrgID for Mimir multi-tenancy. Empty omits the header.")

@@ -465,6 +465,7 @@ func New(cfg Config, logger *slog.Logger, zoneKeeperClient iotv1proto.ZoneKeeper
 		c.logger,
 		c.tracer,
 	)
+	c.reconciler.statusPatchDebounce = cfg.StatusPatchDebounce
 	if len(cfg.ReconcileZones) > 0 {
 		c.logger.Info("reconciler enabled for zones",
 			slog.Any("zones", cfg.ReconcileZones),
