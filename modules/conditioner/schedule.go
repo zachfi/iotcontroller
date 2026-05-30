@@ -113,32 +113,30 @@ func (s *schedule) add(ctx context.Context, name string, t time.Time, req *reque
 		timer := time.NewTimer(time.Until(t))
 		defer timer.Stop()
 
+		if req == nil {
+			return
+		}
+
+		select {
+		case <-jobCtx.Done():
+			return
+		case <-timer.C:
+		}
+
+		// Span covers the actual dispatch — not the wait. Before, the
+		// span opened at goroutine start and slept through time.Until(t),
+		// producing 12-24h spans for every daily cron tick.
 		spanCtx, span := s.tracer.Start(jobCtx, "schedule.event.execute", trace.WithAttributes(
 			attribute.String("name", name),
 		))
 		defer span.End()
 		span.AddLink(trace.LinkFromContext(reqCtx))
 
-		if req == nil {
-			span.AddEvent("nil request")
-			return
-		}
-
-		for {
-			select {
-			case <-jobCtx.Done():
-				span.AddEvent("canceled")
-				return
-			case <-timer.C:
-				span.AddEvent("tick")
-				s.itemCh <- item{
-					// Name is used to identify the event and clean up after the request is executed.
-					name:    name,
-					ctx:     spanCtx,
-					request: req,
-				}
-				return
-			}
+		s.itemCh <- item{
+			// Name is used to identify the event and clean up after the request is executed.
+			name:    name,
+			ctx:     spanCtx,
+			request: req,
 		}
 	}(jobCtx, ctx, req)
 
