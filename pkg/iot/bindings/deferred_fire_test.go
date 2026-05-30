@@ -223,41 +223,30 @@ func TestDeferredFire_SuppressedByInlineFire(t *testing.T) {
 	require.Equal(t, []string{"foyer-on"}, *activated, "exactly one activation")
 }
 
-func TestDeferredFire_WinnerOnlyArmingMatchesExistingSemantics(t *testing.T) {
-	// The pre-existing matcher contract is "single winner per event":
-	// the highest-scoring (tie-broken-by-name-asc) Binding is the
-	// only one that goes through debounceDispatch on a given match.
-	// Deferred fire preserves that — scheduleDeferred arms only the
-	// winner's timer, not every matching Binding's.
-	//
-	// Two bindings with equal specificity: winner is foyer-quick by
-	// name. After it fires, a re-emit makes it the winner again but
-	// now `fired[name]=true` so debounceDispatch returns "suppressed"
-	// — and crucially does NOT fall through to consider losers.
-	// foyer-slow never arms; the documented data-model case
-	// (different MinDurations on the same key) only matters when the
-	// Bindings differ in selector specificity such that they don't
-	// compete on the same event.
+func TestDeferredFire_AllTiedWinnersArm(t *testing.T) {
+	// Post-#1: when two Bindings tie on specificity, the matcher
+	// dispatches all of them rather than picking one alphabetically.
+	// Two equal-specificity Bindings with different MinDurations
+	// should each arm a deferred timer on the first event. The
+	// shorter dwell fires first, the longer fires later — both
+	// Conditions activate.
 	base := time.Unix(1000, 0)
 	m, sched, activated := newDeferredMatcher(t, []apiv1.Binding{
 		debounceBinding("foyer-quick", "occupancy", "true", 30*time.Second, "foyer-quick-cond"),
 		debounceBinding("foyer-slow", "occupancy", "true", 60*time.Second, "foyer-slow-cond"),
 	}, base)
 
-	require.Equal(t, "", m.FindCondition(context.Background(), occupancyEvent("true")))
-	require.Equal(t, 1, sched.pendingCount(), "winner-only: foyer-quick armed")
+	require.Empty(t, m.FindConditions(context.Background(), occupancyEvent("true")))
+	require.Equal(t, 2, sched.pendingCount(), "both tied Bindings armed")
 
 	advanceTo(m, sched, base.Add(30*time.Second+200*time.Millisecond))
-	require.Equal(t, []string{"foyer-quick-cond"}, *activated)
-	require.Equal(t, 0, sched.pendingCount())
+	require.Equal(t, []string{"foyer-quick-cond"}, *activated, "quick dwell fires first")
+	require.Equal(t, 1, sched.pendingCount(), "slow timer still armed")
 
-	// Re-emit while still occupied. foyer-quick remains the winner
-	// (suppressed), foyer-slow is never visited. No new timer; no
-	// new dispatch.
-	require.Equal(t, "", m.FindCondition(context.Background(), occupancyEvent("true")))
-	require.Equal(t, 0, sched.pendingCount(), "suppressed winner does not delegate to losers")
-	advanceTo(m, sched, base.Add(120*time.Second))
-	require.Equal(t, []string{"foyer-quick-cond"}, *activated, "exactly one fire")
+	advanceTo(m, sched, base.Add(60*time.Second+200*time.Millisecond))
+	require.Equal(t, []string{"foyer-quick-cond", "foyer-slow-cond"}, *activated,
+		"slow dwell fires after its own min_duration")
+	require.Equal(t, 0, sched.pendingCount())
 }
 
 func TestDeferredFire_NoActivateFuncMeansNoTimers(t *testing.T) {

@@ -27,3 +27,15 @@ var metricBindingDebounced = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "iotcontroller_bindings_debounce_events_total",
 	Help: "Binding match outcomes by Binding name. Covers both debounced (slow-path) and immediate (fast-path) bindings. Outcome: start/pending/fired/suppressed.",
 }, []string{"binding", "outcome"})
+
+// metricBindingDispatch counts matcher dispatch fan-out by shape. The
+// `dispatched` label is the number of Conditions the matcher returned
+// for a single event ("0", "1", "many"). Pre-fan-out the matcher
+// always returned at most one; the "many" bucket grows post-fix when
+// operator-authored sibling bindings (e.g. motion-evening +
+// motion-nightvision on one sensor) co-dispatch and Condition-side
+// time-windows pick the right one.
+var metricBindingDispatch = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "iotcontroller_bindings_dispatch_total",
+	Help: "Matcher dispatch outcomes. dispatched=number of Conditions returned for an event (bucketed: 0, 1, many).",
+}, []string{"dispatched"})

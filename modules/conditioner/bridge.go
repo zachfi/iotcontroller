@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -104,6 +106,10 @@ func (c *Conditioner) bridgeReconciledRemediation(ctx context.Context, condName 
 	// push while in the window. Outside the window, existing
 	// Activations age out via their TTL.
 	if len(rem.TimeIntervals) > 0 && !c.withinActiveWindow(ctx, rem, now) {
+		trace.SpanFromContext(ctx).AddEvent("condition.time-gated", trace.WithAttributes(
+			attribute.String("condition", condName),
+			attribute.String("zone", rem.Zone),
+		))
 		return
 	}
 

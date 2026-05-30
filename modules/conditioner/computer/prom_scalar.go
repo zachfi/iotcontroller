@@ -108,13 +108,13 @@ func NewPromScalar(cfg QueryConfig) Computer {
 }
 
 type promScalarParams struct {
-	promql  string
-	axis    outputAxis
-	inMin   float64
-	inMax   float64
-	outMin  float64
-	outMax  float64
-	clamp   bool
+	promql string
+	axis   outputAxis
+	inMin  float64
+	inMax  float64
+	outMin float64
+	outMax float64
+	clamp  bool
 }
 
 // parsePromScalarParams validates the args and returns the parsed
@@ -294,4 +294,3 @@ func (s *promScalar) Compute(ctx context.Context, now time.Time, _ Location, arg
 
 	return vals, nil
 }
-

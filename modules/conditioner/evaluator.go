@@ -286,6 +286,10 @@ func (c *Conditioner) maybeWarnDeprecatedSchedule(cond *apiv1.Condition) {
 func (c *Conditioner) evaluateCompute(ctx context.Context, condName string, rem apiv1.Remediation) bool {
 	if len(rem.TimeIntervals) > 0 && !c.withinActiveWindow(ctx, rem, time.Now()) {
 		metricApplySuppressed.WithLabelValues(condName, rem.Zone, "time-gated").Inc()
+		trace.SpanFromContext(ctx).AddEvent("condition.time-gated", trace.WithAttributes(
+			attribute.String("condition", condName),
+			attribute.String("zone", rem.Zone),
+		))
 		return false
 	}
 

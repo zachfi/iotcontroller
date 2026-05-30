@@ -54,6 +54,7 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		zonekeeperClient:    zonekeeperClient,
 		eventReceiverClient: eventReceiverClient,
 		matcher: bindings.New(kubeclient, "iot", logger).
+			WithTracer(tracer).
 			WithActivateFunc(func(ctx context.Context, condition string) error {
 				_, err := eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
 					Condition: condition,
@@ -306,34 +307,38 @@ func (z *Zigbee2Mqtt) selfAnnounce(ctx context.Context, device, zone string) {
 	)
 }
 
-// dispatchEvent runs ev through the Binding matcher; on hit, it activates
-// the named Condition. Returns true when a Binding handled the event so
-// the caller can skip its legacy fallback path.
+// dispatchEvent runs ev through the Binding matcher; on hit, activates
+// every named Condition the matcher returned. Returns true when at
+// least one Binding handled the event so the caller can skip its
+// legacy fallback path.
+//
+// Post-#1: the matcher fans out to all top-specificity-tied Bindings;
+// Conditions handle their own time-window gating downstream.
+// Activation errors on individual Conditions log but don't abort the
+// remaining dispatches in the slice.
 func (z *Zigbee2Mqtt) dispatchEvent(ctx context.Context, ev events.DeviceEvent) bool {
 	if z.eventReceiverClient == nil {
 		return false
 	}
-	cond := z.matcher.FindCondition(ctx, ev)
-	if cond == "" {
+	conds := z.matcher.FindConditions(ctx, ev)
+	if len(conds) == 0 {
 		return false
 	}
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(
 		attribute.String("binding.property", ev.Property),
 		attribute.String("binding.value", ev.Value),
-		attribute.String("binding.condition", cond),
+		attribute.StringSlice("binding.conditions", conds),
 	)
-	if _, err := z.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
-		Condition: cond,
-	}); err != nil {
-		z.logger.Debug("activate condition failed",
-			slog.String("condition", cond),
-			slog.String("error", err.Error()),
-		)
-		// Activation error doesn't fall back to the unhandled-action path —
-		// the binding matched and the Condition exists; surfacing the
-		// failure is more useful than masking it with a no-op fallback.
-		return true
+	for _, cond := range conds {
+		if _, err := z.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
+			Condition: cond,
+		}); err != nil {
+			z.logger.Debug("activate condition failed",
+				slog.String("condition", cond),
+				slog.String("error", err.Error()),
+			)
+		}
 	}
 	return true
 }

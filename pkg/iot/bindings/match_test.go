@@ -288,10 +288,11 @@ func TestSpecificity_DeviceBeatsType(t *testing.T) {
 	}))
 }
 
-// TestSpecificity_TieBreakByName: when two bindings tie on score, the
-// alphabetically-first name wins. Determinism matters more than the
-// specific choice here.
-func TestSpecificity_TieBreakByName(t *testing.T) {
+// TestSpecificity_TiedWinnersAllDispatch: when two bindings tie on
+// score, FindConditions dispatches BOTH. Time-window gating happens at
+// the Condition layer (see the bridge / activateRemediation paths).
+// The returned slice is sorted by name ascending for determinism.
+func TestSpecificity_TiedWinnersAllDispatch(t *testing.T) {
 	m := makeMatcher(t,
 		b("zzz", apiv1.EventTrigger{
 			Property: events.PropertyAction, Value: "single",
@@ -304,9 +305,35 @@ func TestSpecificity_TieBreakByName(t *testing.T) {
 	)
 	d := dev("d", "0xaa", "DEVICE_TYPE_BUTTON", "office", nil)
 
-	require.Equal(t, "aaa-cond", m.FindCondition(context.Background(), events.DeviceEvent{
+	got := m.FindConditions(context.Background(), events.DeviceEvent{
 		Property: events.PropertyAction, Value: "single", Device: d,
-	}))
+	})
+	require.Equal(t, []string{"aaa-cond", "zzz-cond"}, got,
+		"both tied Bindings dispatched, deterministically ordered by name")
+}
+
+// TestSpecificity_HigherScorePreemptsTies: a strictly-higher-specificity
+// Binding overrides lower-tier ones — only the top tier dispatches.
+// Without this, every device-specific Binding would also fire its
+// zone-wide siblings.
+func TestSpecificity_HigherScorePreemptsTies(t *testing.T) {
+	m := makeMatcher(t,
+		b("zone-wide", apiv1.EventTrigger{
+			Property: events.PropertyAction, Value: "single",
+			Selector: apiv1.EventSelector{Zone: "office"},
+		}, "zone-wide-cond"),
+		b("device-specific", apiv1.EventTrigger{
+			Property: events.PropertyAction, Value: "single",
+			Selector: apiv1.EventSelector{Device: "d"},
+		}, "device-specific-cond"),
+	)
+	d := dev("d", "0xaa", "DEVICE_TYPE_BUTTON", "office", nil)
+
+	got := m.FindConditions(context.Background(), events.DeviceEvent{
+		Property: events.PropertyAction, Value: "single", Device: d,
+	})
+	require.Equal(t, []string{"device-specific-cond"}, got,
+		"higher specificity preempts lower-tier matches")
 }
 
 // TestEmptySelector_MatchesAny: an empty selector matches every device that

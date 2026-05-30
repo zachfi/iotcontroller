@@ -50,6 +50,7 @@ func New(logger *slog.Logger, tracer trace.Tracer, kubeclient kubeclient.Client,
 		zonekeeperClient:    zonekeeperClient,
 		eventReceiverClient: eventReceiverClient,
 		matcher: bindings.New(kubeclient, "iot", logger).
+			WithTracer(tracer).
 			WithActivateFunc(func(ctx context.Context, condition string) error {
 				_, err := eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
 					Condition: condition,
@@ -125,20 +126,31 @@ func (n *NativeZigbee) DeviceRoute(ctx context.Context, b []byte, deviceID strin
 		if n.eventReceiverClient == nil {
 			break
 		}
-		cond := n.matcher.FindCondition(ctx, ev)
-		if cond == "" {
+		conds := n.matcher.FindConditions(ctx, ev)
+		if len(conds) == 0 {
 			continue
 		}
 		span.SetAttributes(
 			attribute.String("device", device.Name),
 			attribute.String("binding.property", ev.Property),
 			attribute.String("binding.value", ev.Value),
-			attribute.String("binding.condition", cond),
+			attribute.StringSlice("binding.conditions", conds),
 		)
-		_, err = n.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
-			Condition: cond,
-		})
-		return err
+		// Activation errors on individual Conditions log but don't
+		// abort the remaining dispatches. Post-#1: the matcher fans
+		// out to all top-specificity-tied Bindings; Conditions handle
+		// their own time-window gating downstream.
+		for _, cond := range conds {
+			if _, err := n.eventReceiverClient.ActivateCondition(ctx, &iotv1proto.ActivateConditionRequest{
+				Condition: cond,
+			}); err != nil {
+				n.logger.Debug("activate condition failed",
+					slog.String("condition", cond),
+					slog.String("error", err.Error()),
+				)
+			}
+		}
+		return nil
 	}
 
 	// Fallback path: no Binding matched. Pre-Stage-3 we dispatched

@@ -12,9 +12,12 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/zachfi/iotcontroller/api/v1"
@@ -55,6 +58,7 @@ type Matcher struct {
 	kc        kubeclient.Client
 	namespace string
 	logger    *slog.Logger
+	tracer    trace.Tracer // nil = no matcher.dispatch span emitted
 
 	debounceMu sync.Mutex
 	debounce   map[debounceKey]debounceEntry
@@ -102,6 +106,15 @@ func New(kc kubeclient.Client, ns string, logger *slog.Logger) *Matcher {
 // Matcher's observable behaviour matches its pre-deferred-fire form.
 func (m *Matcher) WithActivateFunc(fn ActivateConditionFunc) *Matcher {
 	m.activateFn = fn
+	return m
+}
+
+// WithTracer wires an OpenTelemetry tracer so FindConditions can emit
+// a `matcher.dispatch` span per event. Without this, the matcher is
+// silent in traces (preserves pre-tracer behaviour). Tests that don't
+// care about traces leave it unset.
+func (m *Matcher) WithTracer(tr trace.Tracer) *Matcher {
+	m.tracer = tr
 	return m
 }
 
@@ -153,23 +166,37 @@ type debounceEntry struct {
 	timers    map[string]deferredTimer // keyed by Binding name
 }
 
-// FindCondition returns the Condition name for the most-specific Binding
-// matching ev, or "" if no Binding matches. Ties on specificity are broken
-// by Binding name (sorted ascending) for deterministic behavior.
+// FindConditions returns the Condition names for every Binding that
+// matched the event with top specificity. Multiple winners signal an
+// operator-authored sibling group (e.g. motion-evening + motion-nightvision
+// on the same sensor, differentiated only by their Conditions' time
+// windows). The matcher dispatches all of them; time-gating happens at
+// the Condition layer (withinActiveWindow), where the operator's intent
+// was already declared.
 //
-// Returns "" without erroring on List failure: a missed match falls
+// Higher specificity still wins as an override: if any candidate scores
+// strictly higher than the rest, only it (and any with the same top
+// score) get dispatched.
+//
+// Returns nil without erroring on List failure: a missed match falls
 // through to the router's observability counter, not a behavioural
 // path — so a List blip degrades to "no Condition fires" rather than
 // surfacing a 500 to the caller.
-func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) string {
+func (m *Matcher) FindConditions(ctx context.Context, ev events.DeviceEvent) []string {
 	if m == nil || m.kc == nil || ev.Device == nil {
-		return ""
+		return nil
+	}
+
+	var span trace.Span
+	if m.tracer != nil {
+		ctx, span = m.tracer.Start(ctx, "matcher.dispatch")
+		defer span.End()
 	}
 
 	list := &apiv1.BindingList{}
 	if err := m.kc.List(ctx, list, kubeclient.InNamespace(m.namespace)); err != nil {
 		m.logger.Debug("list bindings failed", slog.String("error", err.Error()))
-		return ""
+		return nil
 	}
 
 	// Track the observed value on every event, BEFORE the per-Binding
@@ -183,7 +210,6 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 	m.observeValue(ev)
 
 	var candidates []candidate
-
 	for i := range list.Items {
 		b := &list.Items[i]
 		if !propertyMatches(b.Spec.Event, ev) {
@@ -200,11 +226,8 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 		})
 	}
 
-	if len(candidates) == 0 {
-		return ""
-	}
-
-	// Highest score wins; ties broken by name ascending.
+	// Sort by specificity desc, then name asc — deterministic order
+	// across runs so trace attributes and metric labels are stable.
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].score != candidates[j].score {
 			return candidates[i].score > candidates[j].score
@@ -212,36 +235,85 @@ func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) stri
 		return candidates[i].name < candidates[j].name
 	})
 
-	if len(candidates) > 1 && candidates[0].score == candidates[1].score {
-		m.logger.Debug("binding match tie",
-			slog.String("property", ev.Property),
-			slog.String("value", ev.Value),
-			slog.String("device", ev.Device.Name),
-			slog.String("chosen", candidates[0].name),
-			slog.Int("ties", countTies(candidates)),
+	// Take every candidate tied at the top score. Higher-specificity
+	// candidates already preempt the lower tier; ties at the top are
+	// the operator's sibling pattern — all should fire.
+	var winners []candidate
+	if len(candidates) > 0 {
+		topScore := candidates[0].score
+		for _, c := range candidates {
+			if c.score != topScore {
+				break
+			}
+			winners = append(winners, c)
+		}
+	}
+
+	results := make([]string, 0, len(winners))
+	for _, w := range winners {
+		// Fast path: no debounce configured. Historical behaviour —
+		// fire on match. metricBindingDebounced(fired) is incremented
+		// uniformly across dwell types so operators can answer "did
+		// this Binding fire today?" with one PromQL query.
+		if w.minDuration <= 0 {
+			metricBindingDebounced.WithLabelValues(w.name, "fired").Inc()
+			results = append(results, w.condition)
+			continue
+		}
+		cond := m.debounceDispatch(w, ev)
+		if cond == "" {
+			m.scheduleDeferred(w, ev)
+			continue
+		}
+		results = append(results, cond)
+	}
+
+	metricBindingDispatch.WithLabelValues(dispatchBucket(len(results))).Inc()
+
+	if span != nil {
+		zone := ""
+		if ev.Device != nil {
+			zone = ev.Device.Labels[iot.DeviceZoneLabel]
+		}
+		span.SetAttributes(
+			attribute.String("binding.property", ev.Property),
+			attribute.String("binding.value", ev.Value),
+			attribute.String("binding.zone", zone),
+			attribute.Int("binding.matched", len(candidates)),
+			attribute.Int("binding.winners", len(winners)),
+			attribute.Int("binding.dispatched", len(results)),
 		)
 	}
 
-	winner := candidates[0]
+	return results
+}
 
-	// Fast path: no debounce configured. Historical behaviour — fire
-	// every match. Record the fire on the same outcome counter the
-	// debounce path uses so operators can answer "did this Binding
-	// fire today?" with one PromQL query that works uniformly across
-	// dwell types — before this increment was added, fast-path
-	// Bindings (those with empty min_duration, e.g. motion-evening
-	// after the foyer immediate-fire change) were invisible to the
-	// counter even though they were firing on every match.
-	if winner.minDuration <= 0 {
-		metricBindingDebounced.WithLabelValues(winner.name, "fired").Inc()
-		return winner.condition
+// FindCondition is a single-Condition adapter over FindConditions for
+// tests that pre-date the multi-dispatch contract. Returns the first
+// dispatched Condition or "" if none. New code should call
+// FindConditions directly.
+func (m *Matcher) FindCondition(ctx context.Context, ev events.DeviceEvent) string {
+	conds := m.FindConditions(ctx, ev)
+	if len(conds) == 0 {
+		return ""
 	}
+	return conds[0]
+}
 
-	result := m.debounceDispatch(winner, ev)
-	if result == "" {
-		m.scheduleDeferred(winner, ev)
+// dispatchBucket buckets the dispatched count for the
+// iotcontroller_bindings_dispatch_total metric. Bounded cardinality —
+// "0", "1", "many" — keeps the metric usable across many bindings
+// without cardinality blow-up on per-N labels.
+func dispatchBucket(n int) string {
+	switch n {
+	case 0:
+		return "0"
+	case 1:
+		return "1"
+	default:
+		_ = strconv.Itoa // reserved for future per-N breakdown if needed
+		return "many"
 	}
-	return result
 }
 
 // observeValue records the current observed value for one (property,
@@ -565,16 +637,3 @@ type candidate struct {
 	minDuration time.Duration
 }
 
-func countTies(cands []candidate) int {
-	if len(cands) == 0 {
-		return 0
-	}
-	top := cands[0].score
-	n := 0
-	for _, c := range cands {
-		if c.score == top {
-			n++
-		}
-	}
-	return n
-}

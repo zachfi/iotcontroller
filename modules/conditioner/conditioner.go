@@ -160,6 +160,10 @@ func (c *Conditioner) activateRemediation(ctx context.Context, condName string, 
 func (c *Conditioner) activateRemediationFromSource(ctx context.Context, condName string, rem apiv1.Remediation, src iotv1proto.SourceKind) error {
 	if len(rem.TimeIntervals) > 0 && !c.withinActiveWindow(ctx, rem, time.Now()) {
 		metricApplySuppressed.WithLabelValues(condName, rem.Zone, "time-gated").Inc()
+		trace.SpanFromContext(ctx).AddEvent("condition.time-gated", trace.WithAttributes(
+			attribute.String("condition", condName),
+			attribute.String("zone", rem.Zone),
+		))
 		return nil
 	}
 	// Relative brightness adjust: bypass applyDesired entirely. The
