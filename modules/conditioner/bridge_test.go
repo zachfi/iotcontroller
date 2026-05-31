@@ -232,6 +232,76 @@ func TestBridge_ActiveCompute_PushesToClaimedAxes(t *testing.T) {
 	require.Equal(t, "BRIGHTNESS_UNSPECIFIED", last.Brightness.String())
 }
 
+// TestBridge_ScenePreemptsCompute_OnSharedAxis — a scene Remediation
+// (active_scene / active_state) and a background compute Remediation
+// (active_compute) targeting the same zone+axis must NOT alternate
+// per-tick. Scene pushes at bridgeScenePriority (60); compute pushes at
+// bridgePushPriority (50). The reconciler picks the higher priority,
+// so the composed target reflects the scene's value continuously
+// during the scene's window — no recency-driven coin flip. Closes the
+// office-circadian vs office-{morning,day,afternoon} cycling reported
+// in znet/iotcontroller#2.
+func TestBridge_ScenePreemptsCompute_OnSharedAxis(t *testing.T) {
+	computer.Register("bridge-stub-ct-2700", stubComputer{vals: computer.ApplyValues{
+		ColorTemperature:       2700,
+		ColorTemperatureKelvin: 2700,
+	}})
+
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	allDay := apiv1.TimeIntervalSpec{
+		Times: []apiv1.TimePeriod{{StartTime: "00:00", EndTime: "24:00"}},
+	}
+	background := apiv1.Condition{
+		ObjectMeta: metav1Meta("office-circadian-stub"),
+		Spec: apiv1.ConditionSpec{
+			Enabled: true,
+			Remediations: []apiv1.Remediation{{
+				Zone:          "managed",
+				ActiveCompute: "bridge-stub-ct-2700",
+				TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+			}},
+		},
+	}
+	scene := apiv1.Condition{
+		ObjectMeta: metav1Meta("office-morning-stub"),
+		Spec: apiv1.ConditionSpec{
+			Enabled: true,
+			Remediations: []apiv1.Remediation{{
+				Zone:          "managed",
+				ActiveScene:   "morning",
+				TimeIntervals: []apiv1.TimeIntervalSpec{allDay},
+			}},
+		},
+	}
+	kc := &bridgeTestClient{
+		conditions: []apiv1.Condition{background, scene},
+		scenes: map[string]apiv1.SceneSpec{
+			"morning": {
+				ColorTemperature: "COLOR_TEMPERATURE_FIRSTLIGHT",
+			},
+		},
+	}
+
+	zk := &recordingZoneKeeperForReconciler{}
+	cfg := Config{ReconcileZones: flagext.StringSliceCSV{"managed"}}
+	c, err := New(cfg, logger, zk, kc)
+	require.NoError(t, err)
+
+	// Run evaluate multiple times — each tick re-pushes both. Pre-#2
+	// these would alternate at the top per tick (recency winning at
+	// equal priority); post-#2 the scene's higher priority dominates.
+	for i := 0; i < 5; i++ {
+		c.evaluate(ctx)
+	}
+
+	last := zk.lastApply()
+	require.NotNil(t, last)
+	require.Equal(t, "COLOR_TEMPERATURE_FIRSTLIGHT", last.ColorTemperature.String(),
+		"scene Remediation (priority 60) must continuously preempt the background compute (priority 50)")
+}
+
 // TestBridge_ReBridgeDeduplicates — calling evaluate twice for the
 // same Condition + zone refreshes the existing Activation rather than
 // stacking a second entry. The reconciler observes one apply on first
@@ -658,7 +728,10 @@ func TestBridge_StatusReflectsAfterPush(t *testing.T) {
 	require.Equal(t, "static", axes["AXIS_KIND_STATE"].Top.Computer)
 	require.Equal(t, "SOURCE_KIND_TIME_WINDOW", axes["AXIS_KIND_STATE"].Top.SourceKind)
 	require.Equal(t, "foo-dusk", axes["AXIS_KIND_STATE"].Top.SourceName)
-	require.Equal(t, int32(bridgePushPriority), axes["AXIS_KIND_STATE"].Top.Priority)
+	// foo-dusk is a scene/state Remediation, so it pushes at the
+	// elevated bridgeScenePriority (60) to preempt background
+	// computers on the same axes — see znet/iotcontroller#2.
+	require.Equal(t, int32(bridgeScenePriority), axes["AXIS_KIND_STATE"].Top.Priority)
 
 	require.NotNil(t, got.Status.LastReconciledAt)
 	require.WithinDuration(t, time.Now(), got.Status.LastReconciledAt.Time, time.Minute)

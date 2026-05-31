@@ -636,4 +636,3 @@ type candidate struct {
 	score       int
 	minDuration time.Duration
 }
-

@@ -129,14 +129,14 @@ so they aren't re-discovered later.
   v0.9.5 threads source-kind through `activate*FromSource` /
   `deactivate*FromSource` variants.
 
-- **Within-tick top-changed metric noise is cosmetic.** When two
-  time-window Conditions push to the same axis at priority 50 in
-  one eval tick (e.g. office's circadian + day scene both on CT),
-  each `PushActivation` fires its own immediate `ReconcileZone` and
-  the `top_changed_total` counter increments per push. Final lamp
-  state is correct (last push wins, cache absorbs); the metric just
-  reflects the within-tick stack growth. Not a regression vs the
-  imperative path's per-Condition `applyDesired` writes.
+- **Within-tick top-changed metric noise is cosmetic** for non-
+  competing sources. Each `PushActivation` fires its own immediate
+  `ReconcileZone`, so the `top_changed_total` counter increments per
+  push as the stack grows during the tick. Final lamp state is
+  correct; the metric just reflects within-tick stack growth.
+  Real composition fights (two pushes alternating top per tick) are
+  a separate problem and were addressed in v0.9.9 by the priority
+  ladder — see #2.
 
 - **Cron `Spec.Schedule` bypasses the bridge.** Cron path goes
   through `schedule.run → execRequest` directly to ZoneKeeper,
@@ -642,6 +642,31 @@ The "source" is also the unit of refresh. A binding-pushed activation
 gets refreshed each time its binding re-matches. This is exactly
 today's `MinDuration` semantic but framed as TTL refresh on each
 event.
+
+### Priority ladder
+
+Within `SOURCE_KIND_TIME_WINDOW`, the bridge differentiates the two
+flavors of Remediation by priority so the stack picks deterministically
+instead of falling through to recency (which would alternate per tick
+when both happen to be in-window).
+
+| Tier | Priority | Source | Used by |
+|---|---|---|---|
+| Background compute | **50** | `bridgePushPriority` | Remediations with `active_compute` set — circadian, sun_color_temperature, query, prom_scalar, etc. |
+| Scene / state | **60** | `bridgeScenePriority` | Remediations with `active_scene` or `active_state` set — operator-named intent during a time window |
+| Binding / Epoch | **100** | `bridgeImperativePriority` | Matcher dispatches; epoch RPC; explicit button press |
+| Alert | **200** | `bridgeAlertPriority` | Alert RPC fires (heater low-temp, water leak, etc.) — safety-critical, outranks everything |
+
+Why scenes outrank background compute: a Condition that authors a
+named scene with a short window (e.g. `office-morning` 15:50–17:00) is
+explicit operator intent. A background `active_compute` (circadian on
+CT axis, all day) is the fallback. When both are in-window on the
+same axis, the scene should hold without churning.
+
+Before #2 shipped, both pushed at priority 50; recency picked one per
+tick and the office CT axis cycled ~185 times/day between
+`office-circadian` and `office-{morning,day,afternoon}`. Post-#2 the
+priority differentiation locks the scene on the axis for its window.
 
 ## What the reconciler does NOT do
 

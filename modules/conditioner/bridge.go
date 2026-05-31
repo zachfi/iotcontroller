@@ -60,11 +60,19 @@ import (
 
 const (
 	// bridgePushPriority is the priority the bridge assigns to
-	// time-window / active_compute pushes from the eval loop.
-	// Background-ish — lower than imperative-path bindings (100) and
-	// lower than alerts would be (200). Stack picks max(priority)
-	// with ties broken by recency.
+	// active_compute Remediations (background computers like circadian,
+	// sun_color_temperature, query). Lowest of the time-window tier so
+	// scene-driven pushes preempt continuous backgrounds during their
+	// short windows. Stack picks max(priority) with ties broken by recency.
 	bridgePushPriority = 50
+
+	// bridgeScenePriority is the priority for active_scene /
+	// active_state Remediations from time-window pushes. Higher than
+	// bridgePushPriority so a scene window (e.g. office-morning at
+	// 15:50-17:00) cleanly wins over the continuous circadian
+	// background on the CT axis, eliminating the per-tick coin-flip
+	// cycling that came from both pushing at priority 50.
+	bridgeScenePriority = 60
 
 	// bridgeImperativePriority is the priority assigned to bindings
 	// (ActivateCondition RPC, Epoch RPC). Higher than the time-window
@@ -120,7 +128,7 @@ func (c *Conditioner) bridgeReconciledRemediation(ctx context.Context, condName 
 	ttl := durationpb.New(ttlDuration)
 	pushedAt := timestamppb.New(now)
 
-	push := func(axis iotv1proto.AxisKind, computerName string, args map[string]string) {
+	push := func(axis iotv1proto.AxisKind, computerName string, args map[string]string, priority int32) {
 		act := &iotv1proto.Activation{
 			ComputerName: computerName,
 			Args:         args,
@@ -128,7 +136,7 @@ func (c *Conditioner) bridgeReconciledRemediation(ctx context.Context, condName 
 			SourceName:   condName,
 			PushedAt:     pushedAt,
 			Ttl:          ttl,
-			Priority:     bridgePushPriority,
+			Priority:     priority,
 			PushPolicy:   iotv1proto.PushPolicy_PUSH_POLICY_REFRESH,
 		}
 		if err := c.reconciler.PushActivation(ctx, rem.Zone, axis, act); err != nil {
@@ -145,20 +153,24 @@ func (c *Conditioner) bridgeReconciledRemediation(ctx context.Context, condName 
 	// Branch 1: active_compute — discover claimed axes by calling
 	// Compute once, then push to each axis whose field came back
 	// non-zero. Reconcile-time Compute is authoritative; the bridge's
-	// call is purely for axis discovery.
+	// call is purely for axis discovery. Compute Remediations are
+	// background-tier (bridgePushPriority).
 	if rem.ActiveCompute != "" {
 		c.bridgeActiveCompute(ctx, condName, rem, now, push)
 		return
 	}
 
 	// Branch 2: active_state / active_scene — pre-resolve to per-axis
-	// values, push via "static" Computer with axis-specific args.
+	// values, push via "static" Computer with axis-specific args. These
+	// are operator-named intent (a scene Condition with a time window);
+	// push at bridgeScenePriority so they preempt the lower-tier
+	// background computers cleanly during their windows.
 	if rem.ActiveState != "" {
 		state := zoneState(rem.ActiveState)
 		if state != iotv1proto.ZoneState_ZONE_STATE_UNSPECIFIED {
 			push(iotv1proto.AxisKind_AXIS_KIND_STATE, computer.StaticName, map[string]string{
 				"state": state.String(),
-			})
+			}, bridgeScenePriority)
 		}
 	}
 
@@ -169,12 +181,15 @@ func (c *Conditioner) bridgeReconciledRemediation(ctx context.Context, condName 
 
 // bridgeActiveCompute handles the active_compute branch: call the
 // named Computer once to discover its claimed axes, then push to each.
+// active_compute Remediations are background-tier; this helper pushes
+// every claimed axis at bridgePushPriority (the lowest time-window
+// priority) so scene Conditions with the same axis preempt cleanly.
 func (c *Conditioner) bridgeActiveCompute(
 	ctx context.Context,
 	condName string,
 	rem apiv1.Remediation,
 	now time.Time,
-	push func(iotv1proto.AxisKind, string, map[string]string),
+	push func(iotv1proto.AxisKind, string, map[string]string, int32),
 ) {
 	comp, ok := computer.Get(rem.ActiveCompute)
 	if !ok {
@@ -209,17 +224,19 @@ func (c *Conditioner) bridgeActiveCompute(
 	}
 
 	for _, axis := range claimedAxes(out) {
-		push(axis, rem.ActiveCompute, augmented)
+		push(axis, rem.ActiveCompute, augmented, bridgePushPriority)
 	}
 }
 
 // bridgeActiveScene resolves the Scene CR and pushes per-axis static
-// Activations for whichever fields the Scene actually populates.
+// Activations for whichever fields the Scene actually populates. Scene
+// Remediations are operator-named intent; pushes at bridgeScenePriority
+// so they preempt background computers (active_compute) on the same axis.
 func (c *Conditioner) bridgeActiveScene(
 	ctx context.Context,
 	condName string,
 	rem apiv1.Remediation,
-	push func(iotv1proto.AxisKind, string, map[string]string),
+	push func(iotv1proto.AxisKind, string, map[string]string, int32),
 ) {
 	if c.kubeClient == nil {
 		return
@@ -238,17 +255,17 @@ func (c *Conditioner) bridgeActiveScene(
 	if scene.Spec.Brightness != "" {
 		push(iotv1proto.AxisKind_AXIS_KIND_BRIGHTNESS, computer.StaticName, map[string]string{
 			"brightness": scene.Spec.Brightness,
-		})
+		}, bridgeScenePriority)
 	}
 	if scene.Spec.ColorTemperature != "" {
 		push(iotv1proto.AxisKind_AXIS_KIND_COLOR_TEMPERATURE, computer.StaticName, map[string]string{
 			"color_temperature": scene.Spec.ColorTemperature,
-		})
+		}, bridgeScenePriority)
 	}
 	if scene.Spec.Color != "" {
 		push(iotv1proto.AxisKind_AXIS_KIND_COLOR, computer.StaticName, map[string]string{
 			"color": scene.Spec.Color,
-		})
+		}, bridgeScenePriority)
 	}
 }
 
